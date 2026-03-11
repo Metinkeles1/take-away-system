@@ -10,6 +10,11 @@ import {
   type Product,
 } from "@/types";
 import { DELIVERY_FEE, FREE_DELIVERY_THRESHOLD } from "@/data/menu";
+import {
+  createOrder,
+  updateOrderStatus as dbUpdateStatus,
+  getOrders,
+} from "@/actions/orders";
 
 // ─── Yardımcı: Sipariş numarası üret ─────────────────────────────────────────
 function generateOrderNumber(): number {
@@ -44,11 +49,12 @@ interface OrderStore {
   getTotal: () => number;
 
   // ── Sipariş tamamla / sıfırla ─────────────────────────────────────────────
-  completeOrder: () => Order | null;
+  completeOrder: () => Promise<Order | null>;
   resetDraft: () => void;
 
   // ── Geçmiş ───────────────────────────────────────────────────────────────
-  updateOrderStatus: (orderId: string, status: OrderStatus) => void;
+  loadOrders: () => Promise<void>;
+  updateOrderStatus: (orderId: string, status: OrderStatus) => Promise<void>;
   getOrderById: (orderId: string) => Order | undefined;
 }
 
@@ -189,7 +195,7 @@ export const useOrderStore = create<OrderStore>()(
       },
 
       // ── Siparişi tamamla ───────────────────────────────────────────────────
-      completeOrder: () => {
+      completeOrder: async () => {
         const { draft, getSubtotal, getDeliveryFee, getTotal } = get();
 
         if (
@@ -227,9 +233,9 @@ export const useOrderStore = create<OrderStore>()(
           updatedAt: new Date(),
         };
 
-        set((state) => ({
-          orders: [order, ...state.orders],
-        }));
+        // Önce UI'ı güncelle (optimistic), sonra DB'ye kaydet
+        set((state) => ({ orders: [order, ...state.orders] }));
+        await createOrder(order);
 
         return order;
       },
@@ -239,13 +245,21 @@ export const useOrderStore = create<OrderStore>()(
         set({ draft: initialDraft });
       },
 
+      // ── DB'den siparişleri yükle ───────────────────────────────────────────
+      loadOrders: async () => {
+        const orders = await getOrders();
+        set({ orders });
+      },
+
       // ── Sipariş durumu güncelle ────────────────────────────────────────────
-      updateOrderStatus: (orderId, status) => {
+      updateOrderStatus: async (orderId, status) => {
+        // Optimistic update
         set((state) => ({
           orders: state.orders.map((o) =>
             o.id === orderId ? { ...o, status, updatedAt: new Date() } : o,
           ),
         }));
+        await dbUpdateStatus(orderId, status);
       },
 
       // ── ID ile sipariş getir ───────────────────────────────────────────────

@@ -46,8 +46,8 @@ export default function OrderSummary() {
     documentTitle: "Siparis-Fis",
   });
 
-  const handleComplete = useCallback(() => {
-    const order = completeOrder();
+  const handleComplete = useCallback(async () => {
+    const order = await completeOrder();
     if (!order) {
       toast.error("Sipariş tamamlanamadı. Lütfen tüm alanları doldurun.");
       return;
@@ -57,8 +57,8 @@ export default function OrderSummary() {
     router.push(`/orders/${order.id}`);
   }, [completeOrder, resetDraft, router]);
 
-  const handleCompleteAndPrint = useCallback(() => {
-    const order = completeOrder();
+  const handleCompleteAndPrint = useCallback(async () => {
+    const order = await completeOrder();
     if (!order) {
       toast.error("Sipariş tamamlanamadı. Lütfen tüm alanları doldurun.");
       return;
@@ -258,11 +258,9 @@ export default function OrderSummary() {
           <CardContent className="flex justify-center p-3" style={{ overflow: "hidden" }}>
             <div
               style={{
-                transform: "scale(0.85)",
-                transformOrigin: "top center",
+                zoom: 0.82,
                 width: "80mm",
-                height: "calc(210mm * 0.85)",
-                overflow: "hidden",
+                transformOrigin: "top center",
                 flexShrink: 0,
               }}
             >

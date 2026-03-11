@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useOrderStore } from "@/store/orderStore";
 import { useReactToPrint } from "react-to-print";
@@ -79,8 +79,14 @@ const paymentLabels: Record<string, string> = {
 export default function OrderDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const { getOrderById, updateOrderStatus } = useOrderStore();
+  const { getOrderById, updateOrderStatus, loadOrders, orders } = useOrderStore();
   const receiptRef = useRef<HTMLDivElement>(null);
+
+  // Sayfa açıldığında siparişleri DB'den yükle
+  useEffect(() => {
+    if (orders.length === 0) loadOrders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const order = getOrderById(params.id as string);
 
@@ -323,8 +329,7 @@ export default function OrderDetailPage() {
             <CardContent className="flex-1 min-h-0 overflow-y-auto scrollbar-hide flex justify-center p-3">
               <div
                 style={{
-                  transform: "scale(0.82)",
-                  transformOrigin: "top center",
+                  zoom: 0.82,
                   width: "80mm",
                   flexShrink: 0,
                 }}

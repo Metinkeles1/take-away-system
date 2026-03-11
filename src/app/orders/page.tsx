@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
 import { useOrderStore } from "@/store/orderStore";
 import { Button } from "@/components/ui/button";
@@ -52,7 +53,12 @@ const statusOrder: OrderStatus[] = [
 ];
 
 export default function OrdersPage() {
-  const { orders, updateOrderStatus } = useOrderStore();
+  const { orders, updateOrderStatus, loadOrders } = useOrderStore();
+
+  useEffect(() => {
+    loadOrders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <main className="h-full flex flex-col container mx-auto max-w-6xl px-4 pt-6 pb-4">
