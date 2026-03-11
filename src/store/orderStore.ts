@@ -1,0 +1,278 @@
+import { create } from "zustand";
+import { persist } from "zustand/middleware";
+import {
+  type Order,
+  type OrderDraft,
+  type CustomerInfo,
+  type PaymentInfo,
+  type OrderStep,
+  type OrderStatus,
+  type Product,
+} from "@/types";
+import { DELIVERY_FEE, FREE_DELIVERY_THRESHOLD } from "@/data/menu";
+
+// ─── Yardımcı: Sipariş numarası üret ─────────────────────────────────────────
+function generateOrderNumber(): number {
+  return Math.floor(1000 + Math.random() * 9000);
+}
+
+function generateId(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+// ─── Store State ──────────────────────────────────────────────────────────────
+interface OrderStore {
+  // Aktif sipariş taslağı
+  draft: OrderDraft;
+
+  // Tamamlanmış siparişler (geçmiş)
+  orders: Order[];
+
+  // ── Draft aksiyonlar ──────────────────────────────────────────────────────
+  addItem: (product: Product) => void;
+  removeItem: (productId: string) => void;
+  updateQuantity: (productId: string, quantity: number) => void;
+  updateItemNote: (productId: string, note: string) => void;
+  setCustomer: (customer: Partial<CustomerInfo>) => void;
+  setPayment: (payment: Partial<PaymentInfo>) => void;
+  setNotes: (notes: string) => void;
+  setStep: (step: OrderStep) => void;
+
+  // ── Hesaplamalar (geriye dönük uyumluluk — bileşenlerde selectSubtotal/selectTotal kullanın) ──
+  getSubtotal: () => number;
+  getDeliveryFee: () => number;
+  getTotal: () => number;
+
+  // ── Sipariş tamamla / sıfırla ─────────────────────────────────────────────
+  completeOrder: () => Order | null;
+  resetDraft: () => void;
+
+  // ── Geçmiş ───────────────────────────────────────────────────────────────
+  updateOrderStatus: (orderId: string, status: OrderStatus) => void;
+  getOrderById: (orderId: string) => Order | undefined;
+}
+
+// ─── Başlangıç Taslak ─────────────────────────────────────────────────────────
+const initialDraft: OrderDraft = {
+  items: [],
+  customer: {},
+  payment: {},
+  notes: "",
+  currentStep: "products",
+};
+
+// ─── Store ────────────────────────────────────────────────────────────────────
+export const useOrderStore = create<OrderStore>()(
+  persist(
+    (set, get) => ({
+      draft: initialDraft,
+      orders: [],
+
+      // ── Ürün ekle ──────────────────────────────────────────────────────────
+      addItem: (product) => {
+        set((state) => {
+          const existing = state.draft.items.find((i) => i.product.id === product.id);
+          if (existing) {
+            return {
+              draft: {
+                ...state.draft,
+                items: state.draft.items.map((i) =>
+                  i.product.id === product.id
+                    ? {
+                        ...i,
+                        quantity: i.quantity + 1,
+                        totalPrice: (i.quantity + 1) * i.product.price,
+                      }
+                    : i,
+                ),
+              },
+            };
+          }
+          return {
+            draft: {
+              ...state.draft,
+              items: [
+                ...state.draft.items,
+                {
+                  product,
+                  quantity: 1,
+                  totalPrice: product.price,
+                },
+              ],
+            },
+          };
+        });
+      },
+
+      // ── Ürün çıkar ─────────────────────────────────────────────────────────
+      removeItem: (productId) => {
+        set((state) => ({
+          draft: {
+            ...state.draft,
+            items: state.draft.items.filter((i) => i.product.id !== productId),
+          },
+        }));
+      },
+
+      // ── Miktar güncelle ────────────────────────────────────────────────────
+      updateQuantity: (productId, quantity) => {
+        if (quantity <= 0) {
+          get().removeItem(productId);
+          return;
+        }
+        set((state) => ({
+          draft: {
+            ...state.draft,
+            items: state.draft.items.map((i) =>
+              i.product.id === productId
+                ? { ...i, quantity, totalPrice: quantity * i.product.price }
+                : i,
+            ),
+          },
+        }));
+      },
+
+      // ── Ürün notu güncelle ─────────────────────────────────────────────────
+      updateItemNote: (productId, note) => {
+        set((state) => ({
+          draft: {
+            ...state.draft,
+            items: state.draft.items.map((i) =>
+              i.product.id === productId ? { ...i, note } : i,
+            ),
+          },
+        }));
+      },
+
+      // ── Müşteri bilgisi set et ─────────────────────────────────────────────
+      setCustomer: (customer) => {
+        set((state) => ({
+          draft: {
+            ...state.draft,
+            customer: { ...state.draft.customer, ...customer },
+          },
+        }));
+      },
+
+      // ── Ödeme bilgisi set et ───────────────────────────────────────────────
+      setPayment: (payment) => {
+        set((state) => ({
+          draft: {
+            ...state.draft,
+            payment: { ...state.draft.payment, ...payment },
+          },
+        }));
+      },
+
+      // ── Notları set et ─────────────────────────────────────────────────────
+      setNotes: (notes) => {
+        set((state) => ({ draft: { ...state.draft, notes } }));
+      },
+
+      // ── Adım değiştir ──────────────────────────────────────────────────────
+      setStep: (step) => {
+        set((state) => ({ draft: { ...state.draft, currentStep: step } }));
+      },
+
+      // ── Hesaplamalar ───────────────────────────────────────────────────────
+      getSubtotal: () => {
+        return get().draft.items.reduce((sum, i) => sum + i.totalPrice, 0);
+      },
+
+      getDeliveryFee: () => {
+        const subtotal = get().getSubtotal();
+        return subtotal >= FREE_DELIVERY_THRESHOLD ? 0 : DELIVERY_FEE;
+      },
+
+      getTotal: () => {
+        return get().getSubtotal() + get().getDeliveryFee();
+      },
+
+      // ── Siparişi tamamla ───────────────────────────────────────────────────
+      completeOrder: () => {
+        const { draft, getSubtotal, getDeliveryFee, getTotal } = get();
+
+        if (
+          draft.items.length === 0 ||
+          !draft.customer.name ||
+          !draft.customer.phone ||
+          !draft.customer.address ||
+          !draft.payment.method
+        ) {
+          return null;
+        }
+
+        const cashGiven = draft.payment.cashGiven ?? 0;
+        const total = getTotal();
+
+        const order: Order = {
+          id: generateId(),
+          orderNumber: generateOrderNumber(),
+          items: draft.items,
+          customer: draft.customer as CustomerInfo,
+          payment: {
+            method: draft.payment.method!,
+            cashGiven: draft.payment.method === "cash" ? cashGiven : undefined,
+            change:
+              draft.payment.method === "cash"
+                ? Math.max(0, cashGiven - total)
+                : undefined,
+          },
+          status: "pending",
+          notes: draft.notes,
+          subtotal: getSubtotal(),
+          deliveryFee: getDeliveryFee(),
+          total,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+
+        set((state) => ({
+          orders: [order, ...state.orders],
+        }));
+
+        return order;
+      },
+
+      // ── Taslağı sıfırla ────────────────────────────────────────────────────
+      resetDraft: () => {
+        set({ draft: initialDraft });
+      },
+
+      // ── Sipariş durumu güncelle ────────────────────────────────────────────
+      updateOrderStatus: (orderId, status) => {
+        set((state) => ({
+          orders: state.orders.map((o) =>
+            o.id === orderId ? { ...o, status, updatedAt: new Date() } : o,
+          ),
+        }));
+      },
+
+      // ── ID ile sipariş getir ───────────────────────────────────────────────
+      getOrderById: (orderId) => {
+        return get().orders.find((o) => o.id === orderId);
+      },
+    }),
+    {
+      name: "take-away-orders",
+      partialize: (state) => ({ orders: state.orders }),
+    },
+  ),
+);
+
+// ─── Türetilmiş Selector'lar (bileşenlerde doğrudan kullanın) ─────────────────
+// Zustand'da getter fonksiyonları store içinde tanımlamak yerine
+// dışarıda pure selector olarak tutmak daha performanslıdır.
+export const selectSubtotal = (state: { draft: OrderDraft }) =>
+  state.draft.items.reduce((sum, i) => sum + i.totalPrice, 0);
+
+export const selectDeliveryFee = (state: { draft: OrderDraft }) => {
+  const subtotal = state.draft.items.reduce((sum, i) => sum + i.totalPrice, 0);
+  return subtotal >= FREE_DELIVERY_THRESHOLD ? 0 : DELIVERY_FEE;
+};
+
+export const selectTotal = (state: { draft: OrderDraft }) => {
+  const subtotal = state.draft.items.reduce((sum, i) => sum + i.totalPrice, 0);
+  const delivery = subtotal >= FREE_DELIVERY_THRESHOLD ? 0 : DELIVERY_FEE;
+  return subtotal + delivery;
+};
