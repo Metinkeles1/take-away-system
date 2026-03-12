@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useOrderStore } from "@/store/orderStore";
 import { Button } from "@/components/ui/button";
@@ -40,7 +41,12 @@ const statusConfig: Record<
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { orders } = useOrderStore();
+  const { orders, loadOrders } = useOrderStore();
+
+  useEffect(() => {
+    loadOrders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const todayOrders = orders.filter((o) => {
     const orderDate = new Date(o.createdAt);

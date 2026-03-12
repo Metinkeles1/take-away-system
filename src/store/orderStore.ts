@@ -1,5 +1,4 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
 import {
   type Order,
   type OrderDraft,
@@ -68,211 +67,201 @@ const initialDraft: OrderDraft = {
 };
 
 // ─── Store ────────────────────────────────────────────────────────────────────
-export const useOrderStore = create<OrderStore>()(
-  persist(
-    (set, get) => ({
-      draft: initialDraft,
-      orders: [],
+export const useOrderStore = create<OrderStore>()((set, get) => ({
+  draft: initialDraft,
+  orders: [],
 
-      // ── Ürün ekle ──────────────────────────────────────────────────────────
-      addItem: (product) => {
-        set((state) => {
-          const existing = state.draft.items.find((i) => i.product.id === product.id);
-          if (existing) {
-            return {
-              draft: {
-                ...state.draft,
-                items: state.draft.items.map((i) =>
-                  i.product.id === product.id
-                    ? {
-                        ...i,
-                        quantity: i.quantity + 1,
-                        totalPrice: (i.quantity + 1) * i.product.price,
-                      }
-                    : i,
-                ),
-              },
-            };
-          }
-          return {
-            draft: {
-              ...state.draft,
-              items: [
-                ...state.draft.items,
-                {
-                  product,
-                  quantity: 1,
-                  totalPrice: product.price,
-                },
-              ],
-            },
-          };
-        });
-      },
-
-      // ── Ürün çıkar ─────────────────────────────────────────────────────────
-      removeItem: (productId) => {
-        set((state) => ({
-          draft: {
-            ...state.draft,
-            items: state.draft.items.filter((i) => i.product.id !== productId),
-          },
-        }));
-      },
-
-      // ── Miktar güncelle ────────────────────────────────────────────────────
-      updateQuantity: (productId, quantity) => {
-        if (quantity <= 0) {
-          get().removeItem(productId);
-          return;
-        }
-        set((state) => ({
+  // ── Ürün ekle ──────────────────────────────────────────────────────────
+  addItem: (product) => {
+    set((state) => {
+      const existing = state.draft.items.find((i) => i.product.id === product.id);
+      if (existing) {
+        return {
           draft: {
             ...state.draft,
             items: state.draft.items.map((i) =>
-              i.product.id === productId
-                ? { ...i, quantity, totalPrice: quantity * i.product.price }
+              i.product.id === product.id
+                ? {
+                    ...i,
+                    quantity: i.quantity + 1,
+                    totalPrice: (i.quantity + 1) * i.product.price,
+                  }
                 : i,
             ),
           },
-        }));
-      },
-
-      // ── Ürün notu güncelle ─────────────────────────────────────────────────
-      updateItemNote: (productId, note) => {
-        set((state) => ({
-          draft: {
-            ...state.draft,
-            items: state.draft.items.map((i) =>
-              i.product.id === productId ? { ...i, note } : i,
-            ),
-          },
-        }));
-      },
-
-      // ── Müşteri bilgisi set et ─────────────────────────────────────────────
-      setCustomer: (customer) => {
-        set((state) => ({
-          draft: {
-            ...state.draft,
-            customer: { ...state.draft.customer, ...customer },
-          },
-        }));
-      },
-
-      // ── Ödeme bilgisi set et ───────────────────────────────────────────────
-      setPayment: (payment) => {
-        set((state) => ({
-          draft: {
-            ...state.draft,
-            payment: { ...state.draft.payment, ...payment },
-          },
-        }));
-      },
-
-      // ── Notları set et ─────────────────────────────────────────────────────
-      setNotes: (notes) => {
-        set((state) => ({ draft: { ...state.draft, notes } }));
-      },
-
-      // ── Adım değiştir ──────────────────────────────────────────────────────
-      setStep: (step) => {
-        set((state) => ({ draft: { ...state.draft, currentStep: step } }));
-      },
-
-      // ── Hesaplamalar ───────────────────────────────────────────────────────
-      getSubtotal: () => {
-        return get().draft.items.reduce((sum, i) => sum + i.totalPrice, 0);
-      },
-
-      getDeliveryFee: () => {
-        const subtotal = get().getSubtotal();
-        return subtotal >= FREE_DELIVERY_THRESHOLD ? 0 : DELIVERY_FEE;
-      },
-
-      getTotal: () => {
-        return get().getSubtotal() + get().getDeliveryFee();
-      },
-
-      // ── Siparişi tamamla ───────────────────────────────────────────────────
-      completeOrder: async () => {
-        const { draft, getSubtotal, getDeliveryFee, getTotal } = get();
-
-        if (
-          draft.items.length === 0 ||
-          !draft.customer.name ||
-          !draft.customer.phone ||
-          !draft.customer.address ||
-          !draft.payment.method
-        ) {
-          return null;
-        }
-
-        const cashGiven = draft.payment.cashGiven ?? 0;
-        const total = getTotal();
-
-        const order: Order = {
-          id: generateId(),
-          orderNumber: generateOrderNumber(),
-          items: draft.items,
-          customer: draft.customer as CustomerInfo,
-          payment: {
-            method: draft.payment.method!,
-            cashGiven: draft.payment.method === "cash" ? cashGiven : undefined,
-            change:
-              draft.payment.method === "cash"
-                ? Math.max(0, cashGiven - total)
-                : undefined,
-          },
-          status: "pending",
-          notes: draft.notes,
-          subtotal: getSubtotal(),
-          deliveryFee: getDeliveryFee(),
-          total,
-          createdAt: new Date(),
-          updatedAt: new Date(),
         };
+      }
+      return {
+        draft: {
+          ...state.draft,
+          items: [
+            ...state.draft.items,
+            {
+              product,
+              quantity: 1,
+              totalPrice: product.price,
+            },
+          ],
+        },
+      };
+    });
+  },
 
-        // Önce UI'ı güncelle (optimistic), sonra DB'ye kaydet
-        set((state) => ({ orders: [order, ...state.orders] }));
-        await createOrder(order);
-
-        return order;
+  // ── Ürün çıkar ─────────────────────────────────────────────────────────
+  removeItem: (productId) => {
+    set((state) => ({
+      draft: {
+        ...state.draft,
+        items: state.draft.items.filter((i) => i.product.id !== productId),
       },
+    }));
+  },
 
-      // ── Taslağı sıfırla ────────────────────────────────────────────────────
-      resetDraft: () => {
-        set({ draft: initialDraft });
+  // ── Miktar güncelle ────────────────────────────────────────────────────
+  updateQuantity: (productId, quantity) => {
+    if (quantity <= 0) {
+      get().removeItem(productId);
+      return;
+    }
+    set((state) => ({
+      draft: {
+        ...state.draft,
+        items: state.draft.items.map((i) =>
+          i.product.id === productId
+            ? { ...i, quantity, totalPrice: quantity * i.product.price }
+            : i,
+        ),
       },
+    }));
+  },
 
-      // ── DB'den siparişleri yükle ───────────────────────────────────────────
-      loadOrders: async () => {
-        const orders = await getOrders();
-        set({ orders });
+  // ── Ürün notu güncelle ─────────────────────────────────────────────────
+  updateItemNote: (productId, note) => {
+    set((state) => ({
+      draft: {
+        ...state.draft,
+        items: state.draft.items.map((i) =>
+          i.product.id === productId ? { ...i, note } : i,
+        ),
       },
+    }));
+  },
 
-      // ── Sipariş durumu güncelle ────────────────────────────────────────────
-      updateOrderStatus: async (orderId, status) => {
-        // Optimistic update
-        set((state) => ({
-          orders: state.orders.map((o) =>
-            o.id === orderId ? { ...o, status, updatedAt: new Date() } : o,
-          ),
-        }));
-        await dbUpdateStatus(orderId, status);
+  // ── Müşteri bilgisi set et ─────────────────────────────────────────────
+  setCustomer: (customer) => {
+    set((state) => ({
+      draft: {
+        ...state.draft,
+        customer: { ...state.draft.customer, ...customer },
       },
+    }));
+  },
 
-      // ── ID ile sipariş getir ───────────────────────────────────────────────
-      getOrderById: (orderId) => {
-        return get().orders.find((o) => o.id === orderId);
+  // ── Ödeme bilgisi set et ───────────────────────────────────────────────
+  setPayment: (payment) => {
+    set((state) => ({
+      draft: {
+        ...state.draft,
+        payment: { ...state.draft.payment, ...payment },
       },
-    }),
-    {
-      name: "take-away-orders",
-      partialize: (state) => ({ orders: state.orders }),
-    },
-  ),
-);
+    }));
+  },
+
+  // ── Notları set et ─────────────────────────────────────────────────────
+  setNotes: (notes) => {
+    set((state) => ({ draft: { ...state.draft, notes } }));
+  },
+
+  // ── Adım değiştir ──────────────────────────────────────────────────────
+  setStep: (step) => {
+    set((state) => ({ draft: { ...state.draft, currentStep: step } }));
+  },
+
+  // ── Hesaplamalar ───────────────────────────────────────────────────────
+  getSubtotal: () => {
+    return get().draft.items.reduce((sum, i) => sum + i.totalPrice, 0);
+  },
+
+  getDeliveryFee: () => {
+    const subtotal = get().getSubtotal();
+    return subtotal >= FREE_DELIVERY_THRESHOLD ? 0 : DELIVERY_FEE;
+  },
+
+  getTotal: () => {
+    return get().getSubtotal() + get().getDeliveryFee();
+  },
+
+  // ── Siparişi tamamla ───────────────────────────────────────────────────
+  completeOrder: async () => {
+    const { draft, getSubtotal, getDeliveryFee, getTotal } = get();
+
+    if (
+      draft.items.length === 0 ||
+      !draft.customer.name ||
+      !draft.customer.phone ||
+      !draft.customer.address ||
+      !draft.payment.method
+    ) {
+      return null;
+    }
+
+    const cashGiven = draft.payment.cashGiven ?? 0;
+    const total = getTotal();
+
+    const order: Order = {
+      id: generateId(),
+      orderNumber: generateOrderNumber(),
+      items: draft.items,
+      customer: draft.customer as CustomerInfo,
+      payment: {
+        method: draft.payment.method!,
+        cashGiven: draft.payment.method === "cash" ? cashGiven : undefined,
+        change:
+          draft.payment.method === "cash" ? Math.max(0, cashGiven - total) : undefined,
+      },
+      status: "pending",
+      notes: draft.notes,
+      subtotal: getSubtotal(),
+      deliveryFee: getDeliveryFee(),
+      total,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    // Önce UI'ı güncelle (optimistic), sonra DB'ye kaydet
+    set((state) => ({ orders: [order, ...state.orders] }));
+    await createOrder(order);
+
+    return order;
+  },
+
+  // ── Taslağı sıfırla ────────────────────────────────────────────────────
+  resetDraft: () => {
+    set({ draft: initialDraft });
+  },
+
+  // ── DB'den siparişleri yükle ───────────────────────────────────────────
+  loadOrders: async () => {
+    const orders = await getOrders();
+    set({ orders });
+  },
+
+  // ── Sipariş durumu güncelle ────────────────────────────────────────────
+  updateOrderStatus: async (orderId, status) => {
+    // Optimistic update
+    set((state) => ({
+      orders: state.orders.map((o) =>
+        o.id === orderId ? { ...o, status, updatedAt: new Date() } : o,
+      ),
+    }));
+    await dbUpdateStatus(orderId, status);
+  },
+
+  // ── ID ile sipariş getir ───────────────────────────────────────────────
+  getOrderById: (orderId) => {
+    return get().orders.find((o) => o.id === orderId);
+  },
+}));
 
 // ─── Türetilmiş Selector'lar (bileşenlerde doğrudan kullanın) ─────────────────
 // Zustand'da getter fonksiyonları store içinde tanımlamak yerine
