@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { type Order } from "@/types";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const statusConfig: Record<
   Order["status"],
@@ -41,7 +42,7 @@ const statusConfig: Record<
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { orders, loadOrders } = useOrderStore();
+  const { orders, loadOrders, isLoading } = useOrderStore();
 
   useEffect(() => {
     loadOrders();
@@ -88,34 +89,52 @@ export default function DashboardPage() {
 
       {/* İstatistik kartları */}
       <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          title="Bugünkü Siparişler"
-          value={todayOrders.length.toString()}
-          icon={ShoppingBag}
-          color="text-blue-600"
-          bg="bg-blue-50"
-        />
-        <StatCard
-          title="Bugünkü Ciro"
-          value={formatCurrency(todayRevenue)}
-          icon={TrendingUp}
-          color="text-green-600"
-          bg="bg-green-50"
-        />
-        <StatCard
-          title="Aktif Siparişler"
-          value={activeOrders.length.toString()}
-          icon={Clock}
-          color="text-yellow-600"
-          bg="bg-yellow-50"
-        />
-        <StatCard
-          title="Toplam Siparişler"
-          value={orders.length.toString()}
-          icon={ClipboardList}
-          color="text-purple-600"
-          bg="bg-purple-50"
-        />
+        {isLoading ? (
+          <>
+            {[...Array(4)].map((_, i) => (
+              <Card key={i}>
+                <CardContent className="flex items-center gap-4 p-6">
+                  <Skeleton className="h-12 w-12 rounded-xl" />
+                  <div className="space-y-2 flex-1">
+                    <Skeleton className="h-3 w-24" />
+                    <Skeleton className="h-7 w-16" />
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </>
+        ) : (
+          <>
+            <StatCard
+              title="Bugünkü Siparişler"
+              value={todayOrders.length.toString()}
+              icon={ShoppingBag}
+              color="text-blue-600"
+              bg="bg-blue-50"
+            />
+            <StatCard
+              title="Bugünkü Ciro"
+              value={formatCurrency(todayRevenue)}
+              icon={TrendingUp}
+              color="text-green-600"
+              bg="bg-green-50"
+            />
+            <StatCard
+              title="Aktif Siparişler"
+              value={activeOrders.length.toString()}
+              icon={Clock}
+              color="text-yellow-600"
+              bg="bg-yellow-50"
+            />
+            <StatCard
+              title="Toplam Siparişler"
+              value={orders.length.toString()}
+              icon={ClipboardList}
+              color="text-purple-600"
+              bg="bg-purple-50"
+            />
+          </>
+        )}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -127,7 +146,27 @@ export default function DashboardPage() {
               <Badge variant="secondary">{activeOrders.length} sipariş</Badge>
             </CardHeader>
             <CardContent>
-              {activeOrders.length === 0 ? (
+              {isLoading ? (
+                <div className="space-y-3">
+                  {[...Array(3)].map((_, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center justify-between rounded-lg border p-3"
+                    >
+                      <div className="flex items-center gap-3 flex-1">
+                        <div className="space-y-2 flex-1">
+                          <Skeleton className="h-4 w-32" />
+                          <Skeleton className="h-3 w-24" />
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <Skeleton className="h-4 w-16" />
+                        <Skeleton className="h-6 w-24 rounded-full" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : activeOrders.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
                   <CheckCircle2 className="mb-3 h-12 w-12 opacity-30" />
                   <p className="text-sm">Şu anda aktif sipariş yok</p>
@@ -169,30 +208,49 @@ export default function DashboardPage() {
               <div className="text-sm font-medium text-muted-foreground">
                 Son Siparişler
               </div>
-              {recentOrders.slice(0, 5).map((order) => (
-                <Link
-                  key={order.id}
-                  href={`/orders/${order.id}`}
-                  className="flex items-center justify-between rounded-md p-2 text-sm transition-colors hover:bg-accent"
-                >
-                  <div>
-                    <span className="font-medium">#{order.orderNumber}</span>
-                    <span className="ml-2 text-muted-foreground">
-                      {order.customer.name}
-                    </span>
-                  </div>
-                  <div className="text-right">
-                    <div className="font-medium">{formatCurrency(order.total)}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {formatDate(order.createdAt)}
+              {isLoading ? (
+                <div className="space-y-3">
+                  {[...Array(4)].map((_, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center justify-between rounded-md p-2"
+                    >
+                      <div className="space-y-1.5">
+                        <Skeleton className="h-3 w-28" />
+                        <Skeleton className="h-3 w-20" />
+                      </div>
+                      <div className="space-y-1.5 items-end flex flex-col">
+                        <Skeleton className="h-3 w-14" />
+                        <Skeleton className="h-3 w-10" />
+                      </div>
                     </div>
-                  </div>
-                </Link>
-              ))}
-              {recentOrders.length === 0 && (
+                  ))}
+                </div>
+              ) : recentOrders.length === 0 ? (
                 <p className="py-4 text-center text-sm text-muted-foreground">
                   Henüz sipariş yok
                 </p>
+              ) : (
+                recentOrders.slice(0, 5).map((order) => (
+                  <Link
+                    key={order.id}
+                    href={`/orders/${order.id}`}
+                    className="flex items-center justify-between rounded-md p-2 text-sm transition-colors hover:bg-accent"
+                  >
+                    <div>
+                      <span className="font-medium">#{order.orderNumber}</span>
+                      <span className="ml-2 text-muted-foreground">
+                        {order.customer.name}
+                      </span>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-medium">{formatCurrency(order.total)}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {formatDate(order.createdAt)}
+                      </div>
+                    </div>
+                  </Link>
+                ))
               )}
             </CardContent>
           </Card>

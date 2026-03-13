@@ -32,6 +32,9 @@ interface OrderStore {
   // Tamamlanmış siparişler (geçmiş)
   orders: Order[];
 
+  // Yükleme durumu
+  isLoading: boolean;
+
   // ── Draft aksiyonlar ──────────────────────────────────────────────────────
   addItem: (product: Product) => void;
   removeItem: (productId: string) => void;
@@ -70,6 +73,7 @@ const initialDraft: OrderDraft = {
 export const useOrderStore = create<OrderStore>()((set, get) => ({
   draft: initialDraft,
   orders: [],
+  isLoading: false,
 
   // ── Ürün ekle ──────────────────────────────────────────────────────────
   addItem: (product) => {
@@ -242,8 +246,13 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
 
   // ── DB'den siparişleri yükle ───────────────────────────────────────────
   loadOrders: async () => {
-    const orders = await getOrders();
-    set({ orders });
+    set({ isLoading: true });
+    try {
+      const orders = await getOrders();
+      set({ orders });
+    } finally {
+      set({ isLoading: false });
+    }
   },
 
   // ── Sipariş durumu güncelle ────────────────────────────────────────────

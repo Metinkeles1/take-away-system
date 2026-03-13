@@ -15,10 +15,15 @@ interface ThermalReceiptProps {
 const paymentLabels: Record<string, string> = {
   cash: "NAKİT",
   card: "KREDİ/BANKA KARTI",
-  online: "ONLİNE ÖDEME",
+  online: "ONLINE ÖDEME",
 };
 
-// Yatay iki sütunlu satır — sağa taşmayı önler
+const PAPER_WIDTH = "80mm";
+const CONTENT_WIDTH = "72mm"; // güvenli yazdırma alanı
+const FONT_SIZE_NORMAL = "11px";
+const FONT_SIZE_XSMALL = "9px";
+const FONT_SIZE_LARGE = "13px";
+
 const Row = ({
   left,
   right,
@@ -32,17 +37,34 @@ const Row = ({
 }) => (
   <div
     style={{
-      display: "flex",
-      justifyContent: "space-between",
+      display: "grid",
+      gridTemplateColumns: "1fr auto",
+      columnGap: "4px",
       alignItems: "baseline",
-      gap: "4px",
-      fontWeight: bold ? "700" : "400",
-      fontSize: large ? "15px" : "12px",
+      fontWeight: bold ? 700 : 400,
+      fontSize: large ? FONT_SIZE_LARGE : FONT_SIZE_NORMAL,
       marginBottom: "2px",
+      width: "100%",
     }}
   >
-    <span style={{ flex: "1 1 auto", minWidth: 0 }}>{left}</span>
-    <span style={{ flex: "0 0 auto", textAlign: "right", whiteSpace: "nowrap" }}>
+    <span
+      style={{
+        minWidth: 0,
+        overflow: "hidden",
+        whiteSpace: "nowrap",
+        textOverflow: "ellipsis",
+      }}
+    >
+      {left}
+    </span>
+
+    <span
+      style={{
+        whiteSpace: "nowrap",
+        textAlign: "right",
+        fontVariantNumeric: "tabular-nums",
+      }}
+    >
       {right}
     </span>
   </div>
@@ -51,8 +73,8 @@ const Row = ({
 const Divider = ({ dashed }: { dashed?: boolean }) => (
   <div
     style={{
-      borderTop: dashed ? "1px dashed #bbb" : "1px solid #222",
-      margin: "6px 0",
+      borderTop: dashed ? "1px dashed #000" : "1px solid #000",
+      margin: "5px 0",
     }}
   />
 );
@@ -60,12 +82,12 @@ const Divider = ({ dashed }: { dashed?: boolean }) => (
 const SectionTitle = ({ children }: { children: React.ReactNode }) => (
   <div
     style={{
-      fontSize: "10px",
-      fontWeight: "700",
+      fontSize: FONT_SIZE_XSMALL,
+      fontWeight: 700,
       letterSpacing: "1px",
-      color: "#666",
-      marginBottom: "4px",
-      textTransform: "uppercase" as const,
+      color: "#000",
+      marginBottom: "3px",
+      textTransform: "uppercase",
     }}
   >
     {children}
@@ -77,7 +99,6 @@ const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptProps>(
     const uniqueId = useId();
     const receiptId = `thermal-receipt-${uniqueId.replace(/:/g, "")}`;
 
-    // Fiş oluşturulma anını sabitle — re-render'da değişmesin
     const printDate = useMemo(() => new Date(), []);
     const dateStr = printDate.toLocaleDateString("tr-TR");
     const timeStr = printDate.toLocaleTimeString("tr-TR", {
@@ -89,20 +110,39 @@ const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptProps>(
       <>
         <style>{`
           @media print {
-            body * { visibility: hidden !important; }
-            #${receiptId}, #${receiptId} * { visibility: visible !important; }
+            html, body {
+              margin: 0 !important;
+              padding: 0 !important;
+              width: ${PAPER_WIDTH} !important;
+            }
+
+            body * {
+              visibility: hidden !important;
+            }
+
+            #${receiptId}, #${receiptId} * {
+              visibility: visible !important;
+            }
+
             #${receiptId} {
               position: fixed !important;
               top: 0 !important;
               left: 0 !important;
-              width: 80mm !important;
-              zoom: 1 !important;
+              width: ${PAPER_WIDTH} !important;
+              max-width: ${PAPER_WIDTH} !important;
               margin: 0 !important;
               padding: 0 !important;
-              box-shadow: none !important;
               border: none !important;
+              border-radius: 0 !important;
+              box-shadow: none !important;
+              background: #fff !important;
+              overflow: hidden !important;
             }
-            @page { size: 80mm auto; margin: 0; }
+
+            @page {
+              size: 80mm auto;
+              margin: 0;
+            }
           }
         `}</style>
 
@@ -110,196 +150,200 @@ const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptProps>(
           id={receiptId}
           ref={ref}
           style={{
-            width: "80mm",
-            fontFamily: "'Helvetica Neue', Arial, sans-serif",
-            fontSize: "12px",
-            lineHeight: "1.5",
-            color: "#111",
+            width: PAPER_WIDTH,
+            maxWidth: PAPER_WIDTH,
             backgroundColor: "#fff",
-            padding: "5mm 4mm",
+            color: "#000",
             boxSizing: "border-box",
+            overflow: "hidden",
             border: "1px solid #ddd",
-            borderRadius: "4px",
+            padding: "0",
+            fontFamily: "Consolas, 'Liberation Mono', 'DejaVu Sans Mono', monospace",
+            textRendering: "geometricPrecision",
+            WebkitFontSmoothing: "none",
           }}
         >
-          {/* ── BAŞLIK ── */}
-          <div style={{ textAlign: "center", marginBottom: "6px" }}>
-            <div
-              style={{
-                fontSize: "18px",
-                fontWeight: "800",
-                letterSpacing: "1px",
-                color: "#111",
-              }}
-            >
-              🛵 KONAK KEBAP
-            </div>
-            <div style={{ fontSize: "11px", color: "#555", marginTop: "2px" }}>
-              Paket Servis
-            </div>
-          </div>
-
-          <Divider />
-
-          {/* ── SİPARİŞ NO & TARİH ── */}
-          <Row left={`Sipariş No: #${orderNumber ?? "—"}`} right={dateStr} />
-          <Row left="" right={timeStr} />
-
-          <Divider dashed />
-
-          {/* ── MÜŞTERİ ── */}
-          <SectionTitle>Müşteri Bilgileri</SectionTitle>
-          <div style={{ fontSize: "12px", lineHeight: "1.6" }}>
-            <div>
-              <b>{draft.customer.name || "—"}</b>
-            </div>
-            {draft.customer.phone && <div>{formatPhone(draft.customer.phone)}</div>}
-            {draft.customer.district && (
-              <div style={{ color: "#333" }}>{draft.customer.district}</div>
-            )}
-            {draft.customer.address && (
-              <div style={{ wordBreak: "break-word", color: "#333" }}>
-                {draft.customer.address}
-              </div>
-            )}
-            {draft.customer.addressDetail && (
-              <div style={{ color: "#555" }}>{draft.customer.addressDetail}</div>
-            )}
-          </div>
-
-          <Divider dashed />
-
-          {/* ── ÜRÜNLER ── */}
-          <SectionTitle>Sipariş Kalemleri</SectionTitle>
-
-          {/* Tablo başlık */}
           <div
             style={{
-              display: "flex",
-              justifyContent: "space-between",
-              fontSize: "10px",
-              fontWeight: "700",
-              color: "#666",
-              borderBottom: "1px solid #ccc",
-              paddingBottom: "3px",
-              marginBottom: "4px",
-              letterSpacing: "0.5px",
+              width: CONTENT_WIDTH,
+              maxWidth: CONTENT_WIDTH,
+              margin: "0 auto",
+              padding: "3mm 0",
+              boxSizing: "border-box",
+              fontSize: FONT_SIZE_NORMAL,
+              lineHeight: 1.35,
+              fontWeight: 400,
             }}
           >
-            <span style={{ flex: "1 1 auto" }}>ÜRÜN</span>
-            <span style={{ flex: "0 0 28px", textAlign: "center" }}>AD</span>
-            <span style={{ flex: "0 0 60px", textAlign: "right" }}>TUTAR</span>
-          </div>
-
-          {/* Ürün satırları */}
-          {draft.items.map((item) => (
-            <div key={item.product.id} style={{ marginBottom: "4px" }}>
+            <div style={{ textAlign: "center", marginBottom: "6px" }}>
               <div
                 style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "flex-start",
-                  gap: "4px",
-                  fontSize: "12px",
+                  fontSize: "15px",
+                  fontWeight: 700,
+                  letterSpacing: "1px",
                 }}
               >
-                <span
-                  style={{
-                    flex: "1 1 auto",
-                    minWidth: 0,
-                    wordBreak: "break-word",
-                    fontWeight: "600",
-                  }}
-                >
-                  {item.product.name}
-                </span>
-                <span style={{ flex: "0 0 28px", textAlign: "center", color: "#444" }}>
-                  x{item.quantity}
-                </span>
-                <span
-                  style={{
-                    flex: "0 0 60px",
-                    textAlign: "right",
-                    whiteSpace: "nowrap",
-                    fontWeight: "600",
-                  }}
-                >
-                  {formatCurrency(item.totalPrice)}
-                </span>
+                KONAK KEBAP
               </div>
-              {item.note && (
+              <div style={{ fontSize: FONT_SIZE_NORMAL, marginTop: "2px" }}>
+                Paket Servis
+              </div>
+            </div>
+
+            <Divider />
+
+            <Row left={`Sipariş No: #${orderNumber ?? "—"}`} right={dateStr} />
+            <Row left="" right={timeStr} />
+
+            <Divider dashed />
+
+            <SectionTitle>Müşteri Bilgileri</SectionTitle>
+            <div style={{ fontSize: FONT_SIZE_NORMAL, lineHeight: 1.45 }}>
+              <div style={{ fontWeight: 700 }}>{draft.customer.name || "—"}</div>
+              {draft.customer.phone && <div>{formatPhone(draft.customer.phone)}</div>}
+              {draft.customer.district && <div>{draft.customer.district}</div>}
+              {draft.customer.address && (
+                <div style={{ wordBreak: "break-word" }}>{draft.customer.address}</div>
+              )}
+              {draft.customer.addressDetail && <div>{draft.customer.addressDetail}</div>}
+            </div>
+
+            <Divider dashed />
+
+            <SectionTitle>Sipariş Kalemleri</SectionTitle>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 10mm 18mm",
+                columnGap: "2mm",
+                fontSize: FONT_SIZE_XSMALL,
+                fontWeight: 700,
+                borderBottom: "1px solid #000",
+                paddingBottom: "3px",
+                marginBottom: "4px",
+              }}
+            >
+              <span>ÜRÜN</span>
+              <span style={{ textAlign: "center" }}>AD</span>
+              <span style={{ textAlign: "right" }}>TUTAR</span>
+            </div>
+
+            {draft.items.map((item) => (
+              <div key={item.product.id} style={{ marginBottom: "4px" }}>
                 <div
                   style={{
-                    fontSize: "10px",
-                    color: "#666",
-                    paddingLeft: "4px",
-                    marginTop: "1px",
+                    display: "grid",
+                    gridTemplateColumns: "1fr 10mm 18mm",
+                    columnGap: "2mm",
+                    alignItems: "start",
+                    fontSize: FONT_SIZE_NORMAL,
                   }}
                 >
-                  ↳ {item.note}
+                  <span
+                    style={{
+                      minWidth: 0,
+                      whiteSpace: "normal",
+                      overflowWrap: "break-word",
+                      lineHeight: 1.25,
+                      fontWeight: 700,
+                    }}
+                  >
+                    {item.product.name}
+                  </span>
+
+                  <span
+                    style={{
+                      textAlign: "center",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    x{item.quantity}
+                  </span>
+
+                  <span
+                    style={{
+                      textAlign: "right",
+                      whiteSpace: "nowrap",
+                      fontVariantNumeric: "tabular-nums",
+                      fontWeight: 700,
+                    }}
+                  >
+                    {formatCurrency(item.totalPrice)}
+                  </span>
                 </div>
-              )}
-            </div>
-          ))}
 
-          <Divider />
-
-          {/* ── TUTAR ── */}
-          <Row left="Ara Toplam" right={formatCurrency(subtotal)} />
-          <Row
-            left="Teslimat"
-            right={deliveryFee === 0 ? "ÜCRETSİZ" : formatCurrency(deliveryFee)}
-          />
-          <div
-            style={{ borderTop: "2px solid #111", marginTop: "4px", paddingTop: "4px" }}
-          >
-            <Row left="TOPLAM" right={formatCurrency(total)} bold large />
-          </div>
-
-          <Divider dashed />
-
-          {/* ── ÖDEME ── */}
-          <SectionTitle>Ödeme Yöntemi</SectionTitle>
-          <div style={{ fontSize: "12px", fontWeight: "700", marginBottom: "4px" }}>
-            {paymentLabels[draft.payment.method ?? ""] ?? "—"}
-          </div>
-          {draft.payment.method === "cash" && draft.payment.cashGiven && (
-            <>
-              <Row left="Verilen" right={formatCurrency(draft.payment.cashGiven)} />
-              <Row
-                left="Para Üstü"
-                right={formatCurrency(Math.max(0, draft.payment.cashGiven - total))}
-                bold
-              />
-            </>
-          )}
-
-          {/* ── NOTLAR ── */}
-          {draft.notes && (
-            <>
-              <Divider dashed />
-              <SectionTitle>Sipariş Notu</SectionTitle>
-              <div style={{ fontSize: "12px", wordBreak: "break-word", color: "#333" }}>
-                {draft.notes}
+                {item.note && (
+                  <div
+                    style={{
+                      fontSize: FONT_SIZE_XSMALL,
+                      marginTop: "2px",
+                      paddingLeft: "2px",
+                      wordBreak: "break-word",
+                    }}
+                  >
+                    Not: {item.note}
+                  </div>
+                )}
               </div>
-            </>
-          )}
+            ))}
 
-          <Divider />
+            <Divider />
 
-          {/* ── ALT BİLGİ ── */}
-          <div
-            style={{
-              textAlign: "center",
-              fontSize: "11px",
-              color: "#666",
-              marginTop: "2px",
-            }}
-          >
-            <div style={{ fontWeight: "700", marginBottom: "2px" }}>Afiyet olsun! 🙏</div>
-            <div>Bizi tercih ettiğiniz için teşekkürler</div>
-            <div style={{ marginTop: "4px", fontSize: "10px", color: "#999" }}>
-              {dateStr} — {timeStr}
+            <Row left="Ara Toplam" right={formatCurrency(subtotal)} />
+            <Row
+              left="Teslimat"
+              right={deliveryFee === 0 ? "ÜCRETSİZ" : formatCurrency(deliveryFee)}
+            />
+
+            <div
+              style={{ borderTop: "2px solid #000", marginTop: "4px", paddingTop: "4px" }}
+            >
+              <Row left="TOPLAM" right={formatCurrency(total)} bold large />
+            </div>
+
+            <Divider dashed />
+
+            <SectionTitle>Ödeme Yöntemi</SectionTitle>
+            <div
+              style={{
+                fontSize: FONT_SIZE_NORMAL,
+                fontWeight: 700,
+                marginBottom: "4px",
+              }}
+            >
+              {paymentLabels[draft.payment.method ?? ""] ?? "—"}
+            </div>
+
+            {draft.notes && (
+              <>
+                <Divider dashed />
+                <SectionTitle>Sipariş Notu</SectionTitle>
+                <div
+                  style={{
+                    fontSize: FONT_SIZE_NORMAL,
+                    wordBreak: "break-word",
+                  }}
+                >
+                  {draft.notes}
+                </div>
+              </>
+            )}
+
+            <Divider />
+
+            <div
+              style={{
+                textAlign: "center",
+                fontSize: FONT_SIZE_NORMAL,
+                marginTop: "2px",
+              }}
+            >
+              <div style={{ fontWeight: 700, marginBottom: "2px" }}>Afiyet olsun!</div>
+              <div>Bizi tercih ettiğiniz için teşekkürler</div>
+              <div style={{ marginTop: "4px", fontSize: FONT_SIZE_XSMALL }}>
+                {dateStr} - {timeStr}
+              </div>
             </div>
           </div>
         </div>
