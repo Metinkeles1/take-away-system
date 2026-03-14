@@ -70,7 +70,9 @@ export default function OrdersPage() {
       <div className="mb-4 flex items-center justify-between shrink-0">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Siparişler</h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">Toplam {orders.length} sipariş</p>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            Toplam {orders.length} sipariş
+          </p>
         </div>
         <Link href="/orders/new">
           <Button>

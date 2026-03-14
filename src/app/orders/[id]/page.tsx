@@ -127,9 +127,9 @@ export default function OrderDetailPage() {
           <ArrowLeft className="mr-2 h-4 w-4" />
           Geri
         </Button>
-          <div className="flex-1">
-            <div className="flex items-center gap-3">
-              <h1 className="text-xl font-bold">Sipariş #{order.orderNumber}</h1>
+        <div className="flex-1">
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl font-bold">Sipariş #{order.orderNumber}</h1>
             <span
               className={`flex items-center gap-1 rounded-full border px-3 py-1 text-sm font-medium ${config.color}`}
             >
