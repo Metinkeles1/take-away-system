@@ -7,6 +7,7 @@ import {
   type OrderStep,
   type OrderStatus,
   type Product,
+  type SavedCustomer,
 } from "@/types";
 import { DELIVERY_FEE, FREE_DELIVERY_THRESHOLD } from "@/data/menu";
 import {
@@ -14,6 +15,7 @@ import {
   updateOrderStatus as dbUpdateStatus,
   getOrders,
 } from "@/actions/orders";
+import { getSavedCustomers, upsertCustomer } from "@/actions/customers";
 
 // ─── Yardımcı: Sipariş numarası üret ─────────────────────────────────────────
 function generateOrderNumber(): number {
@@ -31,6 +33,9 @@ interface OrderStore {
 
   // Tamamlanmış siparişler (geçmiş)
   orders: Order[];
+
+  // Kayıtlı müşteriler
+  savedCustomers: SavedCustomer[];
 
   // Yükleme durumu
   isLoading: boolean;
@@ -56,6 +61,7 @@ interface OrderStore {
 
   // ── Geçmiş ───────────────────────────────────────────────────────────────
   loadOrders: () => Promise<void>;
+  loadSavedCustomers: () => Promise<void>;
   updateOrderStatus: (orderId: string, status: OrderStatus) => Promise<void>;
   getOrderById: (orderId: string) => Order | undefined;
 }
@@ -73,6 +79,7 @@ const initialDraft: OrderDraft = {
 export const useOrderStore = create<OrderStore>()((set, get) => ({
   draft: initialDraft,
   orders: [],
+  savedCustomers: [],
   isLoading: false,
 
   // ── Ürün ekle ──────────────────────────────────────────────────────────
@@ -187,8 +194,7 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
   },
 
   getDeliveryFee: () => {
-    const subtotal = get().getSubtotal();
-    return subtotal >= FREE_DELIVERY_THRESHOLD ? 0 : DELIVERY_FEE;
+    return 0;
   },
 
   getTotal: () => {
@@ -201,7 +207,6 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
 
     if (
       draft.items.length === 0 ||
-      !draft.customer.name ||
       !draft.customer.phone ||
       !draft.customer.address ||
       !draft.payment.method
@@ -236,6 +241,17 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
     set((state) => ({ orders: [order, ...state.orders] }));
     await createOrder(order);
 
+    // Müşteriyi kayıtlı müşteriler listesine upsert et
+    await upsertCustomer({
+      id: `cust-${order.customer.phone.replace(/\D/g, "")}`,
+      name: order.customer.name,
+      phone: order.customer.phone,
+      address: order.customer.address,
+      addressDetail: order.customer.addressDetail,
+    });
+    // Kayıtlı müşteri listesini güncelle
+    get().loadSavedCustomers();
+
     return order;
   },
 
@@ -253,6 +269,12 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
     } finally {
       set({ isLoading: false });
     }
+  },
+
+  // ── DB'den kayıtlı müşterileri yükle ──────────────────────────────────
+  loadSavedCustomers: async () => {
+    const customers = await getSavedCustomers();
+    set({ savedCustomers: customers });
   },
 
   // ── Sipariş durumu güncelle ────────────────────────────────────────────
@@ -278,13 +300,8 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
 export const selectSubtotal = (state: { draft: OrderDraft }) =>
   state.draft.items.reduce((sum, i) => sum + i.totalPrice, 0);
 
-export const selectDeliveryFee = (state: { draft: OrderDraft }) => {
-  const subtotal = state.draft.items.reduce((sum, i) => sum + i.totalPrice, 0);
-  return subtotal >= FREE_DELIVERY_THRESHOLD ? 0 : DELIVERY_FEE;
-};
+export const selectDeliveryFee = (_state: { draft: OrderDraft }) => 0;
 
 export const selectTotal = (state: { draft: OrderDraft }) => {
-  const subtotal = state.draft.items.reduce((sum, i) => sum + i.totalPrice, 0);
-  const delivery = subtotal >= FREE_DELIVERY_THRESHOLD ? 0 : DELIVERY_FEE;
-  return subtotal + delivery;
+  return state.draft.items.reduce((sum, i) => sum + i.totalPrice, 0);
 };

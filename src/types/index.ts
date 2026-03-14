@@ -82,7 +82,6 @@ export interface OrderDraft {
 
 // ─── Form Validasyon Şemaları için tipler ─────────────────────────────────────
 export interface CustomerFormData {
-  name: string;
   phone: string;
   address: string;
   addressDetail?: string;
@@ -92,4 +91,15 @@ export interface CustomerFormData {
 export interface PaymentFormData {
   method: PaymentMethod;
   cashGiven?: string;
+}
+
+// ─── Kayıtlı Müşteri ─────────────────────────────────────────────────────────
+export interface SavedCustomer {
+  id: string;
+  name: string;
+  phone: string;
+  address: string;
+  addressDetail?: string;
+  orderCount: number;
+  updatedAt: Date;
 }

@@ -220,16 +220,6 @@ export default function OrderDetailPage() {
                   <span>Ara Toplam</span>
                   <span>{formatCurrency(order.subtotal)}</span>
                 </div>
-                <div className="flex justify-between text-muted-foreground">
-                  <span>Teslimat</span>
-                  <span>
-                    {order.deliveryFee === 0 ? (
-                      <span className="text-green-600">Ücretsiz</span>
-                    ) : (
-                      formatCurrency(order.deliveryFee)
-                    )}
-                  </span>
-                </div>
                 <Separator />
                 <div className="flex justify-between text-base font-bold">
                   <span>Toplam</span>
@@ -339,7 +329,6 @@ export default function OrderDetailPage() {
                   draft={receiptDraft}
                   total={order.total}
                   subtotal={order.subtotal}
-                  deliveryFee={order.deliveryFee}
                   orderNumber={order.orderNumber}
                 />
               </div>

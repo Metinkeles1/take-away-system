@@ -1,12 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import {
-  useOrderStore,
-  selectSubtotal,
-  selectDeliveryFee,
-  selectTotal,
-} from "@/store/orderStore";
+import { useOrderStore, selectSubtotal, selectTotal } from "@/store/orderStore";
 import { MENU_ITEMS, MENU_CATEGORIES } from "@/data/menu";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -20,7 +15,6 @@ import { type ProductCategory } from "@/types";
 export default function ProductSelector() {
   const { draft, addItem, removeItem, updateQuantity, setStep } = useOrderStore();
   const subtotal = useOrderStore(selectSubtotal);
-  const deliveryFee = useOrderStore(selectDeliveryFee);
   const total = useOrderStore(selectTotal);
   const [activeCategory, setActiveCategory] = useState<ProductCategory | "all">("all");
   const [search, setSearch] = useState("");
@@ -213,16 +207,6 @@ export default function ProductSelector() {
                   <div className="flex justify-between text-muted-foreground">
                     <span>Ara Toplam</span>
                     <span>{formatCurrency(subtotal)}</span>
-                  </div>
-                  <div className="flex justify-between text-muted-foreground">
-                    <span>Teslimat</span>
-                    <span>
-                      {deliveryFee === 0 ? (
-                        <span className="text-green-600 font-medium">Ücretsiz</span>
-                      ) : (
-                        formatCurrency(deliveryFee)
-                      )}
-                    </span>
                   </div>
                   <Separator />
                   <div className="flex justify-between font-bold text-base">

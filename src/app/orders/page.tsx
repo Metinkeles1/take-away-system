@@ -58,6 +58,10 @@ export default function OrdersPage() {
 
   useEffect(() => {
     loadOrders();
+
+    const handleFocus = () => loadOrders();
+    window.addEventListener("focus", handleFocus);
+    return () => window.removeEventListener("focus", handleFocus);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

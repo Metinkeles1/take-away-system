@@ -123,7 +123,9 @@ export const MENU_ITEMS: Product[] = [
   { id: "i7", name: "Su", price: 20, category: "icecek", available: true },
   { id: "i8", name: "Meyveli Soda", price: 50, category: "icecek", available: true },
   { id: "i9", name: "Sade Soda", price: 20, category: "icecek", available: true },
+  { id: "i10", name: "Kola 1 Lt", price: 90, category: "icecek", available: true },
+  { id: "i11", name: "Ayran 1 Lt", price: 70, category: "icecek", available: true },
 ];
 
-export const DELIVERY_FEE = 50;
-export const FREE_DELIVERY_THRESHOLD = 500;
+export const DELIVERY_FEE = 0;
+export const FREE_DELIVERY_THRESHOLD = 0;

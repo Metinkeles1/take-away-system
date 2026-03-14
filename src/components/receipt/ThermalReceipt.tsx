@@ -8,7 +8,6 @@ interface ThermalReceiptProps {
   draft: OrderDraft;
   total: number;
   subtotal: number;
-  deliveryFee: number;
   orderNumber?: number;
 }
 
@@ -18,11 +17,11 @@ const paymentLabels: Record<string, string> = {
   online: "ONLINE ÖDEME",
 };
 
-const PAPER_WIDTH = "80mm";
-const CONTENT_WIDTH = "72mm"; // güvenli yazdırma alanı
-const FONT_SIZE_NORMAL = "11px";
-const FONT_SIZE_XSMALL = "9px";
-const FONT_SIZE_LARGE = "13px";
+const PAPER_WIDTH = "72mm";
+const CONTENT_WIDTH = "64mm"; // yazıcı marjinleri hesaba katılmış güvenli alan
+const FONT_SIZE_NORMAL = "13px";
+const FONT_SIZE_XSMALL = "11px";
+const FONT_SIZE_LARGE = "16px";
 
 const Row = ({
   left,
@@ -95,7 +94,7 @@ const SectionTitle = ({ children }: { children: React.ReactNode }) => (
 );
 
 const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptProps>(
-  ({ draft, total, subtotal, deliveryFee, orderNumber }, ref) => {
+  ({ draft, total, subtotal, orderNumber }, ref) => {
     const uniqueId = useId();
     const receiptId = `thermal-receipt-${uniqueId.replace(/:/g, "")}`;
 
@@ -137,10 +136,11 @@ const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptProps>(
               box-shadow: none !important;
               background: #fff !important;
               overflow: hidden !important;
+              box-sizing: border-box !important;
             }
 
             @page {
-              size: 80mm auto;
+              size: 72mm auto;
               margin: 0;
             }
           }
@@ -192,15 +192,28 @@ const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptProps>(
 
             <Divider />
 
-            <Row left={`Sipariş No: #${orderNumber ?? "—"}`} right={dateStr} />
-            <Row left="" right={timeStr} />
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "baseline",
+                fontSize: FONT_SIZE_NORMAL,
+                marginBottom: "2px",
+              }}
+            >
+              <span style={{ fontWeight: 700 }}>Sipariş No: #{orderNumber ?? "—"}</span>
+              <span style={{ whiteSpace: "nowrap" }}>
+                {dateStr} {timeStr}
+              </span>
+            </div>
 
             <Divider dashed />
 
             <SectionTitle>Müşteri Bilgileri</SectionTitle>
             <div style={{ fontSize: FONT_SIZE_NORMAL, lineHeight: 1.45 }}>
-              <div style={{ fontWeight: 700 }}>{draft.customer.name || "—"}</div>
-              {draft.customer.phone && <div>{formatPhone(draft.customer.phone)}</div>}
+              {draft.customer.phone && (
+                <div style={{ fontWeight: 700 }}>{formatPhone(draft.customer.phone)}</div>
+              )}
               {draft.customer.district && <div>{draft.customer.district}</div>}
               {draft.customer.address && (
                 <div style={{ wordBreak: "break-word" }}>{draft.customer.address}</div>
@@ -215,7 +228,7 @@ const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptProps>(
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "1fr 10mm 18mm",
+                gridTemplateColumns: "1fr 11mm 20mm",
                 columnGap: "2mm",
                 fontSize: FONT_SIZE_XSMALL,
                 fontWeight: 700,
@@ -234,7 +247,7 @@ const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptProps>(
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "1fr 10mm 18mm",
+                    gridTemplateColumns: "1fr 11mm 20mm",
                     columnGap: "2mm",
                     alignItems: "start",
                     fontSize: FONT_SIZE_NORMAL,
@@ -291,10 +304,6 @@ const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptProps>(
             <Divider />
 
             <Row left="Ara Toplam" right={formatCurrency(subtotal)} />
-            <Row
-              left="Teslimat"
-              right={deliveryFee === 0 ? "ÜCRETSİZ" : formatCurrency(deliveryFee)}
-            />
 
             <div
               style={{ borderTop: "2px solid #000", marginTop: "4px", paddingTop: "4px" }}

@@ -3,12 +3,7 @@
 import { useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useReactToPrint } from "react-to-print";
-import {
-  useOrderStore,
-  selectSubtotal,
-  selectDeliveryFee,
-  selectTotal,
-} from "@/store/orderStore";
+import { useOrderStore, selectSubtotal, selectTotal } from "@/store/orderStore";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
@@ -37,7 +32,6 @@ export default function OrderSummary() {
   const router = useRouter();
   const { draft, setStep, setNotes, completeOrder, resetDraft } = useOrderStore();
   const subtotal = useOrderStore(selectSubtotal);
-  const deliveryFee = useOrderStore(selectDeliveryFee);
   const total = useOrderStore(selectTotal);
   const receiptRef = useRef<HTMLDivElement>(null);
 
@@ -117,16 +111,6 @@ export default function OrderSummary() {
                 <div className="flex justify-between text-muted-foreground">
                   <span>Ara Toplam</span>
                   <span>{formatCurrency(subtotal)}</span>
-                </div>
-                <div className="flex justify-between text-muted-foreground">
-                  <span>Teslimat Ücreti</span>
-                  <span>
-                    {deliveryFee === 0 ? (
-                      <span className="text-green-600 font-medium">Ücretsiz</span>
-                    ) : (
-                      formatCurrency(deliveryFee)
-                    )}
-                  </span>
                 </div>
                 <Separator />
                 <div className="flex justify-between text-lg font-bold">
@@ -269,7 +253,6 @@ export default function OrderSummary() {
                 draft={draft}
                 total={total}
                 subtotal={subtotal}
-                deliveryFee={deliveryFee}
               />
             </div>
           </CardContent>

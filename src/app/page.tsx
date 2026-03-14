@@ -46,6 +46,11 @@ export default function DashboardPage() {
 
   useEffect(() => {
     loadOrders();
+
+    // Sekme tekrar aktif olunca veya sayfa focus'a gelince yenile
+    const handleFocus = () => loadOrders();
+    window.addEventListener("focus", handleFocus);
+    return () => window.removeEventListener("focus", handleFocus);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
