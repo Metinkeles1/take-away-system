@@ -101,7 +101,8 @@ export default function CustomerForm() {
   };
 
   return (
-    <div className="mx-auto max-w-2xl">
+    <div className="h-full flex flex-col items-center overflow-hidden">
+      <div className="w-full max-w-2xl flex-1 min-h-0 overflow-y-auto scrollbar-hide pt-px px-px pb-2">
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-xl">
@@ -229,6 +230,7 @@ export default function CustomerForm() {
           </form>
         </CardContent>
       </Card>
+      </div>
     </div>
   );
 }

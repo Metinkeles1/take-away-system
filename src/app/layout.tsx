@@ -25,7 +25,7 @@ export default function RootLayout({
         className={`${geistSans.variable} font-sans antialiased h-dvh flex flex-col overflow-hidden`}
       >
         <Navbar />
-        <div className="flex-1 min-h-0 overflow-y-auto scrollbar-hide">{children}</div>
+        <div className="flex-1 min-h-0 overflow-hidden">{children}</div>
         <Toaster richColors position="top-right" />
       </body>
     </html>

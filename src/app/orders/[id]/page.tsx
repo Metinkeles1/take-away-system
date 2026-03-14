@@ -120,16 +120,16 @@ export default function OrderDetailPage() {
   };
 
   return (
-    <main className="h-full flex flex-col container mx-auto max-w-6xl px-4 pt-6 pb-4">
+    <main className="h-full flex flex-col container mx-auto max-w-6xl px-4 pt-4 pb-4 overflow-hidden">
       {/* Başlık */}
-      <div className="mb-4 flex items-center gap-4 shrink-0">
+      <div className="mb-4 flex items-center gap-3 shrink-0">
         <Button variant="ghost" size="sm" onClick={() => router.back()}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           Geri
         </Button>
-        <div className="flex-1">
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold">Sipariş #{order.orderNumber}</h1>
+          <div className="flex-1">
+            <div className="flex items-center gap-3">
+              <h1 className="text-xl font-bold">Sipariş #{order.orderNumber}</h1>
             <span
               className={`flex items-center gap-1 rounded-full border px-3 py-1 text-sm font-medium ${config.color}`}
             >

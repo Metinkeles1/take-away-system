@@ -66,11 +66,11 @@ export default function OrdersPage() {
   }, []);
 
   return (
-    <main className="h-full flex flex-col container mx-auto max-w-6xl px-4 pt-6 pb-4">
+    <main className="h-full flex flex-col container mx-auto max-w-6xl px-4 pt-4 pb-4 overflow-hidden">
       <div className="mb-4 flex items-center justify-between shrink-0">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Siparişler</h1>
-          <p className="mt-1 text-muted-foreground">Toplam {orders.length} sipariş</p>
+          <h1 className="text-2xl font-bold tracking-tight">Siparişler</h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">Toplam {orders.length} sipariş</p>
         </div>
         <Link href="/orders/new">
           <Button>
@@ -80,7 +80,7 @@ export default function OrdersPage() {
         </Link>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-hide pt-px px-px pb-4">
+      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-hide pt-px px-px pb-2">
         {isLoading ? (
           <div className="space-y-3">
             {[...Array(5)].map((_, i) => (

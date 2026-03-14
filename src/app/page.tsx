@@ -72,12 +72,12 @@ export default function DashboardPage() {
   const recentOrders = orders.slice(0, 8);
 
   return (
-    <main className="h-full overflow-y-auto scrollbar-hide container mx-auto max-w-6xl px-4 py-6">
+    <main className="h-full flex flex-col container mx-auto max-w-6xl px-4 pt-4 pb-4 overflow-hidden">
       {/* Başlık */}
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-4 flex items-center justify-between shrink-0">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Kontrol Paneli</h1>
-          <p className="mt-1 text-muted-foreground">
+          <h1 className="text-2xl font-bold tracking-tight">Kontrol Paneli</h1>
+          <p className="text-sm mt-0.5 text-muted-foreground">
             {new Date().toLocaleDateString("tr-TR", {
               weekday: "long",
               year: "numeric",
@@ -86,14 +86,14 @@ export default function DashboardPage() {
             })}
           </p>
         </div>
-        <Button size="lg" onClick={() => router.push("/orders/new")}>
-          <PlusCircle className="mr-2 h-5 w-5" />
+        <Button size="default" onClick={() => router.push("/orders/new")}>
+          <PlusCircle className="mr-2 h-4 w-4" />
           Yeni Sipariş
         </Button>
       </div>
 
       {/* İstatistik kartları */}
-      <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 shrink-0">
         {isLoading ? (
           <>
             {[...Array(4)].map((_, i) => (
@@ -142,15 +142,15 @@ export default function DashboardPage() {
         )}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="flex-1 min-h-0 grid gap-4 lg:grid-cols-3">
         {/* Aktif siparişler */}
-        <div className="lg:col-span-2">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-lg">Aktif Siparişler</CardTitle>
+        <div className="lg:col-span-2 flex flex-col min-h-0">
+          <Card className="flex flex-col flex-1 min-h-0">
+            <CardHeader className="flex flex-row items-center justify-between shrink-0 pb-3">
+              <CardTitle className="text-base">Aktif Siparişler</CardTitle>
               <Badge variant="secondary">{activeOrders.length} sipariş</Badge>
             </CardHeader>
-            <CardContent>
+            <CardContent className="flex-1 min-h-0 overflow-y-auto scrollbar-hide pb-4">
               {isLoading ? (
                 <div className="space-y-3">
                   {[...Array(3)].map((_, i) => (
@@ -177,7 +177,7 @@ export default function DashboardPage() {
                   <p className="text-sm">Şu anda aktif sipariş yok</p>
                 </div>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-2">
                   {activeOrders.map((order) => (
                     <OrderRow key={order.id} order={order} />
                   ))}
@@ -188,12 +188,12 @@ export default function DashboardPage() {
         </div>
 
         {/* Hızlı işlemler */}
-        <div>
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Hızlı İşlemler</CardTitle>
+        <div className="flex flex-col min-h-0">
+          <Card className="flex flex-col flex-1 min-h-0">
+            <CardHeader className="shrink-0 pb-3">
+              <CardTitle className="text-base">Hızlı İşlemler</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="flex-1 min-h-0 overflow-y-auto scrollbar-hide flex flex-col gap-3 pb-4">
               <Button
                 className="w-full justify-start"
                 onClick={() => router.push("/orders/new")}

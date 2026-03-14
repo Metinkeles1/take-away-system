@@ -239,7 +239,7 @@ export default function OrderSummary() {
               Fiş Önizleme
             </CardTitle>
           </CardHeader>
-          <CardContent className="flex justify-center p-3" style={{ overflow: "hidden" }}>
+          <CardContent className="flex-1 min-h-0 overflow-y-auto scrollbar-hide flex justify-center p-3">
             <div
               style={{
                 zoom: 0.82,
