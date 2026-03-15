@@ -9,13 +9,14 @@ import {
   type Product,
   type SavedCustomer,
 } from "@/types";
-import { DELIVERY_FEE, FREE_DELIVERY_THRESHOLD } from "@/data/menu";
+
 import {
   createOrder,
   updateOrderStatus as dbUpdateStatus,
   getOrders,
 } from "@/actions/orders";
 import { getSavedCustomers, upsertCustomer } from "@/actions/customers";
+import { DEFAULT_IBAN_NAME, DEFAULT_IBAN_NUMBER } from "@/lib/constants";
 
 // ─── Yardımcı: Sipariş numarası üret ─────────────────────────────────────────
 function generateOrderNumber(): number {
@@ -229,10 +230,9 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
           draft.payment.method === "cash" ? Math.max(0, cashGiven - total) : undefined,
         mealCardBrand:
           draft.payment.method === "meal_card" ? draft.payment.mealCardBrand : undefined,
-        // ibanName ve ibanNumber DB'ye gitmez, sadece draft'ta kalır
-        ibanName: draft.payment.method === "iban" ? draft.payment.ibanName : undefined,
-        ibanNumber:
-          draft.payment.method === "iban" ? draft.payment.ibanNumber : undefined,
+        // ibanName ve ibanNumber DB'ye gitmez, sadece draft'ta (fiş önizleme) kullanılır
+        ibanName: draft.payment.method === "iban" ? DEFAULT_IBAN_NAME : undefined,
+        ibanNumber: draft.payment.method === "iban" ? DEFAULT_IBAN_NUMBER : undefined,
       },
       status: "pending",
       notes: draft.notes,
@@ -305,8 +305,6 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
 // dışarıda pure selector olarak tutmak daha performanslıdır.
 export const selectSubtotal = (state: { draft: OrderDraft }) =>
   state.draft.items.reduce((sum, i) => sum + i.totalPrice, 0);
-
-export const selectDeliveryFee = (_state: { draft: OrderDraft }) => 0;
 
 export const selectTotal = (state: { draft: OrderDraft }) => {
   return state.draft.items.reduce((sum, i) => sum + i.totalPrice, 0);

@@ -29,6 +29,7 @@ import {
   MapPin,
 } from "lucide-react";
 import { type Order, type OrderStatus } from "@/types";
+import { DEFAULT_IBAN_NAME, DEFAULT_IBAN_NUMBER } from "@/lib/constants";
 import { toast } from "sonner";
 
 const statusConfig: Record<
@@ -109,7 +110,12 @@ export default function OrderDetailClient({ initialOrder }: Props) {
   const receiptDraft = {
     items: order.items,
     customer: order.customer,
-    payment: order.payment,
+    payment: {
+      ...order.payment,
+      // IBAN bilgileri DB'de saklanmaz, constants.ts'den sabitleri kullan
+      ibanName: order.payment.method === "iban" ? DEFAULT_IBAN_NAME : undefined,
+      ibanNumber: order.payment.method === "iban" ? DEFAULT_IBAN_NUMBER : undefined,
+    },
     notes: order.notes,
     currentStep: "summary" as const,
   };

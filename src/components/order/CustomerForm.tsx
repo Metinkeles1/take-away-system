@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -63,27 +63,21 @@ export default function CustomerForm() {
     },
   });
 
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (addressRef.current && !addressRef.current.contains(e.target as Node)) {
-        setDropdownOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  // Adres alanı değişince DB'de ara
-  const handleAddressChange = async (value: string) => {
+  // Adres alanı değişince DB'de ara (debounced - 350ms)
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleAddressChange = useCallback((value: string) => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
     if (value.trim().length >= 3) {
-      const results = await searchCustomers(value);
-      setSuggestions(results);
-      setDropdownOpen(results.length > 0);
+      searchTimerRef.current = setTimeout(async () => {
+        const results = await searchCustomers(value);
+        setSuggestions(results);
+        setDropdownOpen(results.length > 0);
+      }, 350);
     } else {
       setSuggestions([]);
       setDropdownOpen(false);
     }
-  };
+  }, []);
 
   // Kayıtlı müşteri seçilince tüm alanları doldur
   const handleSelectCustomer = (c: SavedCustomer) => {
@@ -122,9 +116,11 @@ export default function CustomerForm() {
                   <Input
                     id="address"
                     placeholder="Mahalle, cadde, sokak, bina no..."
-                    {...register("address", {
-                      onChange: (e) => handleAddressChange(e.target.value),
-                    })}
+                    {...register("address")}
+                    onChange={(e) => {
+                      void register("address").onChange(e);
+                      handleAddressChange(e.target.value);
+                    }}
                     className={errors.address ? "border-destructive" : ""}
                     autoComplete="off"
                     autoFocus

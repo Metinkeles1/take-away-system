@@ -4,8 +4,6 @@ import { useState } from "react";
 
 import { useOrderStore } from "@/store/orderStore";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -18,6 +16,7 @@ import {
   Landmark,
 } from "lucide-react";
 import { type PaymentMethod, type MealCardBrand } from "@/types";
+import { DEFAULT_IBAN_NAME, DEFAULT_IBAN_NUMBER } from "@/lib/constants";
 
 const paymentMethods: {
   value: PaymentMethod;
@@ -65,9 +64,6 @@ const mealCardBrands: { value: MealCardBrand; label: string }[] = [
   { value: "metropol", label: "Metropol" },
 ];
 
-const DEFAULT_IBAN_NAME = "Efendi Keleş";
-const DEFAULT_IBAN_NUMBER = "TR530001500158007361855795";
-
 export default function PaymentMethod() {
   const { draft, setPayment, setStep } = useOrderStore();
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>(
@@ -76,27 +72,17 @@ export default function PaymentMethod() {
   const [selectedBrand, setSelectedBrand] = useState<MealCardBrand>(
     (draft.payment.mealCardBrand as MealCardBrand) ?? "multinet",
   );
-  const [ibanName, setIbanName] = useState<string>(
-    draft.payment.ibanName ?? DEFAULT_IBAN_NAME,
-  );
-  const [ibanNumber, setIbanNumber] = useState<string>(
-    draft.payment.ibanNumber ?? DEFAULT_IBAN_NUMBER,
-  );
 
   const handleMethodChange = (method: PaymentMethod) => {
     setSelectedMethod(method);
-    if (method === "iban") {
-      setIbanName((prev) => prev || DEFAULT_IBAN_NAME);
-      setIbanNumber((prev) => prev || DEFAULT_IBAN_NUMBER);
-    }
   };
 
   const handleNext = () => {
     setPayment({
       method: selectedMethod,
       mealCardBrand: selectedMethod === "meal_card" ? selectedBrand : undefined,
-      ibanName: selectedMethod === "iban" ? ibanName.trim() || undefined : undefined,
-      ibanNumber: selectedMethod === "iban" ? ibanNumber.trim() || undefined : undefined,
+      ibanName: selectedMethod === "iban" ? DEFAULT_IBAN_NAME : undefined,
+      ibanNumber: selectedMethod === "iban" ? DEFAULT_IBAN_NUMBER : undefined,
     });
     setStep("summary");
   };
@@ -176,40 +162,6 @@ export default function PaymentMethod() {
                       {brand.label}
                     </button>
                   ))}
-                </div>
-              </div>
-            )}
-
-            {/* IBAN Bilgileri */}
-            {selectedMethod === "iban" && (
-              <div className="space-y-3 rounded-xl border-2 border-purple-200 bg-purple-50 p-4">
-                <p className="text-sm font-semibold text-purple-800 uppercase tracking-wide">
-                  IBAN Bilgileri
-                </p>
-                <div className="space-y-2">
-                  <Label htmlFor="ibanName" className="text-sm font-medium">
-                    Ad Soyad
-                  </Label>
-                  <Input
-                    id="ibanName"
-                    placeholder="Hesap sahibinin adı soyadı"
-                    value={ibanName}
-                    onChange={(e) => setIbanName(e.target.value)}
-                    className="bg-white"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="ibanNumber" className="text-sm font-medium">
-                    IBAN Numarası
-                  </Label>
-                  <Input
-                    id="ibanNumber"
-                    placeholder="TR00 0000 0000 0000 0000 0000 00"
-                    value={ibanNumber}
-                    onChange={(e) => setIbanNumber(e.target.value.toUpperCase())}
-                    className="bg-white font-mono tracking-wider"
-                    maxLength={32}
-                  />
                 </div>
               </div>
             )}
