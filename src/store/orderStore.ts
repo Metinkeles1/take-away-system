@@ -227,6 +227,12 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
         cashGiven: draft.payment.method === "cash" ? cashGiven : undefined,
         change:
           draft.payment.method === "cash" ? Math.max(0, cashGiven - total) : undefined,
+        mealCardBrand:
+          draft.payment.method === "meal_card" ? draft.payment.mealCardBrand : undefined,
+        // ibanName ve ibanNumber DB'ye gitmez, sadece draft'ta kalır
+        ibanName: draft.payment.method === "iban" ? draft.payment.ibanName : undefined,
+        ibanNumber:
+          draft.payment.method === "iban" ? draft.payment.ibanNumber : undefined,
       },
       status: "pending",
       notes: draft.notes,

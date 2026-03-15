@@ -37,9 +37,14 @@ const CustomerInfoSchema = new Schema(
 
 const PaymentInfoSchema = new Schema(
   {
-    method: { type: String, enum: ["cash", "card", "online"], required: true },
+    method: {
+      type: String,
+      enum: ["cash", "card", "online", "meal_card", "iban"],
+      required: true,
+    },
     cashGiven: Number,
     change: Number,
+    mealCardBrand: String, // sadece yemek kartı markası kaydedilir
   },
   { _id: false },
 );

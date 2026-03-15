@@ -37,12 +37,23 @@ export interface CustomerInfo {
 }
 
 // ─── Ödeme Yöntemi ────────────────────────────────────────────────────────────
-export type PaymentMethod = "cash" | "card" | "online";
+export type MealCardBrand =
+  | "multinet"
+  | "setcard"
+  | "pluxee"
+  | "edenred"
+  | "tokenflex"
+  | "metropol";
+
+export type PaymentMethod = "cash" | "card" | "online" | "meal_card" | "iban";
 
 export interface PaymentInfo {
   method: PaymentMethod;
   cashGiven?: number; // Nakit verildi
   change?: number; // Para üstü
+  mealCardBrand?: MealCardBrand; // Yemek kartı markası
+  ibanName?: string; // IBAN sahibi ad soyad
+  ibanNumber?: string; // IBAN numarası
 }
 
 // ─── Sipariş Durumu ───────────────────────────────────────────────────────────
@@ -91,6 +102,9 @@ export interface CustomerFormData {
 export interface PaymentFormData {
   method: PaymentMethod;
   cashGiven?: string;
+  mealCardBrand?: MealCardBrand;
+  ibanName?: string;
+  ibanNumber?: string;
 }
 
 // ─── Kayıtlı Müşteri ─────────────────────────────────────────────────────────

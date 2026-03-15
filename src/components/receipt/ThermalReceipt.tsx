@@ -15,6 +15,17 @@ const paymentLabels: Record<string, string> = {
   cash: "NAKİT",
   card: "KREDİ/BANKA KARTI",
   online: "ONLINE ÖDEME",
+  meal_card: "YEMEK KARTI",
+  iban: "IBAN / HAVALE",
+};
+
+const mealCardLabels: Record<string, string> = {
+  multinet: "Multinet",
+  setcard: "Setcard",
+  pluxee: "Pluxee",
+  edenred: "Edenred",
+  tokenflex: "Tokenflex",
+  metropol: "Metropol",
 };
 
 const PAPER_WIDTH = "72mm";
@@ -318,11 +329,53 @@ const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptProps>(
               style={{
                 fontSize: FONT_SIZE_NORMAL,
                 fontWeight: 700,
-                marginBottom: "4px",
+                marginBottom: "2px",
               }}
             >
               {paymentLabels[draft.payment.method ?? ""] ?? "—"}
             </div>
+
+            {/* Yemek Kartı Markası */}
+            {draft.payment.method === "meal_card" && draft.payment.mealCardBrand && (
+              <div
+                style={{
+                  fontSize: FONT_SIZE_NORMAL,
+                  marginBottom: "4px",
+                }}
+              >
+                {mealCardLabels[draft.payment.mealCardBrand] ??
+                  draft.payment.mealCardBrand}
+              </div>
+            )}
+
+            {/* IBAN Bilgileri */}
+            {draft.payment.method === "iban" && (
+              <div
+                style={{
+                  fontSize: FONT_SIZE_NORMAL,
+                  marginBottom: "4px",
+                  lineHeight: 1.5,
+                }}
+              >
+                {draft.payment.ibanName && (
+                  <div style={{ fontWeight: 400 }}>
+                    Ad Soyad:{" "}
+                    <span style={{ fontWeight: 700 }}>{draft.payment.ibanName}</span>
+                  </div>
+                )}
+                {draft.payment.ibanNumber && (
+                  <div
+                    style={{
+                      fontWeight: 700,
+                      letterSpacing: "0.5px",
+                      wordBreak: "break-all",
+                    }}
+                  >
+                    {draft.payment.ibanNumber}
+                  </div>
+                )}
+              </div>
+            )}
 
             {draft.notes && (
               <>

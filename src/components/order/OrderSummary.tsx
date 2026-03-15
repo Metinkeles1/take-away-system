@@ -26,6 +26,17 @@ const paymentLabels: Record<string, string> = {
   cash: "💵 Nakit",
   card: "💳 Kredi / Banka Kartı",
   online: "📱 Online Ödeme",
+  meal_card: "🍴 Yemek Kartı",
+  iban: "🏦 IBAN / Havale",
+};
+
+const mealCardLabels: Record<string, string> = {
+  multinet: "Multinet",
+  setcard: "Setcard",
+  pluxee: "Pluxee",
+  edenred: "Edenred",
+  tokenflex: "Tokenflex",
+  metropol: "Metropol",
 };
 
 export default function OrderSummary() {
@@ -191,6 +202,33 @@ export default function OrderSummary() {
                       {formatCurrency(Math.max(0, draft.payment.cashGiven - total))}
                     </span>
                   </div>
+                </>
+              )}
+              {draft.payment.method === "meal_card" && draft.payment.mealCardBrand && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Marka</span>
+                  <span className="font-medium">
+                    {mealCardLabels[draft.payment.mealCardBrand] ??
+                      draft.payment.mealCardBrand}
+                  </span>
+                </div>
+              )}
+              {draft.payment.method === "iban" && (
+                <>
+                  {draft.payment.ibanName && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Ad Soyad</span>
+                      <span className="font-medium">{draft.payment.ibanName}</span>
+                    </div>
+                  )}
+                  {draft.payment.ibanNumber && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">IBAN</span>
+                      <span className="font-mono font-medium text-xs break-all text-right max-w-[60%]">
+                        {draft.payment.ibanNumber}
+                      </span>
+                    </div>
+                  )}
                 </>
               )}
             </CardContent>

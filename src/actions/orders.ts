@@ -56,12 +56,15 @@ export async function createOrder(
   try {
     await connectDB();
 
+    // ibanName ve ibanNumber DB'ye kaydedilmez, sadece UI'da (fiş) kullanılır
+    const { ...paymentForDB } = order.payment;
+
     await OrderModel.create({
       id: order.id,
       orderNumber: order.orderNumber,
       items: order.items,
       customer: order.customer,
-      payment: order.payment,
+      payment: paymentForDB,
       status: order.status ?? "pending",
       notes: order.notes,
       subtotal: order.subtotal,
