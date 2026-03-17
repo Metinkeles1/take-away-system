@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useTransition, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useOrderStore } from "@/store/orderStore";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -21,6 +22,7 @@ import {
   PlusCircle,
   XCircle,
   ChevronRight,
+  Loader2,
 } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { type OrderStatus } from "@/types";
@@ -55,6 +57,9 @@ const statusOrder: OrderStatus[] = [
 
 export default function OrdersPage() {
   const { orders, updateOrderStatus, loadOrders, isLoading } = useOrderStore();
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+  const [navigatingId, setNavigatingId] = useState<string | null>(null);
 
   useEffect(() => {
     loadOrders();
@@ -203,12 +208,27 @@ export default function OrdersPage() {
                           })}
                         </SelectContent>
                       </Select>
-                      <Link href={`/orders/${order.id}`}>
-                        <Button variant="ghost" size="sm" className="h-7 text-xs">
-                          Detay
-                          <ChevronRight className="ml-1 h-3 w-3" />
-                        </Button>
-                      </Link>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs"
+                        disabled={isPending && navigatingId === order.id}
+                        onClick={() => {
+                          setNavigatingId(order.id);
+                          startTransition(() => {
+                            router.push(`/orders/${order.id}`);
+                          });
+                        }}
+                      >
+                        {isPending && navigatingId === order.id ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <>
+                            Detay
+                            <ChevronRight className="ml-1 h-3 w-3" />
+                          </>
+                        )}
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>

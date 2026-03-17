@@ -367,7 +367,7 @@ const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptProps>(
                   <div
                     style={{
                       fontWeight: 700,
-                      letterSpacing: "0.5px",
+                      letterSpacing: "0.2px",
                       wordBreak: "break-all",
                     }}
                   >

@@ -105,8 +105,9 @@ export const MENU_ITEMS: Product[] = [
   { id: "ki3", name: "Kilo Pirzola", price: 800, category: "kilo", available: true },
 
   // ── Çorba Çeşitleri ───────────────────────────────────────────
-  { id: "c1", name: "Günün Çorbası", price: 100, category: "corba", available: true },
-  { id: "c2", name: "Kelle Paça", price: 300, category: "corba", available: true },
+  { id: "c1", name: "Süzme Mercimek", price: 100, category: "corba", available: true },
+  { id: "c2", name: "Yayla Çorbası", price: 120, category: "corba", available: true },
+  { id: "c3", name: "Kelle Paça", price: 300, category: "corba", available: true },
 
   // ── Tatlı Çeşitleri ───────────────────────────────────────────
   { id: "t1", name: "Sütlaç", price: 120, category: "tatli", available: true },
