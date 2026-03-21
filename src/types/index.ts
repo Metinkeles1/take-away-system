@@ -9,6 +9,24 @@ export type ProductCategory =
   | "tatli"
   | "icecek";
 
+// ─── Porsiyon ────────────────────────────────────────────────────────────────
+export type PortionSize = "half" | "full" | "one_and_half";
+
+export interface PortionOption {
+  size: PortionSize;
+  label: string;
+  multiplier: number; // fiyat çarpanı: 0.5 | 1 | 1.5
+}
+
+export const PORTION_OPTIONS: PortionOption[] = [
+  { size: "half", label: "0.5 Porsiyon", multiplier: 0.5 },
+  { size: "full", label: "1 Porsiyon", multiplier: 1 },
+  { size: "one_and_half", label: "1.5 Porsiyon", multiplier: 1.5 },
+];
+
+// Porsiyon destekleyen kategoriler
+export const PORTIONABLE_CATEGORIES: ProductCategory[] = ["kebap", "pide", "durum"];
+
 // ─── Ürün ────────────────────────────────────────────────────────────────────
 export interface Product {
   id: string;
@@ -23,6 +41,7 @@ export interface Product {
 export interface OrderItem {
   product: Product;
   quantity: number;
+  portion?: PortionOption; // porsiyon bilgisi (varsa)
   note?: string;
   totalPrice: number;
 }

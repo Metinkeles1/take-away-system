@@ -9,6 +9,12 @@ const ProductSchema = new Schema(
     price: { type: Number, required: true },
     category: { type: String, required: true },
     description: String,
+    portion: {
+      type: Number,
+      enum: [0.5, 1, 1.5, 2],
+      default: 1,
+      required: true,
+    },
     available: { type: Boolean, default: true },
   },
   { _id: false },

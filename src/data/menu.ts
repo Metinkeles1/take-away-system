@@ -3,9 +3,9 @@ import { type Product, type ProductCategory } from "@/types";
 export const MENU_CATEGORIES: { value: ProductCategory; label: string; emoji: string }[] =
   [
     { value: "kebap", label: "Kebap", emoji: "🥩" },
-    { value: "pide", label: "Pide", emoji: "🫓" },
-    { value: "lahmacun", label: "Lahmacun", emoji: "🫔" },
-    { value: "durum", label: "Dürüm", emoji: "🌯" },
+    { value: "pide", label: "Pide", emoji: "🍕" },
+    { value: "lahmacun", label: "Lahmacun", emoji: "🌯" },
+    { value: "durum", label: "Dürüm", emoji: "🥙" },
     { value: "kilo", label: "Kilo İşi", emoji: "⚖️" },
     { value: "corba", label: "Çorba", emoji: "🍲" },
     { value: "tatli", label: "Tatlı", emoji: "🍰" },

@@ -8,6 +8,7 @@ import {
   type OrderStatus,
   type Product,
   type SavedCustomer,
+  type PortionOption,
 } from "@/types";
 
 import {
@@ -43,9 +44,10 @@ interface OrderStore {
 
   // ── Draft aksiyonlar ──────────────────────────────────────────────────────
   addItem: (product: Product) => void;
-  removeItem: (productId: string) => void;
-  updateQuantity: (productId: string, quantity: number) => void;
-  updateItemNote: (productId: string, note: string) => void;
+  addItemWithPortion: (product: Product, portion: PortionOption) => void;
+  removeItem: (itemKey: string) => void;
+  updateQuantity: (itemKey: string, quantity: number) => void;
+  updateItemNote: (itemKey: string, note: string) => void;
   setCustomer: (customer: Partial<CustomerInfo>) => void;
   setPayment: (payment: Partial<PaymentInfo>) => void;
   setNotes: (notes: string) => void;
@@ -83,16 +85,19 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
   savedCustomers: [],
   isLoading: false,
 
-  // ── Ürün ekle ──────────────────────────────────────────────────────────
+  // ── Ürün ekle (porsiyonsuz — fiyat tam olarak kullanılır) ────────────────
   addItem: (product) => {
+    const itemKey = product.id;
     set((state) => {
-      const existing = state.draft.items.find((i) => i.product.id === product.id);
+      const existing = state.draft.items.find(
+        (i) => i.product.id === product.id && !i.portion,
+      );
       if (existing) {
         return {
           draft: {
             ...state.draft,
             items: state.draft.items.map((i) =>
-              i.product.id === product.id
+              i.product.id === product.id && !i.portion
                 ? {
                     ...i,
                     quantity: i.quantity + 1,
@@ -117,44 +122,95 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
         },
       };
     });
+    void itemKey;
+  },
+
+  // ── Porsiyon ile ürün ekle ──────────────────────────────────────────────
+  addItemWithPortion: (product, portion) => {
+    const portionPrice = Math.round(product.price * portion.multiplier);
+    const itemKey = `${product.id}:${portion.size}`;
+    set((state) => {
+      const existing = state.draft.items.find(
+        (i) => i.product.id === product.id && i.portion?.size === portion.size,
+      );
+      if (existing) {
+        return {
+          draft: {
+            ...state.draft,
+            items: state.draft.items.map((i) =>
+              i.product.id === product.id && i.portion?.size === portion.size
+                ? {
+                    ...i,
+                    quantity: i.quantity + 1,
+                    totalPrice: (i.quantity + 1) * portionPrice,
+                  }
+                : i,
+            ),
+          },
+        };
+      }
+      return {
+        draft: {
+          ...state.draft,
+          items: [
+            ...state.draft.items,
+            {
+              product,
+              portion,
+              quantity: 1,
+              totalPrice: portionPrice,
+            },
+          ],
+        },
+      };
+    });
+    void itemKey;
   },
 
   // ── Ürün çıkar ─────────────────────────────────────────────────────────
-  removeItem: (productId) => {
+  // itemKey: "productId" (porsiyonsuz) | "productId:portionSize" (porsiyonlu)
+  removeItem: (itemKey) => {
     set((state) => ({
       draft: {
         ...state.draft,
-        items: state.draft.items.filter((i) => i.product.id !== productId),
+        items: state.draft.items.filter((i) => {
+          const key = i.portion ? `${i.product.id}:${i.portion.size}` : i.product.id;
+          return key !== itemKey;
+        }),
       },
     }));
   },
 
   // ── Miktar güncelle ────────────────────────────────────────────────────
-  updateQuantity: (productId, quantity) => {
+  updateQuantity: (itemKey, quantity) => {
     if (quantity <= 0) {
-      get().removeItem(productId);
+      get().removeItem(itemKey);
       return;
     }
     set((state) => ({
       draft: {
         ...state.draft,
-        items: state.draft.items.map((i) =>
-          i.product.id === productId
-            ? { ...i, quantity, totalPrice: quantity * i.product.price }
-            : i,
-        ),
+        items: state.draft.items.map((i) => {
+          const key = i.portion ? `${i.product.id}:${i.portion.size}` : i.product.id;
+          if (key !== itemKey) return i;
+          const unitPrice = i.portion
+            ? Math.round(i.product.price * i.portion.multiplier)
+            : i.product.price;
+          return { ...i, quantity, totalPrice: quantity * unitPrice };
+        }),
       },
     }));
   },
 
   // ── Ürün notu güncelle ─────────────────────────────────────────────────
-  updateItemNote: (productId, note) => {
+  updateItemNote: (itemKey, note) => {
     set((state) => ({
       draft: {
         ...state.draft,
-        items: state.draft.items.map((i) =>
-          i.product.id === productId ? { ...i, note } : i,
-        ),
+        items: state.draft.items.map((i) => {
+          const key = i.portion ? `${i.product.id}:${i.portion.size}` : i.product.id;
+          return key === itemKey ? { ...i, note } : i;
+        }),
       },
     }));
   },

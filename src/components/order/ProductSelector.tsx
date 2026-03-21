@@ -10,14 +10,18 @@ import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import { Plus, Minus, Trash2, ShoppingCart, Search, ArrowRight } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
-import { type ProductCategory } from "@/types";
+import { type ProductCategory, type Product, PORTIONABLE_CATEGORIES } from "@/types";
+import PortionSelector from "@/components/order/PortionSelector";
+import type { PortionOption } from "@/types";
 
 export default function ProductSelector() {
-  const { draft, addItem, removeItem, updateQuantity, setStep } = useOrderStore();
+  const { draft, addItem, addItemWithPortion, removeItem, updateQuantity, setStep } =
+    useOrderStore();
   const subtotal = useOrderStore(selectSubtotal);
   const total = useOrderStore(selectTotal);
   const [activeCategory, setActiveCategory] = useState<ProductCategory | "all">("all");
   const [search, setSearch] = useState("");
+  const [portionProduct, setPortionProduct] = useState<Product | null>(null);
 
   const filteredItems = MENU_ITEMS.filter((item) => {
     const matchesCategory = activeCategory === "all" || item.category === activeCategory;
@@ -26,9 +30,26 @@ export default function ProductSelector() {
     return matchesCategory && matchesSearch && item.available;
   });
 
-  const getItemQuantity = (productId: string) => {
-    const item = draft.items.find((i) => i.product.id === productId);
-    return item?.quantity ?? 0;
+  // Porsiyonsuz ürünler için toplam miktar (tüm porsiyonların toplamı)
+  const getItemTotalQuantity = (productId: string) => {
+    return draft.items
+      .filter((i) => i.product.id === productId)
+      .reduce((sum, i) => sum + i.quantity, 0);
+  };
+
+  const isPortionable = (product: Product) =>
+    PORTIONABLE_CATEGORIES.includes(product.category);
+
+  const handleProductClick = (product: Product) => {
+    if (isPortionable(product)) {
+      setPortionProduct(product);
+    } else {
+      addItem(product);
+    }
+  };
+
+  const handlePortionSelect = (product: Product, portion: PortionOption) => {
+    addItemWithPortion(product, portion);
   };
 
   const totalItems = draft.items.reduce((sum, i) => sum + i.quantity, 0);
@@ -85,7 +106,8 @@ export default function ProductSelector() {
           ) : (
             <div className="grid gap-2 sm:grid-cols-2">
               {filteredItems.map((product) => {
-                const qty = getItemQuantity(product.id);
+                const qty = getItemTotalQuantity(product.id);
+                const portionable = isPortionable(product);
                 return (
                   <Card
                     key={product.id}
@@ -112,12 +134,21 @@ export default function ProductSelector() {
                       </div>
 
                       {/* Miktar kontrol */}
-                      {qty === 0 ? (
+                      {portionable ? (
                         <Button
                           size="sm"
                           variant="outline"
                           className="h-8 w-8 p-0 shrink-0"
-                          onClick={() => addItem(product)}
+                          onClick={() => handleProductClick(product)}
+                        >
+                          <Plus className="h-4 w-4" />
+                        </Button>
+                      ) : qty === 0 ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 w-8 p-0 shrink-0"
+                          onClick={() => handleProductClick(product)}
                         >
                           <Plus className="h-4 w-4" />
                         </Button>
@@ -136,7 +167,7 @@ export default function ProductSelector() {
                             size="sm"
                             variant="outline"
                             className="h-7 w-7 p-0"
-                            onClick={() => addItem(product)}
+                            onClick={() => handleProductClick(product)}
                           >
                             <Plus className="h-3 w-3" />
                           </Button>
@@ -170,34 +201,69 @@ export default function ProductSelector() {
             ) : (
               <>
                 <div className="space-y-2 flex-1 min-h-0 overflow-y-auto scrollbar-hide pr-1">
-                  {draft.items.map((item) => (
-                    <div
-                      key={item.product.id}
-                      className="flex items-center justify-between gap-2 rounded-md bg-muted/50 p-2"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">
-                          {item.product.name}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {item.quantity} x {formatCurrency(item.product.price)}
-                        </p>
+                  {draft.items.map((item) => {
+                    const key = item.portion
+                      ? `${item.product.id}:${item.portion.size}`
+                      : item.product.id;
+                    const unitPrice = item.portion
+                      ? Math.round(item.product.price * item.portion.multiplier)
+                      : item.product.price;
+                    return (
+                      <div
+                        key={key}
+                        className="flex items-center justify-between gap-2 rounded-md bg-muted/50 p-2"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">
+                            {item.product.name}
+                            {item.portion && (
+                              <span className="ml-1.5 text-xs font-normal text-primary">
+                                ({item.portion.label})
+                              </span>
+                            )}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {item.quantity} x {formatCurrency(unitPrice)}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-6 w-6 p-0"
+                            onClick={() => updateQuantity(key, item.quantity - 1)}
+                          >
+                            <Minus className="h-3 w-3" />
+                          </Button>
+                          <span className="w-5 text-center text-xs font-bold">
+                            {item.quantity}
+                          </span>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-6 w-6 p-0"
+                            onClick={() => {
+                              if (item.portion) {
+                                addItemWithPortion(item.product, item.portion);
+                              } else {
+                                addItem(item.product);
+                              }
+                            }}
+                          >
+                            <Plus className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 w-6 p-0 text-destructive hover:text-destructive"
+                            onClick={() => removeItem(key)}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-1 shrink-0">
-                        <span className="text-sm font-bold text-primary">
-                          {formatCurrency(item.totalPrice)}
-                        </span>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-6 w-6 p-0 text-destructive hover:text-destructive"
-                          onClick={() => removeItem(item.product.id)}
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 <Separator className="my-3" />
@@ -228,6 +294,14 @@ export default function ProductSelector() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Porsiyon seçim modalı */}
+      <PortionSelector
+        product={portionProduct}
+        open={portionProduct !== null}
+        onClose={() => setPortionProduct(null)}
+        onSelect={handlePortionSelect}
+      />
     </div>
   );
 }

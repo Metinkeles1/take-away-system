@@ -94,27 +94,42 @@ export default function OrderSummary() {
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
-                {draft.items.map((item) => (
-                  <div
-                    key={item.product.id}
-                    className="flex items-center justify-between rounded-md bg-muted/40 px-3 py-2"
-                  >
-                    <div>
-                      <span className="font-medium text-sm">{item.product.name}</span>
-                      {item.note && (
-                        <p className="text-xs text-muted-foreground">Not: {item.note}</p>
-                      )}
+                {draft.items.map((item) => {
+                  const key = item.portion
+                    ? `${item.product.id}:${item.portion.size}`
+                    : item.product.id;
+                  const unitPrice = item.portion
+                    ? Math.round(item.product.price * item.portion.multiplier)
+                    : item.product.price;
+                  return (
+                    <div
+                      key={key}
+                      className="flex items-center justify-between rounded-md bg-muted/40 px-3 py-2"
+                    >
+                      <div>
+                        <span className="font-medium text-sm">{item.product.name}</span>
+                        {item.portion && (
+                          <span className="ml-1.5 text-xs text-primary font-medium">
+                            ({item.portion.label})
+                          </span>
+                        )}
+                        {item.note && (
+                          <p className="text-xs text-muted-foreground">
+                            Not: {item.note}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-4 text-sm">
+                        <span className="text-muted-foreground">
+                          {item.quantity} × {formatCurrency(unitPrice)}
+                        </span>
+                        <span className="font-bold w-20 text-right">
+                          {formatCurrency(item.totalPrice)}
+                        </span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-4 text-sm">
-                      <span className="text-muted-foreground">
-                        {item.quantity} × {formatCurrency(item.product.price)}
-                      </span>
-                      <span className="font-bold w-20 text-right">
-                        {formatCurrency(item.totalPrice)}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               <Separator className="my-3" />

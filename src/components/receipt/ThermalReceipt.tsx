@@ -274,6 +274,12 @@ const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptProps>(
                     }}
                   >
                     {item.product.name}
+                    {item.portion && (
+                      <span style={{ fontWeight: 400, fontSize: "0.85em" }}>
+                        {" "}
+                        ({item.portion.label})
+                      </span>
+                    )}
                   </span>
 
                   <span
