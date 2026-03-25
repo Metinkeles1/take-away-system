@@ -142,9 +142,9 @@ export default function DashboardPage() {
         )}
       </div>
 
-      <div className="flex-1 min-h-0 grid gap-4 lg:grid-cols-3">
+      <div className="flex-1 min-h-0 grid gap-4 lg:grid-cols-3 lg:items-start">
         {/* Aktif siparişler */}
-        <div className="lg:col-span-2 flex flex-col min-h-0">
+        <div className="lg:col-span-2 flex flex-col min-h-0 lg:max-h-[calc(100vh-13rem)]">
           <Card className="flex flex-col flex-1 min-h-0">
             <CardHeader className="flex flex-row items-center justify-between shrink-0 pb-3">
               <CardTitle className="text-base">Aktif Siparişler</CardTitle>
@@ -188,12 +188,12 @@ export default function DashboardPage() {
         </div>
 
         {/* Hızlı işlemler */}
-        <div className="flex flex-col min-h-0">
-          <Card className="flex flex-col flex-1 min-h-0">
+        <div>
+          <Card>
             <CardHeader className="shrink-0 pb-3">
               <CardTitle className="text-base">Hızlı İşlemler</CardTitle>
             </CardHeader>
-            <CardContent className="flex-1 min-h-0 overflow-y-auto scrollbar-hide flex flex-col gap-3 pb-4">
+            <CardContent className="flex flex-col gap-3 pb-4">
               <Button
                 className="w-full justify-start"
                 onClick={() => router.push("/orders/new")}

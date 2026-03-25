@@ -36,7 +36,12 @@ import {
   Utensils,
   Landmark,
 } from "lucide-react";
-import { type Order, type OrderStatus, type PaymentMethod, type MealCardBrand } from "@/types";
+import {
+  type Order,
+  type OrderStatus,
+  type PaymentMethod,
+  type MealCardBrand,
+} from "@/types";
 import { DEFAULT_IBAN_NAME, DEFAULT_IBAN_NUMBER } from "@/lib/constants";
 import { toast } from "sonner";
 
@@ -101,10 +106,30 @@ const paymentMethodOptions: {
   icon: React.ElementType;
   color: string;
 }[] = [
-  { value: "cash", label: "Nakit", icon: Banknote, color: "border-green-300 bg-green-50 text-green-700" },
-  { value: "card", label: "Kredi / Banka Kartı", icon: CreditCard, color: "border-blue-300 bg-blue-50 text-blue-700" },
-  { value: "meal_card", label: "Yemek Kartı", icon: Utensils, color: "border-orange-300 bg-orange-50 text-orange-700" },
-  { value: "iban", label: "IBAN / Havale", icon: Landmark, color: "border-purple-300 bg-purple-50 text-purple-700" },
+  {
+    value: "cash",
+    label: "Nakit",
+    icon: Banknote,
+    color: "border-green-300 bg-green-50 text-green-700",
+  },
+  {
+    value: "card",
+    label: "Kredi / Banka Kartı",
+    icon: CreditCard,
+    color: "border-blue-300 bg-blue-50 text-blue-700",
+  },
+  {
+    value: "meal_card",
+    label: "Yemek Kartı",
+    icon: Utensils,
+    color: "border-orange-300 bg-orange-50 text-orange-700",
+  },
+  {
+    value: "iban",
+    label: "IBAN / Havale",
+    icon: Landmark,
+    color: "border-purple-300 bg-purple-50 text-purple-700",
+  },
 ];
 
 const mealCardBrandOptions: { value: MealCardBrand; label: string }[] = [
@@ -125,7 +150,9 @@ export default function OrderDetailClient({ initialOrder }: Props) {
   const { updateOrderStatus, updateOrderPayment, orders } = useOrderStore();
   const receiptRef = useRef<HTMLDivElement>(null);
   const [paymentEditing, setPaymentEditing] = useState(false);
-  const [editMethod, setEditMethod] = useState<PaymentMethod>(initialOrder.payment.method);
+  const [editMethod, setEditMethod] = useState<PaymentMethod>(
+    initialOrder.payment.method,
+  );
   const [editBrand, setEditBrand] = useState<MealCardBrand>(
     initialOrder.payment.mealCardBrand ?? "multinet",
   );
@@ -442,15 +469,16 @@ export default function OrderDetailClient({ initialOrder }: Props) {
                       {paymentLabels[order.payment.method] ?? order.payment.method}
                     </span>
                   </div>
-                  {order.payment.method === "meal_card" && order.payment.mealCardBrand && (
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Marka</span>
-                      <span className="font-medium">
-                        {mealCardLabels[order.payment.mealCardBrand] ??
-                          order.payment.mealCardBrand}
-                      </span>
-                    </div>
-                  )}
+                  {order.payment.method === "meal_card" &&
+                    order.payment.mealCardBrand && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Marka</span>
+                        <span className="font-medium">
+                          {mealCardLabels[order.payment.mealCardBrand] ??
+                            order.payment.mealCardBrand}
+                        </span>
+                      </div>
+                    )}
                 </div>
               )}
             </CardContent>

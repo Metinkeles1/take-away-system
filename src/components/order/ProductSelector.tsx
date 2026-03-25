@@ -285,8 +285,6 @@ export default function ProductSelector() {
           </CardContent>
         </Card>
       </div>
-
-
     </div>
   );
 }
