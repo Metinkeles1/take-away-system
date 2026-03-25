@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useOrderStore } from "@/store/orderStore";
 import { useReactToPrint } from "react-to-print";
@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/select";
 import ThermalReceipt from "@/components/receipt/ThermalReceipt";
 import { formatCurrency, formatDate, formatPhone } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import {
   ArrowLeft,
   Printer,
@@ -27,8 +28,15 @@ import {
   User,
   Phone,
   MapPin,
+  Pencil,
+  X,
+  Check,
+  Banknote,
+  CreditCard,
+  Utensils,
+  Landmark,
 } from "lucide-react";
-import { type Order, type OrderStatus } from "@/types";
+import { type Order, type OrderStatus, type PaymentMethod, type MealCardBrand } from "@/types";
 import { DEFAULT_IBAN_NAME, DEFAULT_IBAN_NUMBER } from "@/lib/constants";
 import { toast } from "sonner";
 
@@ -87,17 +95,64 @@ const mealCardLabels: Record<string, string> = {
   metropol: "Metropol",
 };
 
+const paymentMethodOptions: {
+  value: PaymentMethod;
+  label: string;
+  icon: React.ElementType;
+  color: string;
+}[] = [
+  { value: "cash", label: "Nakit", icon: Banknote, color: "border-green-300 bg-green-50 text-green-700" },
+  { value: "card", label: "Kredi / Banka Kartı", icon: CreditCard, color: "border-blue-300 bg-blue-50 text-blue-700" },
+  { value: "meal_card", label: "Yemek Kartı", icon: Utensils, color: "border-orange-300 bg-orange-50 text-orange-700" },
+  { value: "iban", label: "IBAN / Havale", icon: Landmark, color: "border-purple-300 bg-purple-50 text-purple-700" },
+];
+
+const mealCardBrandOptions: { value: MealCardBrand; label: string }[] = [
+  { value: "multinet", label: "Multinet" },
+  { value: "setcard", label: "Setcard" },
+  { value: "pluxee", label: "Pluxee" },
+  { value: "edenred", label: "Edenred" },
+  { value: "tokenflex", label: "Tokenflex" },
+  { value: "metropol", label: "Metropol" },
+];
+
 interface Props {
   initialOrder: Order;
 }
 
 export default function OrderDetailClient({ initialOrder }: Props) {
   const router = useRouter();
-  const { updateOrderStatus, orders } = useOrderStore();
+  const { updateOrderStatus, updateOrderPayment, orders } = useOrderStore();
   const receiptRef = useRef<HTMLDivElement>(null);
+  const [paymentEditing, setPaymentEditing] = useState(false);
+  const [editMethod, setEditMethod] = useState<PaymentMethod>(initialOrder.payment.method);
+  const [editBrand, setEditBrand] = useState<MealCardBrand>(
+    initialOrder.payment.mealCardBrand ?? "multinet",
+  );
+  const [paymentSaving, setPaymentSaving] = useState(false);
 
   // Store'da varsa güncel hali, yoksa server'dan gelen initial veriyi kullan
   const order = orders.find((o) => o.id === initialOrder.id) ?? initialOrder;
+
+  const handleStartPaymentEdit = () => {
+    setEditMethod(order.payment.method);
+    setEditBrand(order.payment.mealCardBrand ?? "multinet");
+    setPaymentEditing(true);
+  };
+
+  const handleSavePayment = async () => {
+    setPaymentSaving(true);
+    const newPayment = {
+      method: editMethod,
+      mealCardBrand: editMethod === "meal_card" ? editBrand : undefined,
+      ibanName: editMethod === "iban" ? DEFAULT_IBAN_NAME : undefined,
+      ibanNumber: editMethod === "iban" ? DEFAULT_IBAN_NUMBER : undefined,
+    };
+    await updateOrderPayment(order.id, newPayment);
+    setPaymentSaving(false);
+    setPaymentEditing(false);
+    toast.success("Ödeme yöntemi güncellendi");
+  };
 
   const handlePrint = useReactToPrint({
     contentRef: receiptRef,
@@ -288,22 +343,114 @@ export default function OrderDetailClient({ initialOrder }: Props) {
           {/* Ödeme */}
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">Ödeme</CardTitle>
-            </CardHeader>
-            <CardContent className="text-sm space-y-1.5">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Yöntem</span>
-                <span className="font-medium">
-                  {paymentLabels[order.payment.method] ?? order.payment.method}
-                </span>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base">Ödeme</CardTitle>
+                {!paymentEditing && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 gap-1.5 text-muted-foreground hover:text-foreground"
+                    onClick={handleStartPaymentEdit}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                    Düzenle
+                  </Button>
+                )}
               </div>
-              {order.payment.method === "meal_card" && order.payment.mealCardBrand && (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Marka</span>
-                  <span className="font-medium">
-                    {mealCardLabels[order.payment.mealCardBrand] ??
-                      order.payment.mealCardBrand}
-                  </span>
+            </CardHeader>
+            <CardContent className="text-sm">
+              {paymentEditing ? (
+                <div className="space-y-4">
+                  {/* Yöntem seçimi */}
+                  <div className="grid grid-cols-2 gap-2">
+                    {paymentMethodOptions.map((opt) => {
+                      const Icon = opt.icon;
+                      const isSelected = editMethod === opt.value;
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => setEditMethod(opt.value)}
+                          className={cn(
+                            "flex items-center gap-2.5 rounded-xl border-2 px-3 py-2.5 text-left transition-all text-sm",
+                            isSelected
+                              ? opt.color + " border-current shadow-sm"
+                              : "border-border bg-background hover:bg-muted/50",
+                          )}
+                        >
+                          <Icon className="h-4 w-4 shrink-0" />
+                          <span className="font-medium leading-tight">{opt.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Yemek kartı marka seçimi */}
+                  {editMethod === "meal_card" && (
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Kart Markası
+                      </p>
+                      <div className="grid grid-cols-3 gap-2">
+                        {mealCardBrandOptions.map((b) => (
+                          <button
+                            key={b.value}
+                            type="button"
+                            onClick={() => setEditBrand(b.value)}
+                            className={cn(
+                              "rounded-lg border-2 py-2 px-3 text-xs font-semibold transition-all",
+                              editBrand === b.value
+                                ? "border-orange-400 bg-orange-100 text-orange-800 shadow-sm"
+                                : "border-border bg-background hover:bg-muted/50",
+                            )}
+                          >
+                            {b.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Kaydet / İptal */}
+                  <div className="flex gap-2 pt-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => setPaymentEditing(false)}
+                      disabled={paymentSaving}
+                    >
+                      <X className="mr-1.5 h-3.5 w-3.5" />
+                      İptal
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="flex-1"
+                      onClick={handleSavePayment}
+                      disabled={paymentSaving}
+                    >
+                      <Check className="mr-1.5 h-3.5 w-3.5" />
+                      {paymentSaving ? "Kaydediliyor..." : "Kaydet"}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Yöntem</span>
+                    <span className="font-medium">
+                      {paymentLabels[order.payment.method] ?? order.payment.method}
+                    </span>
+                  </div>
+                  {order.payment.method === "meal_card" && order.payment.mealCardBrand && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Marka</span>
+                      <span className="font-medium">
+                        {mealCardLabels[order.payment.mealCardBrand] ??
+                          order.payment.mealCardBrand}
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
             </CardContent>

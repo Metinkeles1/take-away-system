@@ -1,74 +1,67 @@
 "use client";
 
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useState } from "react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { type Product, type PortionOption, PORTION_OPTIONS } from "@/types";
-import { formatCurrency } from "@/lib/utils";
+import { Plus } from "lucide-react";
 
 interface PortionSelectorProps {
-  product: Product | null;
-  open: boolean;
-  onClose: () => void;
+  product: Product;
   onSelect: (product: Product, portion: PortionOption) => void;
 }
 
-export default function PortionSelector({
-  product,
-  open,
-  onClose,
-  onSelect,
-}: PortionSelectorProps) {
-  if (!product) return null;
+const PORTION_LABELS: Record<string, string> = {
+  half: "0.5",
+  full: "1",
+  one_and_half: "1.5",
+};
+
+const PORTION_SUBLABELS: Record<string, string> = {
+  half: "Yarım",
+  full: "Tam",
+  one_and_half: "Bir buçuk",
+};
+
+export default function PortionSelector({ product, onSelect }: PortionSelectorProps) {
+  const [open, setOpen] = useState(false);
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle className="text-center text-lg">{product.name}</DialogTitle>
-        </DialogHeader>
-
-        <p className="text-sm text-muted-foreground text-center -mt-2 mb-1">
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button size="sm" variant="outline" className="h-8 w-8 p-0 shrink-0">
+          <Plus className="h-4 w-4" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="w-auto p-0 overflow-hidden"
+        align="center"
+        side="bottom"
+        sideOffset={8}
+      >
+        <p className="px-3 pt-2.5 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground border-b border-border/60">
           Porsiyon seçin
         </p>
-
-        <div className="grid gap-3 pt-1">
-          {PORTION_OPTIONS.map((option) => {
-            const portionPrice = Math.round(product.price * option.multiplier);
-            return (
-              <button
-                key={option.size}
-                onClick={() => {
-                  onSelect(product, option);
-                  onClose();
-                }}
-                className="flex items-center justify-between rounded-xl border-2 border-muted bg-muted/30 px-5 py-4 text-left transition-all hover:border-primary hover:bg-primary/5 active:scale-[0.98]"
-              >
-                <div className="flex flex-col">
-                  <span className="font-semibold text-base">{option.label}</span>
-                  <span className="text-xs text-muted-foreground mt-0.5">
-                    {option.multiplier === 0.5
-                      ? "Yarım porsiyon"
-                      : option.multiplier === 1
-                        ? "Tam porsiyon"
-                        : "Bir buçuk porsiyon"}
-                  </span>
-                </div>
-                <span className="text-primary font-bold text-lg">
-                  {formatCurrency(portionPrice)}
-                </span>
-              </button>
-            );
-          })}
+        <div className="flex divide-x divide-border/60">
+          {PORTION_OPTIONS.map((option) => (
+            <button
+              key={option.size}
+              onClick={() => {
+                onSelect(product, option);
+                setOpen(false);
+              }}
+              className="group flex flex-col items-center gap-0.5 px-5 py-3 text-center transition-colors hover:bg-primary/5 active:bg-primary/10"
+            >
+              <span className="text-sm font-bold text-foreground group-hover:text-primary transition-colors">
+                {PORTION_LABELS[option.size]}
+              </span>
+              <span className="text-[10px] text-muted-foreground leading-tight">
+                {PORTION_SUBLABELS[option.size]}
+              </span>
+            </button>
+          ))}
         </div>
-
-        <Button
-          variant="ghost"
-          className="mt-1 w-full text-muted-foreground"
-          onClick={onClose}
-        >
-          İptal
-        </Button>
-      </DialogContent>
-    </Dialog>
+      </PopoverContent>
+    </Popover>
   );
 }

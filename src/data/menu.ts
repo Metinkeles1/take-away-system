@@ -83,6 +83,7 @@ export const MENU_ITEMS: Product[] = [
 
   // ── Lahmacun Çeşitleri ────────────────────────────────────────
   { id: "l1", name: "Lahmacun", price: 100, category: "lahmacun", available: true },
+  { id: "l3", name: "Fındık Lahmacun", price: 50, category: "lahmacun", available: true },
   {
     id: "l2",
     name: "Kaşarlı Lahmacun",

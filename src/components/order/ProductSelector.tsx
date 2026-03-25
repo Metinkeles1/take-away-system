@@ -11,8 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Plus, Minus, Trash2, ShoppingCart, Search, ArrowRight } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { type ProductCategory, type Product, PORTIONABLE_CATEGORIES } from "@/types";
-import PortionSelector from "@/components/order/PortionSelector";
 import type { PortionOption } from "@/types";
+import PortionSelector from "@/components/order/PortionSelector";
 
 export default function ProductSelector() {
   const { draft, addItem, addItemWithPortion, removeItem, updateQuantity, setStep } =
@@ -21,7 +21,6 @@ export default function ProductSelector() {
   const total = useOrderStore(selectTotal);
   const [activeCategory, setActiveCategory] = useState<ProductCategory | "all">("all");
   const [search, setSearch] = useState("");
-  const [portionProduct, setPortionProduct] = useState<Product | null>(null);
 
   const filteredItems = MENU_ITEMS.filter((item) => {
     const matchesCategory = activeCategory === "all" || item.category === activeCategory;
@@ -41,11 +40,7 @@ export default function ProductSelector() {
     PORTIONABLE_CATEGORIES.includes(product.category);
 
   const handleProductClick = (product: Product) => {
-    if (isPortionable(product)) {
-      setPortionProduct(product);
-    } else {
-      addItem(product);
-    }
+    addItem(product);
   };
 
   const handlePortionSelect = (product: Product, portion: PortionOption) => {
@@ -111,7 +106,7 @@ export default function ProductSelector() {
                 return (
                   <Card
                     key={product.id}
-                    className={`transition-all cursor-pointer ${
+                    className={`transition-all ${
                       qty > 0 ? "border-primary shadow-sm" : "hover:shadow-sm"
                     }`}
                   >
@@ -135,14 +130,10 @@ export default function ProductSelector() {
 
                       {/* Miktar kontrol */}
                       {portionable ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-8 w-8 p-0 shrink-0"
-                          onClick={() => handleProductClick(product)}
-                        >
-                          <Plus className="h-4 w-4" />
-                        </Button>
+                        <PortionSelector
+                          product={product}
+                          onSelect={handlePortionSelect}
+                        />
                       ) : qty === 0 ? (
                         <Button
                           size="sm"
@@ -295,13 +286,7 @@ export default function ProductSelector() {
         </Card>
       </div>
 
-      {/* Porsiyon seçim modalı */}
-      <PortionSelector
-        product={portionProduct}
-        open={portionProduct !== null}
-        onClose={() => setPortionProduct(null)}
-        onSelect={handlePortionSelect}
-      />
+
     </div>
   );
 }

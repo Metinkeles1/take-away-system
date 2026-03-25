@@ -2,7 +2,7 @@
 
 import { connectDB } from "@/lib/mongodb";
 import OrderModel from "@/models/Order";
-import { type Order, type OrderStatus } from "@/types";
+import { type Order, type OrderStatus, type PaymentInfo } from "@/types";
 
 // ─── Tüm siparişleri getir ────────────────────────────────────────────────────
 export async function getOrders(): Promise<Order[]> {
@@ -94,6 +94,24 @@ export async function updateOrderStatus(
   } catch (error) {
     console.error("[updateOrderStatus]", error);
     return { ok: false, error: "Durum güncellenemedi" };
+  }
+}
+
+// ─── Sipariş ödeme güncelle ───────────────────────────────────────────────────
+export async function updateOrderPayment(
+  id: string,
+  payment: PaymentInfo,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await connectDB();
+
+    const doc = await OrderModel.findOneAndUpdate({ id }, { payment });
+    if (!doc) return { ok: false, error: "Sipariş bulunamadı" };
+
+    return { ok: true };
+  } catch (error) {
+    console.error("[updateOrderPayment]", error);
+    return { ok: false, error: "Ödeme güncellenemedi" };
   }
 }
 

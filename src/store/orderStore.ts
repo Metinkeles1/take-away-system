@@ -14,6 +14,7 @@ import {
 import {
   createOrder,
   updateOrderStatus as dbUpdateStatus,
+  updateOrderPayment as dbUpdatePayment,
   getOrders,
 } from "@/actions/orders";
 import { getSavedCustomers, upsertCustomer } from "@/actions/customers";
@@ -66,6 +67,7 @@ interface OrderStore {
   loadOrders: () => Promise<void>;
   loadSavedCustomers: () => Promise<void>;
   updateOrderStatus: (orderId: string, status: OrderStatus) => Promise<void>;
+  updateOrderPayment: (orderId: string, payment: PaymentInfo) => Promise<void>;
   getOrderById: (orderId: string) => Order | undefined;
 }
 
@@ -339,7 +341,7 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
     set({ savedCustomers: customers });
   },
 
-  // ── Sipariş durumu güncelle ────────────────────────────────────────────
+  // ── Sipariş durumu güncelle ──────────────────────────────────────────
   updateOrderStatus: async (orderId, status) => {
     // Optimistic update
     set((state) => ({
@@ -348,6 +350,17 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
       ),
     }));
     await dbUpdateStatus(orderId, status);
+  },
+
+  // ── Sipariş ödeme güncelle ──────────────────────────────────────────
+  updateOrderPayment: async (orderId, payment) => {
+    // Optimistic update
+    set((state) => ({
+      orders: state.orders.map((o) =>
+        o.id === orderId ? { ...o, payment, updatedAt: new Date() } : o,
+      ),
+    }));
+    await dbUpdatePayment(orderId, payment);
   },
 
   // ── ID ile sipariş getir ───────────────────────────────────────────────
