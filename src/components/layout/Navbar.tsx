@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ShoppingBag, ClipboardList, Home } from "lucide-react";
+import { ShoppingBag, ClipboardList, Home, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/", label: "Panel", icon: Home },
   { href: "/orders/new", label: "Yeni Sipariş", icon: ShoppingBag },
   { href: "/orders", label: "Siparişler", icon: ClipboardList },
+  { href: "/customers", label: "Müşteriler", icon: Users },
 ];
 
 export default function Navbar() {

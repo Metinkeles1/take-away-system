@@ -60,3 +60,36 @@ export async function searchCustomers(query: string): Promise<SavedCustomer[]> {
 
   return docs.map((d) => docToCustomer(d as Record<string, unknown>));
 }
+
+// ─── Müşteri sil ─────────────────────────────────────────────────────────────
+export async function deleteCustomer(id: string): Promise<void> {
+  await connectDB();
+  await CustomerModel.deleteOne({ id });
+}
+
+// ─── Müşteri güncelle ────────────────────────────────────────────────────────
+export async function updateCustomer(
+  id: string,
+  data: { name: string; phone: string; address: string; addressDetail?: string },
+): Promise<void> {
+  await connectDB();
+  await CustomerModel.findOneAndUpdate(
+    { id },
+    { $set: data },
+  );
+}
+
+// ─── Yeni müşteri ekle ──────────────────────────────────────────────────────
+export async function createCustomer(
+  customer: { id: string; name: string; phone: string; address: string; addressDetail?: string },
+): Promise<void> {
+  await connectDB();
+  await CustomerModel.create({
+    id: customer.id,
+    name: customer.name,
+    phone: customer.phone,
+    address: customer.address,
+    addressDetail: customer.addressDetail,
+    orderCount: 0,
+  });
+}

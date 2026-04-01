@@ -1,4 +1,10 @@
+import dns from "node:dns/promises";
 import mongoose from "mongoose";
+
+// Fix for Node.js v24 on Windows: SRV DNS queries may fail with ECONNREFUSED
+// because Node does not always use the Windows system DNS resolver.
+// See: https://alexbevi.com/blog/2023/11/13/querysrv-errors-when-connecting-to-mongodb-atlas/
+dns.setServers(["1.1.1.1", "8.8.8.8"]);
 
 const MONGODB_URI = process.env.MONGODB_URI as string;
 
