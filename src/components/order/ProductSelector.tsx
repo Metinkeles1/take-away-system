@@ -1,13 +1,15 @@
 ﻿"use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useOrderStore, selectSubtotal, selectTotal } from "@/store/orderStore";
-import { MENU_ITEMS, MENU_CATEGORIES } from "@/data/menu";
+import { MENU_CATEGORIES } from "@/data/menu";
+import { getAvailableProducts } from "@/actions/products";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Plus, Minus, Trash2, ShoppingCart, Search, ArrowRight } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { type ProductCategory, type Product, PORTIONABLE_CATEGORIES } from "@/types";
@@ -21,12 +23,20 @@ export default function ProductSelector() {
   const total = useOrderStore(selectTotal);
   const [activeCategory, setActiveCategory] = useState<ProductCategory | "all">("all");
   const [search, setSearch] = useState("");
+  const [menuItems, setMenuItems] = useState<Product[]>([]);
+  const [isLoadingMenu, setIsLoadingMenu] = useState(true);
 
-  const filteredItems = MENU_ITEMS.filter((item) => {
+  useEffect(() => {
+    getAvailableProducts()
+      .then(setMenuItems)
+      .finally(() => setIsLoadingMenu(false));
+  }, []);
+
+  const filteredItems = menuItems.filter((item) => {
     const matchesCategory = activeCategory === "all" || item.category === activeCategory;
     const matchesSearch =
       search === "" || item.name.toLowerCase().includes(search.toLowerCase());
-    return matchesCategory && matchesSearch && item.available;
+    return matchesCategory && matchesSearch;
   });
 
   // Porsiyonsuz ürünler için toplam miktar (tüm porsiyonların toplamı)
@@ -93,7 +103,19 @@ export default function ProductSelector() {
 
         {/* Ürün grid */}
         <div className="flex-1 min-h-0 overflow-y-auto scrollbar-hide pt-px pb-2 px-px">
-          {filteredItems.length === 0 ? (
+          {isLoadingMenu ? (
+            <div className="grid gap-2 sm:grid-cols-2">
+              {[...Array(8)].map((_, i) => (
+                <div key={i} className="rounded-lg border p-3 flex items-center justify-between">
+                  <div className="space-y-2 flex-1">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-4 w-16" />
+                  </div>
+                  <Skeleton className="h-8 w-8 rounded-md" />
+                </div>
+              ))}
+            </div>
+          ) : filteredItems.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
               <Search className="mb-3 h-10 w-10 opacity-30" />
               <p>Ürün bulunamadı</p>
