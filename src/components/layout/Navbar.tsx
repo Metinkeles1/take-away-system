@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ShoppingBag, ClipboardList, Home, Users, UtensilsCrossed } from "lucide-react";
+import { ShoppingBag, ClipboardList, Home, Users, UtensilsCrossed, BarChart3 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/", label: "Panel", icon: Home },
+  { href: "/dashboard", label: "Dashboard", icon: BarChart3 },
   { href: "/orders/new", label: "Yeni Sipariş", icon: ShoppingBag },
   { href: "/orders", label: "Siparişler", icon: ClipboardList },
   { href: "/customers", label: "Müşteriler", icon: Users },

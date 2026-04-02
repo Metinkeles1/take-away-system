@@ -41,7 +41,7 @@ const mealCardLabels: Record<string, string> = {
 
 export default function OrderSummary() {
   const router = useRouter();
-  const { draft, setStep, setNotes, completeOrder, resetDraft } = useOrderStore();
+  const { draft, setStep, setNotes, completeOrder } = useOrderStore();
   const subtotal = useOrderStore(selectSubtotal);
   const total = useOrderStore(selectTotal);
   const receiptRef = useRef<HTMLDivElement>(null);
@@ -52,32 +52,38 @@ export default function OrderSummary() {
   });
 
   const handleComplete = useCallback(async () => {
-    const order = await completeOrder();
-    if (!order) {
-      toast.error("Sipariş tamamlanamadı. Lütfen tüm alanları doldurun.");
-      return;
+    try {
+      const order = await completeOrder();
+      if (!order) {
+        toast.error("Sipariş tamamlanamadı. Lütfen tüm alanları doldurun.");
+        return;
+      }
+      toast.success(`#${order.orderNumber} numaralı sipariş alındı!`);
+      router.push(`/orders/${order.id}`);
+    } catch {
+      toast.error("Sipariş kaydedilirken bir hata oluştu.");
     }
-    toast.success(`#${order.orderNumber} numaralı sipariş alındı!`);
-    resetDraft();
-    router.push(`/orders/${order.id}`);
-  }, [completeOrder, resetDraft, router]);
+  }, [completeOrder, router]);
 
   const handleCompleteAndPrint = useCallback(async () => {
-    const order = await completeOrder();
-    if (!order) {
-      toast.error("Sipariş tamamlanamadı. Lütfen tüm alanları doldurun.");
-      return;
+    try {
+      const order = await completeOrder();
+      if (!order) {
+        toast.error("Sipariş tamamlanamadı. Lütfen tüm alanları doldurun.");
+        return;
+      }
+      // Fiş bas sonra yönlendir
+      setTimeout(() => {
+        handlePrint();
+      }, 100);
+      toast.success(`#${order.orderNumber} numaralı sipariş alındı!`);
+      setTimeout(() => {
+        router.push(`/orders/${order.id}`);
+      }, 500);
+    } catch {
+      toast.error("Sipariş kaydedilirken bir hata oluştu.");
     }
-    // Fiş bas sonra yönlendir
-    setTimeout(() => {
-      handlePrint();
-    }, 100);
-    toast.success(`#${order.orderNumber} numaralı sipariş alındı!`);
-    setTimeout(() => {
-      resetDraft();
-      router.push(`/orders/${order.id}`);
-    }, 500);
-  }, [completeOrder, handlePrint, resetDraft, router]);
+  }, [completeOrder, handlePrint, router]);
 
   return (
     <div className="h-full grid gap-6 lg:grid-cols-3">

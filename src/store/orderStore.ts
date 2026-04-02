@@ -301,20 +301,29 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
       updatedAt: new Date(),
     };
 
-    // Önce UI'ı güncelle (optimistic), sonra DB'ye kaydet
+    // DB'ye kaydet
+    const result = await createOrder(order);
+    if (!result.ok) {
+      return null;
+    }
+
+    // Optimistic UI güncellemesi (DB başarılı olduktan sonra)
     set((state) => ({ orders: [order, ...state.orders] }));
-    await createOrder(order);
 
     // Müşteriyi kayıtlı müşteriler listesine upsert et
-    await upsertCustomer({
-      id: `cust-${order.customer.phone.replace(/\D/g, "")}`,
-      name: order.customer.name,
-      phone: order.customer.phone,
-      address: order.customer.address,
-      addressDetail: order.customer.addressDetail,
-    });
-    // Kayıtlı müşteri listesini güncelle
-    get().loadSavedCustomers();
+    try {
+      await upsertCustomer({
+        id: `cust-${order.customer.phone.replace(/\D/g, "")}`,
+        name: order.customer.name,
+        phone: order.customer.phone,
+        address: order.customer.address,
+        addressDetail: order.customer.addressDetail,
+      });
+      // Kayıtlı müşteri listesini güncelle
+      get().loadSavedCustomers();
+    } catch {
+      // Müşteri kaydı başarısız olsa bile sipariş tamamlandı
+    }
 
     return order;
   },

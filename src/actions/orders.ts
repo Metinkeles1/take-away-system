@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { connectDB } from "@/lib/mongodb";
 import OrderModel from "@/models/Order";
 import { type Order, type OrderStatus, type PaymentInfo } from "@/types";
@@ -71,6 +72,8 @@ export async function createOrder(
       deliveryFee: order.deliveryFee,
       total: order.total,
     });
+
+    revalidatePath("/orders");
 
     return { ok: true };
   } catch (error) {
