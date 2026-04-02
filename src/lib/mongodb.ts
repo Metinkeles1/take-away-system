@@ -17,7 +17,6 @@ if (!MONGODB_URI) {
  * bağlantıyı global cache'e alıyoruz.
  */
 declare global {
-  // eslint-disable-next-line no-var
   var _mongooseCache: {
     conn: typeof mongoose | null;
     promise: Promise<typeof mongoose> | null;

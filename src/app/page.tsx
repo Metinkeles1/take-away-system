@@ -77,7 +77,7 @@ export default function DashboardPage() {
       <div className="mb-4 flex items-center justify-between shrink-0">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Kontrol Paneli</h1>
-          <p className="text-sm mt-0.5 text-muted-foreground">
+          <p className="text-sm mt-0.5 text-muted-foreground" suppressHydrationWarning>
             {new Date().toLocaleDateString("tr-TR", {
               weekday: "long",
               year: "numeric",
@@ -142,9 +142,9 @@ export default function DashboardPage() {
         )}
       </div>
 
-      <div className="flex-1 min-h-0 grid gap-4 lg:grid-cols-3 lg:items-start">
+      <div className="flex-1 min-h-0 grid gap-4 lg:grid-cols-3">
         {/* Aktif siparişler */}
-        <div className="lg:col-span-2 flex flex-col min-h-0 lg:max-h-[calc(100vh-13rem)]">
+        <div className="lg:col-span-2 flex flex-col min-h-0">
           <Card className="flex flex-col flex-1 min-h-0">
             <CardHeader className="flex flex-row items-center justify-between shrink-0 pb-3">
               <CardTitle className="text-base">Aktif Siparişler</CardTitle>
@@ -188,7 +188,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Hızlı işlemler */}
-        <div>
+        <div className="flex flex-col min-h-0 overflow-y-auto scrollbar-hide">
           <Card>
             <CardHeader className="shrink-0 pb-3">
               <CardTitle className="text-base">Hızlı İşlemler</CardTitle>

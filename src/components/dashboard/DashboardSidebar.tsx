@@ -1,41 +1,32 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
   BarChart3,
-  ClipboardList,
-  Users,
-  UtensilsCrossed,
   Home,
   ChevronLeft,
   ChevronRight,
-  Plus,
+  LayoutDashboard,
+  ClipboardList,
+  Receipt,
+  UtensilsCrossed,
+  MapPin,
 } from "lucide-react";
+import { useState } from "react";
 
-const navSections = [
-  {
-    title: "Ana Menü",
-    items: [
-      { href: "/", label: "Ana Sayfa", icon: Home },
-      { href: "/dashboard", label: "Dashboard", icon: BarChart3 },
-    ],
-  },
-  {
-    title: "Yönetim",
-    items: [
-      { href: "/orders/new", label: "Yeni Sipariş", icon: Plus },
-      { href: "/orders", label: "Siparişler", icon: ClipboardList },
-      { href: "/customers", label: "Müşteriler", icon: Users },
-      { href: "/products", label: "Menü", icon: UtensilsCrossed },
-    ],
-  },
+const NAV_ITEMS = [
+  { tab: "overview", label: "Genel Bakış", icon: LayoutDashboard, color: "text-blue-400", activeBg: "bg-blue-500/15" },
+  { tab: "orders", label: "Siparişler", icon: ClipboardList, color: "text-orange-400", activeBg: "bg-orange-500/15" },
+  { tab: "payments", label: "Ödemeler", icon: Receipt, color: "text-emerald-400", activeBg: "bg-emerald-500/15" },
+  { tab: "products", label: "Ürünler & Kategoriler", icon: UtensilsCrossed, color: "text-amber-400", activeBg: "bg-amber-500/15" },
+  { tab: "addresses", label: "Adresler & Menüler", icon: MapPin, color: "text-rose-400", activeBg: "bg-rose-500/15" },
 ];
 
 export default function DashboardSidebar() {
-  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const activeTab = searchParams.get("tab") || "overview";
   const [collapsed, setCollapsed] = useState(false);
 
   return (
@@ -47,60 +38,67 @@ export default function DashboardSidebar() {
     >
       {/* Brand */}
       <div className="shrink-0 px-4 h-14 flex items-center gap-2.5 border-b border-white/10">
-        <span className="text-xl shrink-0">🛵</span>
+        <div className="h-8 w-8 rounded-lg bg-linear-to-br from-blue-500 to-indigo-600 flex items-center justify-center shrink-0">
+          <BarChart3 className="h-4 w-4 text-white" />
+        </div>
         {!collapsed && (
           <span className="text-sm font-bold tracking-tight whitespace-nowrap overflow-hidden">
-            PaketSipariş
+            Dashboard
           </span>
         )}
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 py-4 overflow-y-auto space-y-6 px-2">
-        {navSections.map((section) => (
-          <div key={section.title}>
-            {!collapsed && (
-              <p className="px-3 mb-2 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
-                {section.title}
-              </p>
-            )}
-            <div className="space-y-0.5">
-              {section.items.map((item) => {
-                const Icon = item.icon;
-                const isActive =
-                  item.href === "/"
-                    ? pathname === "/"
-                    : item.href === "/orders"
-                      ? pathname === "/orders" ||
-                        (pathname.startsWith("/orders") &&
-                          !pathname.startsWith("/orders/new"))
-                      : pathname.startsWith(item.href);
-
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    title={collapsed ? item.label : undefined}
-                    className={cn(
-                      "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200",
-                      collapsed && "justify-center px-0",
-                      isActive
-                        ? "bg-white/15 text-white shadow-sm shadow-black/10"
-                        : "text-slate-400 hover:bg-white/5 hover:text-slate-200"
-                    )}
-                  >
-                    <Icon className={cn("h-4.5 w-4.5 shrink-0", isActive && "text-blue-400")} />
-                    {!collapsed && <span className="truncate">{item.label}</span>}
-                    {isActive && !collapsed && (
-                      <div className="ml-auto h-1.5 w-1.5 rounded-full bg-blue-400" />
-                    )}
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-        ))}
+      {/* Section Nav */}
+      <nav className="flex-1 py-4 overflow-y-auto px-2">
+        {!collapsed && (
+          <p className="px-3 mb-2 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+            Bölümler
+          </p>
+        )}
+        <div className="space-y-0.5">
+          {NAV_ITEMS.map((item) => {
+            const Icon = item.icon;
+            const isActive = activeTab === item.tab;
+            return (
+              <Link
+                key={item.tab}
+                href={`/dashboard?tab=${item.tab}`}
+                scroll={false}
+                title={collapsed ? item.label : undefined}
+                className={cn(
+                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200",
+                  collapsed && "justify-center px-0",
+                  isActive
+                    ? `${item.activeBg} text-white shadow-sm shadow-black/10`
+                    : "text-slate-400 hover:bg-white/5 hover:text-slate-200"
+                )}
+              >
+                <Icon className={cn("h-4.5 w-4.5 shrink-0", isActive && item.color)} />
+                {!collapsed && <span className="truncate">{item.label}</span>}
+                {isActive && !collapsed && (
+                  <div className={cn("ml-auto h-1.5 w-1.5 rounded-full", item.color.replace("text-", "bg-"))} />
+                )}
+              </Link>
+            );
+          })}
+        </div>
       </nav>
+
+      {/* Ana Sayfaya Dön */}
+      <div className="px-2 pb-2">
+        <Link
+          href="/"
+          title={collapsed ? "Ana Sayfaya Dön" : undefined}
+          className={cn(
+            "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200",
+            "text-slate-400 hover:bg-white/10 hover:text-white",
+            collapsed && "justify-center px-0"
+          )}
+        >
+          <Home className="h-4.5 w-4.5 shrink-0" />
+          {!collapsed && <span className="truncate">Ana Sayfaya Dön</span>}
+        </Link>
+      </div>
 
       {/* Collapse Toggle */}
       <div className="shrink-0 border-t border-white/10 p-2">

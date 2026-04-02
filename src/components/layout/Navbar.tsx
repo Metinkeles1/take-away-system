@@ -17,6 +17,9 @@ const navItems = [
 export default function Navbar() {
   const pathname = usePathname();
 
+  // Dashboard sayfasında topbar gizle — dashboard kendi sidebar'ını kullanıyor
+  if (pathname.startsWith("/dashboard")) return null;
+
   return (
     <header className="shrink-0 z-50 w-full border-b bg-background/95 backdrop-blur">
       <div className="container mx-auto flex h-12 max-w-6xl items-center justify-between px-4">

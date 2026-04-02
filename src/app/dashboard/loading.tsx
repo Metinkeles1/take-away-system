@@ -16,8 +16,7 @@ export default function DashboardLoading() {
         <Skeleton className="h-8 w-20 rounded-md" />
       </header>
 
-      <div className="flex-1 min-h-0 overflow-y-auto">
-        <div className="p-6 space-y-6 max-w-[1600px]">
+      <div className="shrink-0 px-6 pt-6 pb-0 space-y-4">
           {/* KPI Cards */}
           <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
             {[...Array(4)].map((_, i) => (
@@ -48,6 +47,10 @@ export default function DashboardLoading() {
               </div>
             ))}
           </div>
+      </div>
+
+      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-hide">
+        <div className="px-6 pt-4 pb-6 space-y-4">
 
           {/* Row 1: Trend + Donut */}
           <div className="grid gap-4 xl:grid-cols-5">
