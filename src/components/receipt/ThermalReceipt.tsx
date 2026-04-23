@@ -253,8 +253,8 @@ const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptProps>(
               <span style={{ textAlign: "right" }}>TUTAR</span>
             </div>
 
-            {draft.items.map((item) => (
-              <div key={item.product.id} style={{ marginBottom: "4px" }}>
+            {draft.items.map((item, idx) => (
+              <div key={`item-${idx}`} style={{ marginBottom: "4px" }}>
                 <div
                   style={{
                     display: "grid",

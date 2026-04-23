@@ -162,9 +162,9 @@ export default function OrdersPage() {
                         {order.items.length} kalem ürün
                       </p>
                       <div className="flex flex-wrap gap-1">
-                        {order.items.slice(0, 3).map((item) => (
+                        {order.items.slice(0, 3).map((item, idx) => (
                           <Badge
-                            key={item.product.id}
+                            key={`${order.id}-item-${idx}`}
                             variant="secondary"
                             className="text-xs"
                           >
