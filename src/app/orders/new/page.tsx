@@ -2,11 +2,13 @@
 
 import { useEffect } from "react";
 import { useOrderStore } from "@/store/orderStore";
-import StepIndicator from "@/components/order/StepIndicator";
-import ProductSelector from "@/components/order/ProductSelector";
-import CustomerForm from "@/components/order/CustomerForm";
-import PaymentMethod from "@/components/order/PaymentMethod";
-import OrderSummary from "@/components/order/OrderSummary";
+import {
+  StepIndicator,
+  ProductSelector,
+  CustomerForm,
+  PaymentMethod,
+  OrderSummary,
+} from "@/components/orders/create";
 
 export default function NewOrderPage() {
   const { draft, resetDraft } = useOrderStore();
