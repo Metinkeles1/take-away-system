@@ -114,7 +114,7 @@ export default function ProductsPage() {
   }, [products]);
 
   return (
-    <main className="h-full flex flex-col container mx-auto max-w-6xl px-4 pt-4 pb-4 overflow-hidden">
+    <main className="h-full flex flex-col px-4 pt-4 pb-4 md:px-6 md:pt-5 lg:px-8 lg:pt-6 overflow-hidden">
       <ProductsHeader
         totalProducts={products.length}
         activeProducts={products.filter((p) => p.available).length}

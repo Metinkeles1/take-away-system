@@ -25,6 +25,20 @@ export function formatDate(date: Date | string): string {
   }).format(new Date(date));
 }
 
+// ─── Göreli zaman ─────────────────────────────────────────────────────────────
+export function formatRelativeTime(date: Date | string): string {
+  const d = new Date(date);
+  const diffSec = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (diffSec < 60) return "az önce";
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin} dk önce`;
+  const diffHour = Math.floor(diffMin / 60);
+  if (diffHour < 24) return `${diffHour} sa önce`;
+  const diffDay = Math.floor(diffHour / 24);
+  if (diffDay < 7) return `${diffDay} gün önce`;
+  return formatDate(date);
+}
+
 // ─── Telefon formatı ──────────────────────────────────────────────────────────
 export function formatPhone(phone: string): string {
   const digits = phone.replace(/\D/g, "");

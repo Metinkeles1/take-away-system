@@ -48,7 +48,7 @@
 }
 
 :root {
-  --background: oklch(1 0 0);
+  --background: oklch(0.975 0.003 240);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
@@ -125,6 +125,24 @@
   }
   html {
     @apply font-sans overflow-hidden;
+    font-size: 16px;
+  }
+
+  /* Geniş ekranlar için orantılı tipografi büyütmesi (rem-tabanlı her şey büyür) */
+  @media (min-width: 1920px) {
+    html {
+      font-size: 17px;
+    }
+  }
+  @media (min-width: 2560px) {
+    html {
+      font-size: 19px;
+    }
+  }
+  @media (min-width: 3200px) {
+    html {
+      font-size: 21px;
+    }
   }
 }
 

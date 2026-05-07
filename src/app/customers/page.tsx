@@ -440,7 +440,7 @@ export default function CustomersPage() {
   }, [customers]);
 
   return (
-    <main className="h-full flex flex-col container mx-auto max-w-6xl px-4 pt-4 pb-4 overflow-hidden">
+    <main className="h-full flex flex-col px-4 pt-4 pb-4 md:px-6 md:pt-5 lg:px-8 lg:pt-6 overflow-hidden">
       {/* Header */}
       <div className="mb-4 flex items-center justify-between shrink-0">
         <div>

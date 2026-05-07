@@ -49,7 +49,7 @@ export default function OrderDetailClient({ initialOrder }: Props) {
   );
 
   return (
-    <main className="h-full flex flex-col container mx-auto max-w-6xl px-4 pt-4 pb-4 overflow-hidden">
+    <main className="h-full flex flex-col px-4 pt-4 pb-4 md:px-6 md:pt-5 lg:px-8 lg:pt-6 overflow-hidden">
       <OrderDetailHeader order={order} onPrint={() => handlePrint()} />
 
       {/* İki sütun: Sol scroll, Sağ fiş sabit */}
