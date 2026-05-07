@@ -4,7 +4,6 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { getDashboardStats, type DashboardStats } from "@/actions/dashboard";
 import { ShoppingBag, CircleDollarSign, Flame, TrendingUp, Users, UtensilsCrossed, Package } from "lucide-react";
-import { toast } from "sonner";
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { DashboardTabs } from "@/components/dashboard/DashboardTabs";
 import { KPICard, KPICardSkeleton } from "@/components/dashboard/KPICard";

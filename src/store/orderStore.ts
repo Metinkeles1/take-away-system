@@ -4,7 +4,6 @@ import {
   type OrderDraft,
   type CustomerInfo,
   type PaymentInfo,
-  type OrderStep,
   type OrderStatus,
   type Product,
   type SavedCustomer,
@@ -52,7 +51,6 @@ interface OrderStore {
   setCustomer: (customer: Partial<CustomerInfo>) => void;
   setPayment: (payment: Partial<PaymentInfo>) => void;
   setNotes: (notes: string) => void;
-  setStep: (step: OrderStep) => void;
 
   // ── Hesaplamalar (geriye dönük uyumluluk — bileşenlerde selectSubtotal/selectTotal kullanın) ──
   getSubtotal: () => number;
@@ -77,7 +75,6 @@ const initialDraft: OrderDraft = {
   customer: {},
   payment: {},
   notes: "",
-  currentStep: "products",
 };
 
 // ─── Store ────────────────────────────────────────────────────────────────────
@@ -240,11 +237,6 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
   // ── Notları set et ─────────────────────────────────────────────────────
   setNotes: (notes) => {
     set((state) => ({ draft: { ...state.draft, notes } }));
-  },
-
-  // ── Adım değiştir ──────────────────────────────────────────────────────
-  setStep: (step) => {
-    set((state) => ({ draft: { ...state.draft, currentStep: step } }));
   },
 
   // ── Hesaplamalar ───────────────────────────────────────────────────────

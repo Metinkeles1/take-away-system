@@ -35,6 +35,7 @@ export interface Product {
   category: ProductCategory;
   description?: string;
   available: boolean;
+  image?: string; // /images/products/{id}.jpg yolu otomatik kullanılır; bu alan elle override içindir
 }
 
 // ─── Sipariş Kalemi ───────────────────────────────────────────────────────────
@@ -99,15 +100,12 @@ export interface Order {
   updatedAt: Date;
 }
 
-// ─── Sipariş Oluşturma (wizard adımları) ─────────────────────────────────────
-export type OrderStep = "products" | "customer" | "payment" | "summary";
-
+// ─── Sipariş Oluşturma Taslağı ───────────────────────────────────────────────
 export interface OrderDraft {
   items: OrderItem[];
   customer: Partial<CustomerInfo>;
   payment: Partial<PaymentInfo>;
   notes?: string;
-  currentStep: OrderStep;
 }
 
 // ─── Form Validasyon Şemaları için tipler ─────────────────────────────────────

@@ -1,7 +1,6 @@
 import { memo, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Badge } from "@/components/ui/badge";
 import { Crown, UtensilsCrossed } from "lucide-react";
 import { type DashboardStats } from "@/actions/dashboard";
 import { formatCurrency } from "@/lib/utils";

@@ -114,7 +114,7 @@ export default function ProductsPage() {
   }, [products]);
 
   return (
-    <main className="h-full flex flex-col px-4 pt-4 pb-4 md:px-6 md:pt-5 lg:px-8 lg:pt-6 overflow-hidden">
+    <main className="h-full flex flex-col px-3 pt-3 pb-6 sm:px-4 sm:pt-4 md:px-6 md:pt-5 lg:px-8 lg:pt-6 lg:pb-8 overflow-y-auto lg:overflow-hidden">
       <ProductsHeader
         totalProducts={products.length}
         activeProducts={products.filter((p) => p.available).length}
@@ -130,7 +130,7 @@ export default function ProductsPage() {
         products={products}
       />
 
-      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-hide pt-px px-px pb-2">
+      <div className="flex-1 lg:min-h-0 lg:overflow-y-auto scrollbar-hide pt-px px-px pb-2">
         <ProductsList
           isLoading={isLoading}
           filteredProducts={filteredProducts}

@@ -1,7 +1,6 @@
 import { useState, memo } from "react";
 import { deleteProduct } from "@/actions/products";
 import { type Product } from "@/types";
-import { Button } from "@/components/ui/button";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";

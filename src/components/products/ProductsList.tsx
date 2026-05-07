@@ -1,8 +1,6 @@
 import { type Product, type ProductCategory } from "@/types";
-import { MENU_CATEGORIES } from "@/data/menu";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
 import { UtensilsCrossed, Plus } from "lucide-react";
 import { ProductCard } from "./ProductCard";
 
@@ -23,6 +21,9 @@ interface ProductsListProps {
   onAddProduct: () => void;
 }
 
+const GRID_CLASS =
+  "grid gap-3 sm:gap-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6";
+
 export function ProductsList({
   isLoading,
   filteredProducts,
@@ -36,18 +37,17 @@ export function ProductsList({
 }: ProductsListProps) {
   if (isLoading) {
     return (
-      <div className="space-y-3">
-        {[...Array(6)].map((_, i) => (
-          <div key={i} className="rounded-lg border p-4 flex items-center gap-4">
-            <div className="flex-1 space-y-2">
-              <Skeleton className="h-5 w-40" />
-              <Skeleton className="h-4 w-24" />
-            </div>
-            <Skeleton className="h-5 w-16" />
-            <div className="flex gap-1">
-              <Skeleton className="h-8 w-8 rounded-md" />
-              <Skeleton className="h-8 w-8 rounded-md" />
-              <Skeleton className="h-8 w-8 rounded-md" />
+      <div className={GRID_CLASS}>
+        {[...Array(12)].map((_, i) => (
+          <div
+            key={i}
+            className="rounded-2xl bg-card ring-1 ring-foreground/8 overflow-hidden"
+          >
+            <div className="aspect-square w-full animate-pulse bg-linear-to-br from-muted to-muted/60" />
+            <div className="p-3 space-y-2">
+              <div className="h-3.5 w-4/5 rounded bg-muted animate-pulse" />
+              <div className="h-3 w-2/5 rounded bg-muted animate-pulse" />
+              <div className="h-4 w-1/2 rounded bg-muted animate-pulse mt-2" />
             </div>
           </div>
         ))}
@@ -81,18 +81,21 @@ export function ProductsList({
     );
   }
 
+  // Tüm kategoriler + arama yokken: kategori başlıklarıyla gruplu görünüm
   if (activeCategory === "all" && !searchQuery) {
-    // Grouped view
     return (
-      <div className="space-y-6">
+      <div className="space-y-8">
         {groupedProducts.map((group) => (
-          <div key={group.value}>
-            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
-              <span>{group.emoji}</span>
-              {group.label}
-              <span className="text-xs font-normal">({group.items.length})</span>
-            </h2>
-            <div className="space-y-2">
+          <section key={group.value}>
+            <header className="mb-3 flex items-center gap-2 sticky top-0 z-10 bg-background/85 backdrop-blur-sm py-1 -mx-px px-px">
+              <span className="text-lg">{group.emoji}</span>
+              <h2 className="text-base font-semibold tracking-tight">{group.label}</h2>
+              <span className="text-xs text-muted-foreground rounded-full bg-muted px-2 py-0.5">
+                {group.items.length}
+              </span>
+              <div className="flex-1 h-px bg-border ml-2" />
+            </header>
+            <div className={GRID_CLASS}>
               {group.items.map((product) => (
                 <ProductCard
                   key={product.id}
@@ -103,15 +106,15 @@ export function ProductsList({
                 />
               ))}
             </div>
-          </div>
+          </section>
         ))}
       </div>
     );
   }
 
-  // Flat filtered view
+  // Filtreli/aramalı düz grid görünüm
   return (
-    <div className="space-y-2">
+    <div className={GRID_CLASS}>
       {filteredProducts.map((product) => (
         <ProductCard
           key={product.id}
