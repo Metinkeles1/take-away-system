@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { memo } from "react";
 
 interface Props {
-  notes: string;
+  notes?: string;
 }
 
 const OrderNotesCard = memo(function OrderNotesCard({ notes }: Props) {

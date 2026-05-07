@@ -6,6 +6,7 @@ import { getDashboardStats, type DashboardStats } from "@/actions/dashboard";
 import { ShoppingBag, CircleDollarSign, Flame, TrendingUp, Users, UtensilsCrossed, Package } from "lucide-react";
 import { toast } from "sonner";
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
+import { DashboardTabs } from "@/components/dashboard/DashboardTabs";
 import { KPICard, KPICardSkeleton } from "@/components/dashboard/KPICard";
 import { MiniStat } from "@/components/dashboard/MiniStat";
 import { OverviewTab } from "@/components/dashboard/tabs/OverviewTab";
@@ -49,6 +50,7 @@ export default function DashboardPage() {
   return (
     <div className="h-full flex flex-col overflow-hidden">
       <DashboardHeader isLoading={isLoading} onRefresh={loadStats} />
+      <DashboardTabs />
 
       <div className="flex-1 min-h-0 overflow-y-auto bg-gray-50/60">
         <div className="px-8 py-6 space-y-6">

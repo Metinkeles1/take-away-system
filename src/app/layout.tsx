@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Geist } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
-import Navbar from "@/components/layout/Navbar";
+import AppShell from "@/components/layout/AppShell";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -24,8 +24,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} font-sans antialiased h-dvh flex flex-col overflow-hidden`}
       >
-        <Navbar />
-        <div className="flex-1 min-h-0 overflow-hidden">{children}</div>
+        <AppShell>{children}</AppShell>
         <Toaster richColors position="top-right" />
       </body>
     </html>
