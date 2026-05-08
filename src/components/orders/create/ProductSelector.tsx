@@ -73,9 +73,10 @@ export default function ProductSelector() {
         )}
       </div>
 
-      {/* Kategori şeridi */}
-      <div className="-mx-px overflow-x-auto scrollbar-hide shrink-0">
-        <div className="flex gap-2 sm:gap-3 pb-1 w-max px-px">
+      {/* Kategori şeridi — mobilde yatay scroll (sağ fade cue), lg+ wrap */}
+      <div className="relative shrink-0">
+        <div className="-mx-px overflow-x-auto lg:overflow-visible scrollbar-hide">
+          <div className="flex gap-2 sm:gap-3 pb-1 w-max lg:w-auto lg:flex-wrap px-px">
           <CategoryChip
             label="Tümü"
             emoji="🍽️"
@@ -99,7 +100,10 @@ export default function ProductSelector() {
               />
             );
           })}
+          </div>
         </div>
+        {/* Sağ kenar fade — mobilde scroll cue, lg+ kapalı */}
+        <div className="lg:hidden pointer-events-none absolute right-0 top-0 bottom-1 w-8 bg-linear-to-l from-background to-transparent" />
       </div>
 
       {/* Ürün grid */}

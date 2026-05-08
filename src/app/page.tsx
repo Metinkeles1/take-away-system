@@ -24,6 +24,21 @@ import { formatCurrency, formatRelativeTime } from "@/lib/utils";
 import { type Order } from "@/types";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ReferenceDot,
+  ReferenceLine,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 const statusConfig: Record<
   Order["status"],
@@ -303,13 +318,6 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent className="pb-4">
               <HourlyTraffic hourly={hourly} />
-              <div className="mt-2 flex justify-between text-[10px] text-muted-foreground">
-                <span>00:00</span>
-                <span>06:00</span>
-                <span>12:00</span>
-                <span>18:00</span>
-                <span>24:00</span>
-              </div>
             </CardContent>
           </Card>
 
@@ -481,40 +489,116 @@ function DeltaBadge({ delta }: { delta: Delta }) {
   );
 }
 
+const trafficChartConfig = {
+  count: {
+    label: "Sipariş",
+    color: "rgb(59 130 246)",
+  },
+} satisfies ChartConfig;
+
 function HourlyTraffic({ hourly }: { hourly: number[] }) {
+  const [currentHour, setCurrentHour] = useState<number | null>(null);
+  useEffect(() => {
+    setCurrentHour(new Date().getHours());
+  }, []);
+
+  const data = hourly.map((count, h) => ({
+    hour: h,
+    label: `${h.toString().padStart(2, "0")}:00`,
+    count,
+  }));
+
+  const total = hourly.reduce((s, c) => s + c, 0);
   const max = Math.max(1, ...hourly);
-  const currentHour = new Date().getHours();
+  const peakHour = hourly.indexOf(max);
+
+  if (total === 0) {
+    return (
+      <div className="h-32 flex items-center justify-center text-sm text-muted-foreground">
+        Bugün henüz sipariş yok
+      </div>
+    );
+  }
+
   return (
-    <div className="flex items-end gap-0.5 h-16">
-      {hourly.map((count, h) => {
-        const heightPct = (count / max) * 100;
-        const isCurrent = h === currentHour;
-        const isPast = h <= currentHour;
-        return (
-          <div
-            key={h}
-            className="flex-1 flex flex-col items-center gap-1 group relative"
-            title={`${h.toString().padStart(2, "0")}:00 — ${count} sipariş`}
-          >
-            <div className="w-full flex-1 flex items-end">
-              <div
-                className={cn(
-                  "w-full rounded-sm transition-all",
-                  count === 0
-                    ? "bg-muted/40"
-                    : isCurrent
-                      ? "bg-blue-500"
-                      : isPast
-                        ? "bg-blue-400/70"
-                        : "bg-muted",
-                )}
-                style={{ height: count === 0 ? "4px" : `${Math.max(heightPct, 8)}%` }}
-              />
-            </div>
-          </div>
-        );
-      })}
-    </div>
+    <ChartContainer config={trafficChartConfig} className="h-32 w-full">
+      <AreaChart data={data} margin={{ top: 18, right: 8, bottom: 0, left: 0 }}>
+        <defs>
+          <linearGradient id="traffic-fill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="rgb(59 130 246)" stopOpacity={0.35} />
+            <stop offset="100%" stopColor="rgb(59 130 246)" stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.08} />
+        <XAxis
+          dataKey="hour"
+          ticks={[0, 6, 12, 18, 23]}
+          tickFormatter={(h) => `${String(h).padStart(2, "0")}:00`}
+          axisLine={false}
+          tickLine={false}
+          tickMargin={6}
+          fontSize={10}
+          stroke="currentColor"
+          opacity={0.6}
+        />
+        <YAxis hide domain={[0, max * 1.2]} />
+        <ChartTooltip
+          cursor={{ stroke: "rgb(59 130 246)", strokeWidth: 1, strokeDasharray: "3 3" }}
+          content={
+            <ChartTooltipContent
+              labelFormatter={(_, payload) =>
+                payload?.[0]?.payload?.label ?? ""
+              }
+              formatter={(value) => [`${value} sipariş`, ""]}
+              indicator="line"
+            />
+          }
+        />
+        <Area
+          dataKey="count"
+          type="monotone"
+          stroke="rgb(59 130 246)"
+          strokeWidth={2}
+          fill="url(#traffic-fill)"
+          activeDot={{ r: 4, fill: "rgb(59 130 246)", stroke: "white", strokeWidth: 2 }}
+        />
+        {/* Tepe noktası rozeti */}
+        <ReferenceDot
+          x={peakHour}
+          y={max}
+          r={4}
+          fill="rgb(99 102 241)"
+          stroke="white"
+          strokeWidth={2}
+          label={{
+            value: `↑ ${max}`,
+            position: "top",
+            fill: "rgb(99 102 241)",
+            fontSize: 10,
+            fontWeight: 600,
+            offset: 6,
+          }}
+          isFront
+        />
+        {/* Şu anki saat */}
+        {currentHour !== null && (
+          <ReferenceLine
+            x={currentHour}
+            stroke="rgb(59 130 246)"
+            strokeDasharray="3 3"
+            strokeOpacity={0.5}
+            label={{
+              value: "şimdi",
+              position: "insideTopRight",
+              fill: "rgb(59 130 246)",
+              fontSize: 9,
+              fontWeight: 600,
+              offset: 4,
+            }}
+          />
+        )}
+      </AreaChart>
+    </ChartContainer>
   );
 }
 
