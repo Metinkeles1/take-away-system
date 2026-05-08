@@ -42,7 +42,12 @@ import {
 import { DEFAULT_IBAN_NAME, DEFAULT_IBAN_NUMBER } from "@/lib/constants";
 import { ProductImage } from "@/components/products/ProductImage";
 import { productImage, fallbackProductUrl } from "@/lib/images";
-import ThermalReceipt from "@/components/receipt/ThermalReceipt";
+import dynamic from "next/dynamic";
+
+const ThermalReceipt = dynamic(
+  () => import("@/components/receipt/ThermalReceipt"),
+  { ssr: false, loading: () => null },
+);
 import { toast } from "sonner";
 
 const PAYMENT_METHODS: {
@@ -291,7 +296,7 @@ export default function OrderSidePanel({ variant = "desktop" }: OrderSidePanelPr
                   }}
                   className="pl-10 min-h-11 resize-none"
                   rows={2}
-                  autoFocus
+                  autoFocus={variant === "desktop"}
                 />
                 {dropdownOpen && suggestions.length > 0 && (
                   <div className="absolute z-50 top-full left-0 right-0 mt-1.5 rounded-xl border bg-popover shadow-xl overflow-hidden">

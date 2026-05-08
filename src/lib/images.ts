@@ -1,15 +1,17 @@
 import { type Product, type ProductCategory } from "@/types";
 
 /**
- * Ürün için resim yolu. Önce elle verilen `image` alanı, sonra konvansiyon yolu.
- * Yerel dosya yoksa <img onError> ile {@link fallbackProductUrl} devreye girer.
+ * Ürün için resim. Elle `image` verilmişse onu kullanır; aksi halde
+ * deterministik SVG tile döner (network çağrısı yok, 404 yok).
  */
-export function productImage(product: Pick<Product, "id" | "image">): string {
-  return product.image ?? `/images/products/${product.id}.jpg`;
+export function productImage(
+  product: Pick<Product, "id" | "image" | "category" | "name">,
+): string {
+  return product.image ?? fallbackProductUrl(product.id, product.category, product.name);
 }
 
 export function categoryImage(category: ProductCategory): string {
-  return `/images/categories/${category}.jpg`;
+  return fallbackCategoryUrl(category);
 }
 
 /**

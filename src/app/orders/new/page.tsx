@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import {
   Sheet,
   SheetContent,
+  SheetDescription,
   SheetTitle,
 } from "@/components/ui/sheet";
 import { ProductSelector, OrderSidePanel } from "@/components/orders/create";
@@ -38,14 +39,14 @@ export default function NewOrderPage() {
       </div>
 
       {/* Tek-ekran layout */}
-      <div className="flex-1 min-h-0 grid gap-4 lg:gap-5 lg:grid-cols-[1fr_360px] xl:grid-cols-[1fr_400px] 2xl:grid-cols-[1fr_440px]">
+      <div className="flex-1 min-h-0 grid gap-4 lg:gap-5 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px] xl:grid-cols-[minmax(0,1fr)_400px] 2xl:grid-cols-[minmax(0,1fr)_440px]">
         {/* Sol: Ürün tarayıcı */}
-        <div className="min-h-0 pb-20 lg:pb-3">
+        <div className="min-w-0 min-h-0 pb-20 lg:pb-3">
           <ProductSelector />
         </div>
 
         {/* Sağ: Yan panel — sadece lg+ */}
-        <div className="hidden lg:block min-h-0 pb-3">
+        <div className="hidden lg:block min-w-0 min-h-0 pb-3">
           <OrderSidePanel variant="desktop" />
         </div>
       </div>
@@ -77,14 +78,17 @@ export default function NewOrderPage() {
         </div>
       </div>
 
-      {/* Mobil Sheet — sağdan içeri */}
+      {/* Mobil Sheet — sağdan tam ekran */}
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
         <SheetContent
           side="right"
-          className="w-full sm:max-w-md p-0 flex flex-col"
+          className="data-[side=right]:w-screen sm:data-[side=right]:max-w-md p-0 flex flex-col"
         >
           <VisuallyHidden.Root>
             <SheetTitle>Sipariş Detayları</SheetTitle>
+            <SheetDescription>
+              Müşteri bilgisi, sepet kalemleri ve ödemeyi tamamlamak için form.
+            </SheetDescription>
           </VisuallyHidden.Root>
           <OrderSidePanel variant="sheet" />
         </SheetContent>

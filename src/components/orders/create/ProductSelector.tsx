@@ -253,7 +253,7 @@ function ProductSelectCard({
         }
       }}
       className={cn(
-        "group relative flex flex-col rounded-xl bg-card ring-1 overflow-hidden transition-all",
+        "group relative flex flex-col rounded-xl bg-card ring-1 overflow-hidden transition-all min-w-0",
         qty > 0
           ? "ring-2 ring-primary shadow-sm"
           : "ring-foreground/8 hover:ring-foreground/25 hover:shadow-sm",
@@ -274,12 +274,12 @@ function ProductSelectCard({
         )}
       </div>
 
-      <div className="flex flex-col gap-0.5 px-2 py-1.5">
-        <p className="font-medium text-[12px] leading-tight line-clamp-2 min-h-[2em]">
+      <div className="flex flex-col gap-0.5 px-2 py-1.5 min-w-0">
+        <p className="font-medium text-[12px] leading-tight line-clamp-2 min-h-[2em] wrap-break-word">
           {product.name}
         </p>
-        <div className="flex items-center justify-between gap-1">
-          <span className="font-bold text-[13px] text-foreground tabular-nums">
+        <div className="flex items-center justify-between gap-1 min-w-0">
+          <span className="font-bold text-[13px] text-foreground tabular-nums truncate min-w-0">
             {formatCurrency(product.price)}
           </span>
 
