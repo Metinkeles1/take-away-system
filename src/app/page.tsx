@@ -19,7 +19,9 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Minus,
+  Loader2,
 } from "lucide-react";
+import { toast } from "sonner";
 import { formatCurrency, formatRelativeTime } from "@/lib/utils";
 import { type Order } from "@/types";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -610,8 +612,27 @@ const STATUS_FILTERS = [
 ] as const;
 
 function OrderRow({ order }: { order: Order }) {
+  const updateOrderStatus = useOrderStore((s) => s.updateOrderStatus);
+  const [isMarking, setIsMarking] = useState(false);
   const config = statusConfig[order.status];
   const Icon = config.icon;
+  const canDeliver = order.status !== "delivered" && order.status !== "cancelled";
+
+  const handleDeliver = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (isMarking) return;
+    setIsMarking(true);
+    try {
+      await updateOrderStatus(order.id, "delivered");
+      toast.success(`#${order.orderNumber} teslim edildi`);
+    } catch {
+      toast.error("Durum güncellenirken hata oluştu");
+    } finally {
+      setIsMarking(false);
+    }
+  };
+
   return (
     <Link
       href={`/orders/${order.id}`}
@@ -624,7 +645,7 @@ function OrderRow({ order }: { order: Order }) {
           <span className="truncate">{order.customer.name}</span>
         </div>
       </div>
-      <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
+      <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-3 shrink-0">
         <span className="text-sm font-medium">{formatCurrency(order.total)}</span>
         <span
           className={`flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium ${config.color}`}
@@ -632,6 +653,22 @@ function OrderRow({ order }: { order: Order }) {
           <Icon className="h-3 w-3" />
           {config.label}
         </span>
+        {canDeliver && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 px-2 text-xs gap-1 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-300"
+            onClick={handleDeliver}
+            disabled={isMarking}
+          >
+            {isMarking ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <CheckCircle2 className="h-3 w-3" />
+            )}
+            Teslim Et
+          </Button>
+        )}
       </div>
     </Link>
   );
