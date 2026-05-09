@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { useOrderStore } from "@/store/orderStore";
 import { Button } from "@/components/ui/button";
@@ -499,10 +499,11 @@ const trafficChartConfig = {
 } satisfies ChartConfig;
 
 function HourlyTraffic({ hourly }: { hourly: number[] }) {
-  const [currentHour, setCurrentHour] = useState<number | null>(null);
-  useEffect(() => {
-    setCurrentHour(new Date().getHours());
-  }, []);
+  const currentHour = useSyncExternalStore(
+    () => () => {},
+    () => new Date().getHours(),
+    () => null,
+  );
 
   const data = hourly.map((count, h) => ({
     hour: h,
@@ -580,7 +581,6 @@ function HourlyTraffic({ hourly }: { hourly: number[] }) {
             fontWeight: 600,
             offset: 6,
           }}
-          isFront
         />
         {/* Şu anki saat */}
         {currentHour !== null && (
