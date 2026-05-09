@@ -32,6 +32,7 @@ import {
   StickyNote,
   ChevronDown,
   User,
+  Loader2,
 } from "lucide-react";
 import { cn, formatCurrency, formatPhone, formatRelativeTime } from "@/lib/utils";
 import {
@@ -42,12 +43,7 @@ import {
 import { DEFAULT_IBAN_NAME, DEFAULT_IBAN_NUMBER } from "@/lib/constants";
 import { ProductImage } from "@/components/products/ProductImage";
 import { productImage, fallbackProductUrl } from "@/lib/images";
-import dynamic from "next/dynamic";
-
-const ThermalReceipt = dynamic(
-  () => import("@/components/receipt/ThermalReceipt"),
-  { ssr: false, loading: () => null },
-);
+import ThermalReceipt from "@/components/receipt/ThermalReceipt";
 import { toast } from "sonner";
 
 const PAYMENT_METHODS: {
@@ -236,9 +232,12 @@ export default function OrderSidePanel({ variant = "desktop" }: OrderSidePanelPr
     Boolean(draft.customer.address) &&
     Boolean(draft.payment.method);
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const handleComplete = useCallback(
     async (alsoPrint: boolean) => {
-      // Ödeme yöntemi default olarak nakit set et eğer hiç set edilmediyse
+      if (isSubmitting) return;
+      setIsSubmitting(true);
       if (!draft.payment.method) {
         setPayment({ method: "cash" });
       }
@@ -246,20 +245,20 @@ export default function OrderSidePanel({ variant = "desktop" }: OrderSidePanelPr
         const order = await completeOrder();
         if (!order) {
           toast.error("Lütfen müşteri ve ödeme bilgilerini doldurun.");
+          setIsSubmitting(false);
           return;
         }
         toast.success(`#${order.orderNumber} numaralı sipariş alındı!`);
         if (alsoPrint) {
-          setTimeout(() => handlePrint(), 100);
-          setTimeout(() => router.push(`/orders/${order.id}`), 500);
-        } else {
-          router.push(`/orders/${order.id}`);
+          handlePrint();
         }
+        router.push(`/orders/${order.id}`);
       } catch {
         toast.error("Sipariş kaydedilirken bir hata oluştu.");
+        setIsSubmitting(false);
       }
     },
-    [completeOrder, draft.payment.method, handlePrint, router, setPayment],
+    [completeOrder, draft.payment.method, handlePrint, isSubmitting, router, setPayment],
   );
 
   // ── Notlar (collapsible) ─────────────────────────────────────────────────
@@ -613,20 +612,28 @@ export default function OrderSidePanel({ variant = "desktop" }: OrderSidePanelPr
               variant="outline"
               size="lg"
               className="flex-1 h-11"
-              disabled={!canComplete}
+              disabled={!canComplete || isSubmitting}
               onClick={() => handleComplete(false)}
             >
-              <Check className="mr-1.5 h-4 w-4" />
-              Tamamla
+              {isSubmitting ? (
+                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+              ) : (
+                <Check className="mr-1.5 h-4 w-4" />
+              )}
+              {isSubmitting ? "Tamamlanıyor..." : "Tamamla"}
             </Button>
             <Button
               size="lg"
               className="flex-1 h-11"
-              disabled={!canComplete}
+              disabled={!canComplete || isSubmitting}
               onClick={() => handleComplete(true)}
             >
-              <Printer className="mr-1.5 h-4 w-4" />
-              Yazdır & Tamamla
+              {isSubmitting ? (
+                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+              ) : (
+                <Printer className="mr-1.5 h-4 w-4" />
+              )}
+              {isSubmitting ? "Yazdırılıyor..." : "Yazdır & Tamamla"}
             </Button>
           </div>
         </div>

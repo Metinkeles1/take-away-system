@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { useOrderStore } from "@/store/orderStore";
+import { useMenuStore } from "@/store/menuStore";
 import { MENU_CATEGORIES } from "@/data/menu";
-import { getAvailableProducts } from "@/actions/products";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Plus, Minus, Search, X } from "lucide-react";
@@ -26,14 +26,14 @@ export default function ProductSelector() {
   const { draft, addItem, addItemWithPortion, updateQuantity } = useOrderStore();
   const [activeCategory, setActiveCategory] = useState<ProductCategory | "all">("all");
   const [search, setSearch] = useState("");
-  const [menuItems, setMenuItems] = useState<Product[]>([]);
-  const [isLoadingMenu, setIsLoadingMenu] = useState(true);
+  const menuItems = useMenuStore((s) => s.items);
+  const loadMenu = useMenuStore((s) => s.loadMenu);
+  const hasCache = menuItems.length > 0;
+  const isLoadingMenu = !hasCache;
 
   useEffect(() => {
-    getAvailableProducts()
-      .then(setMenuItems)
-      .finally(() => setIsLoadingMenu(false));
-  }, []);
+    void loadMenu();
+  }, [loadMenu]);
 
   const filteredItems = menuItems.filter((item) => {
     const matchesCategory = activeCategory === "all" || item.category === activeCategory;
