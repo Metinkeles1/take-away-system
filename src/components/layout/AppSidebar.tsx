@@ -9,6 +9,7 @@ import {
   ShoppingBag,
   ClipboardList,
   Users,
+  Building2,
   UtensilsCrossed,
   ChevronLeft,
   ChevronRight,
@@ -21,6 +22,7 @@ export const NAV_ITEMS = [
   { href: "/orders/new", label: "Yeni Sipariş", icon: ShoppingBag, color: "text-orange-400", activeBg: "bg-orange-500/15" },
   { href: "/orders", label: "Siparişler", icon: ClipboardList, color: "text-emerald-400", activeBg: "bg-emerald-500/15" },
   { href: "/customers", label: "Müşteriler", icon: Users, color: "text-pink-400", activeBg: "bg-pink-500/15" },
+  { href: "/corporate", label: "Kurumsal", icon: Building2, color: "text-cyan-400", activeBg: "bg-cyan-500/15" },
   { href: "/products", label: "Menü", icon: UtensilsCrossed, color: "text-amber-400", activeBg: "bg-amber-500/15" },
 ] as const;
 

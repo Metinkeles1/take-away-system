@@ -1,65 +1,23 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useOrderStore } from "@/store/orderStore";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   ShoppingBag,
   ClipboardList,
   TrendingUp,
   Clock,
-  CheckCircle2,
-  Bike,
   PlusCircle,
-  ArrowUpRight,
-  ArrowDownRight,
-  Minus,
-  Loader2,
 } from "lucide-react";
-import { toast } from "sonner";
-import { formatCurrency, formatRelativeTime } from "@/lib/utils";
-import { type Order } from "@/types";
-import { Skeleton } from "@/components/ui/skeleton";
-import { cn } from "@/lib/utils";
-import {
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-  type ChartConfig,
-} from "@/components/ui/chart";
-import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  ReferenceDot,
-  ReferenceLine,
-  XAxis,
-  YAxis,
-} from "recharts";
-
-const statusConfig: Record<
-  Order["status"],
-  { label: string; color: string; icon: React.ElementType }
-> = {
-  pending: { label: "Beklemede", color: "bg-yellow-100 text-yellow-800", icon: Clock },
-  preparing: {
-    label: "Hazırlanıyor",
-    color: "bg-blue-100 text-blue-800",
-    icon: ClipboardList,
-  },
-  "on-the-way": { label: "Yolda", color: "bg-purple-100 text-purple-800", icon: Bike },
-  delivered: {
-    label: "Teslim Edildi",
-    color: "bg-green-100 text-green-800",
-    icon: CheckCircle2,
-  },
-  cancelled: { label: "İptal", color: "bg-red-100 text-red-800", icon: ClipboardList },
-};
+import { formatCurrency } from "@/lib/utils";
+import { StatCard, computeDelta } from "./_components/dashboard/StatCard";
+import { HourlyTraffic } from "./_components/dashboard/HourlyTraffic";
+import { ActiveOrdersCard } from "./_components/dashboard/ActiveOrdersCard";
+import { QuickActionsCard } from "./_components/dashboard/QuickActionsCard";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -67,17 +25,11 @@ export default function DashboardPage() {
 
   useEffect(() => {
     loadOrders();
-
-    // Sekme tekrar aktif olunca veya sayfa focus'a gelince yenile
     const handleFocus = () => loadOrders();
     window.addEventListener("focus", handleFocus);
     return () => window.removeEventListener("focus", handleFocus);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const [statusFilter, setStatusFilter] = useState<
-    "all" | "pending" | "preparing" | "on-the-way"
-  >("all");
 
   const { todayOrders, yesterdayOrders, todayRevenue, yesterdayRevenue, hourly } =
     useMemo(() => {
@@ -96,11 +48,8 @@ export default function DashboardPage() {
       );
 
       const sumRevenue = (list: typeof orders) =>
-        list
-          .filter((o) => o.status !== "cancelled")
-          .reduce((sum, o) => sum + o.total, 0);
+        list.filter((o) => o.status !== "cancelled").reduce((sum, o) => sum + o.total, 0);
 
-      // 24 saatlik dağılım (bugün)
       const hourly = Array.from({ length: 24 }, () => 0);
       todayOrders.forEach((o) => {
         const h = new Date(o.createdAt).getHours();
@@ -116,18 +65,18 @@ export default function DashboardPage() {
       };
     }, [orders]);
 
-  const allActiveOrders = orders.filter(
-    (o) =>
-      o.status === "pending" || o.status === "preparing" || o.status === "on-the-way",
+  const allActiveOrders = useMemo(
+    () =>
+      orders.filter(
+        (o) =>
+          o.status === "pending" ||
+          o.status === "preparing" ||
+          o.status === "on-the-way",
+      ),
+    [orders],
   );
 
-  const activeOrders =
-    statusFilter === "all"
-      ? allActiveOrders
-      : allActiveOrders.filter((o) => o.status === statusFilter);
-
   const recentOrders = orders.slice(0, 10);
-
   const orderDelta = computeDelta(todayOrders.length, yesterdayOrders.length);
   const revenueDelta = computeDelta(todayRevenue, yesterdayRevenue);
 
@@ -171,19 +120,17 @@ export default function DashboardPage() {
       {/* İstatistik kartları */}
       <div className="mb-4 grid gap-2.5 sm:gap-3 grid-cols-2 lg:grid-cols-4 shrink-0">
         {isLoading ? (
-          <>
-            {[...Array(4)].map((_, i) => (
-              <Card key={i}>
-                <CardContent className="flex items-center gap-3 p-4 sm:gap-4 sm:p-6">
-                  <Skeleton className="h-10 w-10 sm:h-12 sm:w-12 rounded-xl" />
-                  <div className="space-y-2 flex-1">
-                    <Skeleton className="h-3 w-20 sm:w-24" />
-                    <Skeleton className="h-6 sm:h-7 w-14 sm:w-16" />
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </>
+          [...Array(4)].map((_, i) => (
+            <Card key={i}>
+              <CardContent className="flex items-center gap-3 p-4 sm:gap-4 sm:p-6">
+                <Skeleton className="h-10 w-10 sm:h-12 sm:w-12 rounded-xl" />
+                <div className="space-y-2 flex-1">
+                  <Skeleton className="h-3 w-20 sm:w-24" />
+                  <Skeleton className="h-6 sm:h-7 w-14 sm:w-16" />
+                </div>
+              </CardContent>
+            </Card>
+          ))
         ) : (
           <>
             <StatCard
@@ -221,95 +168,10 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid gap-3 sm:gap-4 lg:grid-cols-3 lg:flex-1 lg:min-h-0">
-        {/* Aktif siparişler */}
         <div className="lg:col-span-2 flex flex-col lg:min-h-0">
-          <Card className="flex flex-col flex-1 lg:min-h-0">
-            <CardHeader className="flex flex-col gap-3 shrink-0 pb-3">
-              <div className="flex flex-row items-center justify-between gap-2">
-                <CardTitle className="text-base">Aktif Siparişler</CardTitle>
-                <div className="flex items-center gap-2">
-                  <Badge variant="secondary">{activeOrders.length} sipariş</Badge>
-                  <Link
-                    href="/orders"
-                    className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors hidden sm:inline"
-                  >
-                    Tümü →
-                  </Link>
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-1.5 -mx-1 px-1 overflow-x-auto scrollbar-hide">
-                {STATUS_FILTERS.map((f) => {
-                  const count =
-                    f.key === "all"
-                      ? allActiveOrders.length
-                      : allActiveOrders.filter((o) => o.status === f.key).length;
-                  const isActive = statusFilter === f.key;
-                  return (
-                    <button
-                      key={f.key}
-                      type="button"
-                      onClick={() => setStatusFilter(f.key)}
-                      className={cn(
-                        "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors whitespace-nowrap",
-                        isActive
-                          ? "bg-foreground text-background"
-                          : "bg-muted text-muted-foreground hover:bg-muted/70",
-                      )}
-                    >
-                      {f.label}
-                      <span
-                        className={cn(
-                          "rounded-full px-1.5 text-[10px] font-semibold",
-                          isActive
-                            ? "bg-background/20 text-background"
-                            : "bg-background/60 text-foreground",
-                        )}
-                      >
-                        {count}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </CardHeader>
-            <CardContent className="flex-1 pb-4 lg:min-h-0 lg:overflow-y-auto scrollbar-hide">
-              {isLoading ? (
-                <div className="space-y-3">
-                  {[...Array(3)].map((_, i) => (
-                    <div
-                      key={i}
-                      className="flex items-center justify-between rounded-lg border p-3"
-                    >
-                      <div className="flex items-center gap-3 flex-1">
-                        <div className="space-y-2 flex-1">
-                          <Skeleton className="h-4 w-32" />
-                          <Skeleton className="h-3 w-24" />
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <Skeleton className="h-4 w-16" />
-                        <Skeleton className="h-6 w-24 rounded-full" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : activeOrders.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-                  <CheckCircle2 className="mb-3 h-12 w-12 opacity-30" />
-                  <p className="text-sm">Şu anda aktif sipariş yok</p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {activeOrders.map((order) => (
-                    <OrderRow key={order.id} order={order} />
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <ActiveOrdersCard isLoading={isLoading} allActiveOrders={allActiveOrders} />
         </div>
 
-        {/* Yan panel */}
         <div className="flex flex-col gap-3 sm:gap-4 lg:min-h-0">
           <Card>
             <CardHeader className="shrink-0 pb-3 flex flex-row items-center justify-between">
@@ -323,353 +185,9 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          <Card className="flex flex-col lg:flex-1 lg:min-h-0">
-            <CardHeader className="shrink-0 pb-3">
-              <CardTitle className="text-base">Hızlı İşlemler</CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-3 pb-4 flex-1 lg:min-h-0">
-              <Button
-                className="w-full justify-start"
-                onClick={() => router.push("/orders/new")}
-              >
-                <PlusCircle className="mr-2 h-4 w-4" />
-                Yeni Sipariş Al
-              </Button>
-              <Button
-                variant="outline"
-                className="w-full justify-start"
-                onClick={() => router.push("/orders")}
-              >
-                <ClipboardList className="mr-2 h-4 w-4" />
-                Tüm Siparişler
-              </Button>
-              <Separator />
-              <div className="flex items-center justify-between shrink-0">
-                <div className="text-sm font-medium text-muted-foreground">
-                  Son Siparişler
-                </div>
-                {recentOrders.length > 0 && (
-                  <>
-                    <span className="text-[10px] text-muted-foreground/70 lg:hidden">
-                      son {Math.min(recentOrders.length, 5)}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground/70 hidden lg:inline">
-                      son {recentOrders.length}
-                    </span>
-                  </>
-                )}
-              </div>
-              <div className="flex-1 lg:min-h-0 lg:overflow-y-auto scrollbar-hide -mr-2 pr-2">
-                {isLoading ? (
-                  <div className="space-y-3">
-                    {[...Array(6)].map((_, i) => (
-                      <div
-                        key={i}
-                        className="flex items-center justify-between rounded-md p-2"
-                      >
-                        <div className="space-y-1.5">
-                          <Skeleton className="h-3 w-28" />
-                          <Skeleton className="h-3 w-20" />
-                        </div>
-                        <div className="space-y-1.5 items-end flex flex-col">
-                          <Skeleton className="h-3 w-14" />
-                          <Skeleton className="h-3 w-10" />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : recentOrders.length === 0 ? (
-                  <p className="py-4 text-center text-sm text-muted-foreground">
-                    Henüz sipariş yok
-                  </p>
-                ) : (
-                  <div className="flex flex-col gap-1 [&>*:nth-child(n+6)]:hidden lg:[&>*:nth-child(n+6)]:flex">
-                    {recentOrders.map((order) => (
-                      <Link
-                        key={order.id}
-                        href={`/orders/${order.id}`}
-                        className="flex items-center justify-between rounded-md p-2 text-sm transition-colors hover:bg-accent shrink-0"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <span className="font-medium">#{order.orderNumber}</span>
-                          <span className="ml-2 text-muted-foreground truncate">
-                            {order.customer.name}
-                          </span>
-                        </div>
-                        <div className="text-right shrink-0 ml-2">
-                          <div className="font-medium">{formatCurrency(order.total)}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {formatRelativeTime(order.createdAt)}
-                          </div>
-                        </div>
-                      </Link>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+          <QuickActionsCard isLoading={isLoading} recentOrders={recentOrders} />
         </div>
       </div>
     </main>
-  );
-}
-
-// ─── Yardımcılar ──────────────────────────────────────────────────────────────
-type Delta = { kind: "up" | "down" | "flat" | "new"; pct: number };
-
-function computeDelta(current: number, previous: number): Delta {
-  if (previous === 0 && current === 0) return { kind: "flat", pct: 0 };
-  if (previous === 0) return { kind: "new", pct: 100 };
-  const diff = ((current - previous) / previous) * 100;
-  if (Math.abs(diff) < 1) return { kind: "flat", pct: 0 };
-  return { kind: diff > 0 ? "up" : "down", pct: Math.round(Math.abs(diff)) };
-}
-
-// ─── Alt Bileşenler ────────────────────────────────────────────────────────────
-function StatCard({
-  title,
-  value,
-  icon: Icon,
-  color,
-  bg,
-  delta,
-}: {
-  title: string;
-  value: string;
-  delta?: Delta;
-  icon: React.ElementType;
-  color: string;
-  bg: string;
-}) {
-  return (
-    <Card>
-      <CardContent className="flex items-center gap-3 p-4 sm:gap-4 sm:p-6">
-        <div className={`rounded-xl p-2.5 sm:p-3 ${bg} shrink-0`}>
-          <Icon className={`h-5 w-5 sm:h-6 sm:w-6 ${color}`} />
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-xs sm:text-sm text-muted-foreground truncate">{title}</p>
-          <div className="flex items-baseline gap-2 flex-wrap">
-            <p className="text-lg sm:text-2xl font-bold truncate">{value}</p>
-            {delta && <DeltaBadge delta={delta} />}
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function DeltaBadge({ delta }: { delta: Delta }) {
-  if (delta.kind === "flat") {
-    return (
-      <span className="inline-flex items-center gap-0.5 text-[10px] sm:text-xs font-medium text-muted-foreground">
-        <Minus className="h-3 w-3" />
-        eşit
-      </span>
-    );
-  }
-  if (delta.kind === "new") {
-    return (
-      <span className="inline-flex items-center gap-0.5 text-[10px] sm:text-xs font-medium text-emerald-600">
-        <ArrowUpRight className="h-3 w-3" />
-        yeni
-      </span>
-    );
-  }
-  const isUp = delta.kind === "up";
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-0.5 text-[10px] sm:text-xs font-medium",
-        isUp ? "text-emerald-600" : "text-red-600",
-      )}
-    >
-      {isUp ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
-      %{delta.pct}
-    </span>
-  );
-}
-
-const trafficChartConfig = {
-  count: {
-    label: "Sipariş",
-    color: "rgb(59 130 246)",
-  },
-} satisfies ChartConfig;
-
-function HourlyTraffic({ hourly }: { hourly: number[] }) {
-  const currentHour = useSyncExternalStore(
-    () => () => {},
-    () => new Date().getHours(),
-    () => null,
-  );
-
-  const data = hourly.map((count, h) => ({
-    hour: h,
-    label: `${h.toString().padStart(2, "0")}:00`,
-    count,
-  }));
-
-  const total = hourly.reduce((s, c) => s + c, 0);
-  const max = Math.max(1, ...hourly);
-  const peakHour = hourly.indexOf(max);
-
-  if (total === 0) {
-    return (
-      <div className="h-32 flex items-center justify-center text-sm text-muted-foreground">
-        Bugün henüz sipariş yok
-      </div>
-    );
-  }
-
-  return (
-    <ChartContainer config={trafficChartConfig} className="h-32 w-full">
-      <AreaChart data={data} margin={{ top: 18, right: 8, bottom: 0, left: 0 }}>
-        <defs>
-          <linearGradient id="traffic-fill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="rgb(59 130 246)" stopOpacity={0.35} />
-            <stop offset="100%" stopColor="rgb(59 130 246)" stopOpacity={0} />
-          </linearGradient>
-        </defs>
-        <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.08} />
-        <XAxis
-          dataKey="hour"
-          ticks={[0, 6, 12, 18, 23]}
-          tickFormatter={(h) => `${String(h).padStart(2, "0")}:00`}
-          axisLine={false}
-          tickLine={false}
-          tickMargin={6}
-          fontSize={10}
-          stroke="currentColor"
-          opacity={0.6}
-        />
-        <YAxis hide domain={[0, max * 1.2]} />
-        <ChartTooltip
-          cursor={{ stroke: "rgb(59 130 246)", strokeWidth: 1, strokeDasharray: "3 3" }}
-          content={
-            <ChartTooltipContent
-              labelFormatter={(_, payload) =>
-                payload?.[0]?.payload?.label ?? ""
-              }
-              formatter={(value) => [`${value} sipariş`, ""]}
-              indicator="line"
-            />
-          }
-        />
-        <Area
-          dataKey="count"
-          type="monotone"
-          stroke="rgb(59 130 246)"
-          strokeWidth={2}
-          fill="url(#traffic-fill)"
-          activeDot={{ r: 4, fill: "rgb(59 130 246)", stroke: "white", strokeWidth: 2 }}
-        />
-        {/* Tepe noktası rozeti */}
-        <ReferenceDot
-          x={peakHour}
-          y={max}
-          r={4}
-          fill="rgb(99 102 241)"
-          stroke="white"
-          strokeWidth={2}
-          label={{
-            value: `↑ ${max}`,
-            position: "top",
-            fill: "rgb(99 102 241)",
-            fontSize: 10,
-            fontWeight: 600,
-            offset: 6,
-          }}
-        />
-        {/* Şu anki saat */}
-        {currentHour !== null && (
-          <ReferenceLine
-            x={currentHour}
-            stroke="rgb(59 130 246)"
-            strokeDasharray="3 3"
-            strokeOpacity={0.5}
-            label={{
-              value: "şimdi",
-              position: "insideTopRight",
-              fill: "rgb(59 130 246)",
-              fontSize: 9,
-              fontWeight: 600,
-              offset: 4,
-            }}
-          />
-        )}
-      </AreaChart>
-    </ChartContainer>
-  );
-}
-
-const STATUS_FILTERS = [
-  { key: "all", label: "Tümü" },
-  { key: "pending", label: "Bekleyen" },
-  { key: "preparing", label: "Hazırlanıyor" },
-  { key: "on-the-way", label: "Yolda" },
-] as const;
-
-function OrderRow({ order }: { order: Order }) {
-  const updateOrderStatus = useOrderStore((s) => s.updateOrderStatus);
-  const [isMarking, setIsMarking] = useState(false);
-  const config = statusConfig[order.status];
-  const Icon = config.icon;
-  const canDeliver = order.status !== "delivered" && order.status !== "cancelled";
-
-  const handleDeliver = async (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (isMarking) return;
-    setIsMarking(true);
-    try {
-      await updateOrderStatus(order.id, "delivered");
-      toast.success(`#${order.orderNumber} teslim edildi`);
-    } catch {
-      toast.error("Durum güncellenirken hata oluştu");
-    } finally {
-      setIsMarking(false);
-    }
-  };
-
-  return (
-    <Link
-      href={`/orders/${order.id}`}
-      className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-lg border p-3 transition-colors hover:bg-accent"
-    >
-      <div className="flex items-center gap-2 min-w-0">
-        <div className="text-sm min-w-0 flex items-center flex-wrap gap-x-2">
-          <span className="font-semibold">#{order.orderNumber}</span>
-          <span className="text-muted-foreground hidden sm:inline">·</span>
-          <span className="truncate">{order.customer.name}</span>
-        </div>
-      </div>
-      <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-3 shrink-0">
-        <span className="text-sm font-medium">{formatCurrency(order.total)}</span>
-        <span
-          className={`flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium ${config.color}`}
-        >
-          <Icon className="h-3 w-3" />
-          {config.label}
-        </span>
-        {canDeliver && (
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 px-2 text-xs gap-1 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-300"
-            onClick={handleDeliver}
-            disabled={isMarking}
-          >
-            {isMarking ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              <CheckCircle2 className="h-3 w-3" />
-            )}
-            Teslim Et
-          </Button>
-        )}
-      </div>
-    </Link>
   );
 }

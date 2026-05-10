@@ -134,3 +134,81 @@ export interface SavedCustomer {
   orderCount: number;
   updatedAt: Date;
 }
+
+// ─── Kurumsal Müşteri (Cari) ─────────────────────────────────────────────────
+export type BillingType = "per_person" | "per_item";
+
+export interface Corporate {
+  id: string;
+  name: string;
+  phone?: string;
+  address?: string;
+  billingType: BillingType;
+  pricePerPerson?: number; // sadece per_person tipinde anlamlı
+  voucherCount: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export type CorporateInput = Omit<Corporate, "voucherCount" | "createdAt" | "updatedAt">;
+
+// ─── Fiş Kalemi (per_item için) ─────────────────────────────────────────────
+export interface VoucherItem {
+  productId: string;
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+  portionLabel?: string;
+  note?: string;
+}
+
+// ─── Fiş (Voucher) ───────────────────────────────────────────────────────────
+export interface Voucher {
+  id: string;
+  voucherNumber: number;
+  corporateId: string;
+  corporateName: string;
+  billingType: BillingType;
+  date: Date;
+  // per_person alanları
+  personCount?: number;
+  pricePerPerson?: number;
+  // per_item alanları
+  items?: VoucherItem[];
+  // ortak
+  total: number;
+  note?: string;
+  paid: boolean;
+  paidAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export type VoucherInput =
+  | {
+      type: "per_person";
+      corporateId: string;
+      date: Date;
+      personCount: number;
+      pricePerPerson?: number;
+      note?: string;
+    }
+  | {
+      type: "per_item";
+      corporateId: string;
+      date: Date;
+      items: VoucherItem[];
+      note?: string;
+    };
+
+// ─── Dönemsel İstatistik ─────────────────────────────────────────────────────
+export interface PeriodStats {
+  count: number;
+  total: number;
+  paid: number;
+  unpaid: number;
+}
+
+// Geriye dönük uyumluluk
+export type MonthlyStats = PeriodStats;
