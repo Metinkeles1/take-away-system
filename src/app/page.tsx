@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useOrderStore } from "@/store/orderStore";
 import { Button } from "@/components/ui/button";
@@ -22,14 +22,17 @@ import { QuickActionsCard } from "./_components/dashboard/QuickActionsCard";
 export default function DashboardPage() {
   const router = useRouter();
   const { orders, loadOrders, isLoading } = useOrderStore();
+  const [bootstrapping, setBootstrapping] = useState(orders.length === 0);
 
   useEffect(() => {
-    loadOrders();
+    loadOrders().finally(() => setBootstrapping(false));
     const handleFocus = () => loadOrders();
     window.addEventListener("focus", handleFocus);
     return () => window.removeEventListener("focus", handleFocus);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const showSkeleton = isLoading || bootstrapping;
 
   const { todayOrders, yesterdayOrders, todayRevenue, yesterdayRevenue, hourly } =
     useMemo(() => {
@@ -119,7 +122,7 @@ export default function DashboardPage() {
 
       {/* İstatistik kartları */}
       <div className="mb-4 grid gap-2.5 sm:gap-3 grid-cols-2 lg:grid-cols-4 shrink-0">
-        {isLoading ? (
+        {showSkeleton ? (
           [...Array(4)].map((_, i) => (
             <Card key={i}>
               <CardContent className="flex items-center gap-3 p-4 sm:gap-4 sm:p-6">
@@ -169,7 +172,7 @@ export default function DashboardPage() {
 
       <div className="grid gap-3 sm:gap-4 lg:grid-cols-3 lg:flex-1 lg:min-h-0">
         <div className="lg:col-span-2 flex flex-col lg:min-h-0">
-          <ActiveOrdersCard isLoading={isLoading} allActiveOrders={allActiveOrders} />
+          <ActiveOrdersCard isLoading={showSkeleton} allActiveOrders={allActiveOrders} />
         </div>
 
         <div className="flex flex-col gap-3 sm:gap-4 lg:min-h-0">
@@ -185,7 +188,7 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          <QuickActionsCard isLoading={isLoading} recentOrders={recentOrders} />
+          <QuickActionsCard isLoading={showSkeleton} recentOrders={recentOrders} />
         </div>
       </div>
     </main>

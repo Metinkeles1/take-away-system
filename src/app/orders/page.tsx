@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useOrderStore } from "@/store/orderStore";
 import { Button } from "@/components/ui/button";
@@ -15,9 +15,11 @@ import { OrdersList } from "./_components/OrdersList";
 export default function OrdersPage() {
   const { orders, updateOrderStatus, loadOrders, isLoading } = useOrderStore();
   const [filter, setFilter] = useState<OrderFilter>("all");
+  // İlk fetch tamamlanana kadar skeleton göster (boş-state flash'ını önler)
+  const [bootstrapping, setBootstrapping] = useState(orders.length === 0);
 
   useEffect(() => {
-    loadOrders();
+    loadOrders().finally(() => setBootstrapping(false));
     const handleFocus = () => loadOrders();
     window.addEventListener("focus", handleFocus);
     return () => window.removeEventListener("focus", handleFocus);
@@ -39,9 +41,14 @@ export default function OrdersPage() {
     return acc;
   }, [orders]);
 
+  // Filter chip'lerin tıklanması anlık hissedilir, ağır liste hesabı arkada gerçekleşir
+  const deferredFilter = useDeferredValue(filter);
   const filteredOrders = useMemo(
-    () => (filter === "all" ? orders : orders.filter((o) => o.status === filter)),
-    [orders, filter],
+    () =>
+      deferredFilter === "all"
+        ? orders
+        : orders.filter((o) => o.status === deferredFilter),
+    [orders, deferredFilter],
   );
 
   const handleStatusChange = (id: string, status: OrderStatus) => {
@@ -49,7 +56,7 @@ export default function OrdersPage() {
   };
 
   return (
-    <main className="h-full flex flex-col px-3 pt-3 pb-6 sm:px-4 sm:pt-4 md:px-6 md:pt-5 lg:px-8 lg:pt-6 lg:pb-8 overflow-y-auto">
+    <main className="h-full flex flex-col px-3 pt-3 pb-6 sm:px-4 sm:pt-4 md:px-6 md:pt-5 lg:px-8 lg:pt-6 lg:pb-8 overflow-hidden">
       <div className="mb-3 flex items-start justify-between gap-3 shrink-0">
         <div className="min-w-0">
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Siparişler</h1>
@@ -73,9 +80,9 @@ export default function OrdersPage() {
 
       <OrderStatusFilters filter={filter} counts={counts} onChange={setFilter} />
 
-      <div className="flex-1 pt-px px-px">
+      <div className="flex-1 min-h-0 pt-px px-px">
         <OrdersList
-          isLoading={isLoading}
+          isLoading={isLoading || bootstrapping}
           orders={filteredOrders}
           filter={filter}
           onResetFilter={() => setFilter("all")}

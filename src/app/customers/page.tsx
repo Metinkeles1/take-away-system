@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useTransition } from "react";
 import { getSavedCustomers, searchCustomers } from "@/actions/customers";
 import { type SavedCustomer } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ export default function CustomersPage() {
   const [customers, setCustomers] = useState<SavedCustomer[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [, startSearchTransition] = useTransition();
 
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<SavedCustomer | null>(null);
@@ -32,19 +33,22 @@ export default function CustomersPage() {
   }, []);
 
   const handleSearch = useCallback(
-    async (query: string) => {
+    (query: string) => {
+      // Input anlık güncellenir, ağır liste re-render'ı transition'a atılır
       setSearchQuery(query);
-      if (!query.trim()) {
-        loadCustomers();
-        return;
-      }
-      setIsLoading(true);
-      try {
-        const data = await searchCustomers(query);
-        setCustomers(data);
-      } finally {
-        setIsLoading(false);
-      }
+      startSearchTransition(async () => {
+        if (!query.trim()) {
+          loadCustomers();
+          return;
+        }
+        setIsLoading(true);
+        try {
+          const data = await searchCustomers(query);
+          setCustomers(data);
+        } finally {
+          setIsLoading(false);
+        }
+      });
     },
     [loadCustomers],
   );
@@ -97,7 +101,7 @@ export default function CustomersPage() {
         />
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-hide pt-px px-px pb-2">
+      <div className="flex-1 min-h-0">
         <CustomerList
           isLoading={isLoading}
           customers={customers}

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import {
@@ -13,6 +14,7 @@ import {
   UtensilsCrossed,
   ChevronLeft,
   ChevronRight,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -40,6 +42,44 @@ type Props = {
   /** Mobilde linke tıklayınca Sheet'i kapatmak için */
   onNavigate?: () => void;
 };
+
+type NavItem = (typeof NAV_ITEMS)[number];
+
+function NavItemContent({
+  item,
+  isActive,
+  showCollapsed,
+}: {
+  item: NavItem;
+  isActive: boolean;
+  showCollapsed: boolean;
+}) {
+  const { pending } = useLinkStatus();
+  const Icon = item.icon;
+  return (
+    <>
+      {pending ? (
+        <Loader2
+          className={cn(
+            "h-4.5 w-4.5 shrink-0 animate-spin",
+            isActive ? item.color : "text-slate-300",
+          )}
+        />
+      ) : (
+        <Icon className={cn("h-4.5 w-4.5 shrink-0", isActive && item.color)} />
+      )}
+      {!showCollapsed && <span className="truncate">{item.label}</span>}
+      {isActive && !showCollapsed && !pending && (
+        <div
+          className={cn(
+            "ml-auto h-1.5 w-1.5 rounded-full",
+            item.color.replace("text-", "bg-"),
+          )}
+        />
+      )}
+    </>
+  );
+}
 
 export default function AppSidebar({ variant = "desktop", onNavigate }: Props) {
   const pathname = usePathname();
@@ -74,7 +114,6 @@ export default function AppSidebar({ variant = "desktop", onNavigate }: Props) {
         )}
         <div className="space-y-0.5">
           {NAV_ITEMS.map((item) => {
-            const Icon = item.icon;
             const isActive = isItemActive(pathname, item.href);
             const activeBg = "activeBg" in item ? item.activeBg : "bg-white/10";
             return (
@@ -91,11 +130,11 @@ export default function AppSidebar({ variant = "desktop", onNavigate }: Props) {
                     : "text-slate-400 hover:bg-white/5 hover:text-slate-200"
                 )}
               >
-                <Icon className={cn("h-4.5 w-4.5 shrink-0", isActive && item.color)} />
-                {!showCollapsed && <span className="truncate">{item.label}</span>}
-                {isActive && !showCollapsed && (
-                  <div className={cn("ml-auto h-1.5 w-1.5 rounded-full", item.color.replace("text-", "bg-"))} />
-                )}
+                <NavItemContent
+                  item={item}
+                  isActive={isActive}
+                  showCollapsed={showCollapsed}
+                />
               </Link>
             );
           })}
