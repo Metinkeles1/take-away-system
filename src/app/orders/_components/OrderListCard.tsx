@@ -19,7 +19,27 @@ import {
   Timer,
   ChevronRight,
   Loader2,
+  Store,
 } from "lucide-react";
+
+const SOURCE_BADGE: Record<
+  NonNullable<Order["source"]>,
+  { label: string; className: string } | null
+> = {
+  manual: null,
+  trendyol: {
+    label: "Trendyol",
+    className: "bg-emerald-100 text-emerald-800 border-emerald-200",
+  },
+  getir: {
+    label: "Getir",
+    className: "bg-purple-100 text-purple-700 border-purple-200",
+  },
+  yemeksepeti: {
+    label: "Yemeksepeti",
+    className: "bg-red-100 text-red-700 border-red-200",
+  },
+};
 
 interface OrderListCardProps {
   order: Order;
@@ -34,10 +54,41 @@ export function OrderListCard({ order, onStatusChange }: OrderListCardProps) {
   const config = ORDER_STATUS_CONFIG[order.status];
   const Icon = config.icon;
   const isNavigating = isPending && navigating;
+  const sourceBadge = order.source ? SOURCE_BADGE[order.source] : null;
+  const isTrendyol = order.source === "trendyol";
 
   return (
-    <Card className="transition-all hover:shadow-md hover:border-foreground/20 overflow-hidden relative">
-      <div className={cn("absolute left-0 top-0 bottom-0 w-1", config.accent)} />
+    <Card
+      className={cn(
+        "transition-all hover:shadow-md hover:border-foreground/20 overflow-hidden relative",
+        isTrendyol &&
+          "bg-linear-to-r from-emerald-50/70 via-white to-white border-emerald-200/80",
+      )}
+    >
+      {/* Sol kenar şeridi — Trendyol için kalın yeşil, diğerleri için status rengi */}
+      <div
+        className={cn(
+          "absolute left-0 top-0 bottom-0",
+          isTrendyol ? "w-1.5 bg-emerald-600" : "w-1",
+          !isTrendyol && config.accent,
+        )}
+      />
+
+      {/* Sağ üst köşe: Trendyol "T" rozeti */}
+      {isTrendyol && (
+        <div
+          className="absolute top-0 right-0 z-10 flex items-center gap-1.5 rounded-bl-xl bg-emerald-600 px-2.5 py-1 text-white shadow-sm"
+          title="Trendyol GO siparişi"
+        >
+          <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-white text-[10px] font-black text-emerald-700">
+            T
+          </span>
+          <span className="text-[10px] font-bold uppercase tracking-wider">
+            Trendyol
+          </span>
+        </div>
+      )}
+
       <CardContent className="flex flex-col md:flex-row md:items-stretch gap-3 md:gap-4 p-4 pl-5">
         {/* Sol: sipariş + müşteri */}
         <div className="flex-1 min-w-0">
@@ -49,6 +100,14 @@ export function OrderListCard({ order, onStatusChange }: OrderListCardProps) {
               <Icon className="h-3 w-3" />
               {config.label}
             </span>
+            {sourceBadge && (
+              <span
+                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${sourceBadge.className}`}
+              >
+                <Store className="h-3 w-3" />
+                {sourceBadge.label}
+              </span>
+            )}
             <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground bg-muted rounded-full px-2 py-0.5">
               <Timer className="h-3 w-3" />
               {formatRelativeTime(order.createdAt)}

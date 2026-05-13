@@ -1,11 +1,16 @@
 "use client";
 
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useOrderStore } from "@/store/orderStore";
 import { Button } from "@/components/ui/button";
 import { PlusCircle } from "lucide-react";
-import { type OrderStatus } from "@/types";
+import { type Order, type OrderStatus } from "@/types";
+import { IncomingOrderDialog } from "./_components/IncomingOrderDialog";
+
+// Ses ve toast bildirimi global TrendyolNotifier tarafından handle ediliyor.
+// Bu sayfa sadece IncomingOrderDialog kuyruğunu (auto-print akışı) yönetir.
+const POLL_MS = 15_000;
 import {
   OrderStatusFilters,
   type OrderFilter,
@@ -17,12 +22,47 @@ export default function OrdersPage() {
   const [filter, setFilter] = useState<OrderFilter>("all");
   // İlk fetch tamamlanana kadar skeleton göster (boş-state flash'ını önler)
   const [bootstrapping, setBootstrapping] = useState(orders.length === 0);
+  // Polling sırasında yeni sipariş tespiti için son görülen externalRef seti
+  const seenRefsRef = useRef<Set<string>>(new Set());
+  // Yeni gelen 3. parti siparişleri sırayla göstermek için kuyruk
+  const [incomingQueue, setIncomingQueue] = useState<Order[]>([]);
+  const activeIncoming = incomingQueue[0] ?? null;
 
   useEffect(() => {
-    loadOrders().finally(() => setBootstrapping(false));
+    loadOrders().finally(() => {
+      setBootstrapping(false);
+      // İlk yüklemede mevcut Trendyol siparişlerini "görüldü" olarak işaretle
+      seenRefsRef.current = new Set(
+        useOrderStore
+          .getState()
+          .orders.filter((o) => o.externalRef)
+          .map((o) => o.externalRef as string),
+      );
+    });
+
     const handleFocus = () => loadOrders();
     window.addEventListener("focus", handleFocus);
-    return () => window.removeEventListener("focus", handleFocus);
+
+    const poll = setInterval(async () => {
+      if (document.hidden) return;
+      await loadOrders();
+      const current = useOrderStore.getState().orders;
+      const seen = seenRefsRef.current;
+      const fresh = current.filter(
+        (o) => o.externalRef && o.source !== "manual" && !seen.has(o.externalRef),
+      );
+      if (fresh.length > 0) {
+        fresh.forEach((o) => seen.add(o.externalRef!));
+        // Ses ve toast global TrendyolNotifier'da çalıyor — burada sadece
+        // dialog kuyruğunu güncelle (auto-print akışı için).
+        setIncomingQueue((q) => [...q, ...fresh]);
+      }
+    }, POLL_MS);
+
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      clearInterval(poll);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -89,6 +129,11 @@ export default function OrdersPage() {
           onStatusChange={handleStatusChange}
         />
       </div>
+
+      <IncomingOrderDialog
+        order={activeIncoming}
+        onClose={() => setIncomingQueue((q) => q.slice(1))}
+      />
     </main>
   );
 }
