@@ -130,6 +130,7 @@ function ActiveOrderRow({ order }: { order: Order }) {
   const [isMarking, setIsMarking] = useState(false);
   const config = ORDER_STATUS_CONFIG[order.status];
   const Icon = config.icon;
+  const isTrendyol = order.source === "trendyol";
   const canDeliver: boolean =
     order.status !== ("delivered" as OrderStatus) &&
     order.status !== ("cancelled" as OrderStatus);
@@ -152,9 +153,25 @@ function ActiveOrderRow({ order }: { order: Order }) {
   return (
     <Link
       href={`/orders/${order.id}`}
-      className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-lg border p-3 transition-colors hover:bg-accent"
+      className={cn(
+        "relative flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-lg border p-3 transition-colors hover:bg-accent overflow-hidden",
+        isTrendyol &&
+          "border-emerald-200 bg-linear-to-r from-emerald-50/60 via-white to-white hover:from-emerald-100/60",
+      )}
     >
-      <div className="flex items-center gap-2 min-w-0">
+      {/* Trendyol için sol kenar yeşil şerit */}
+      {isTrendyol && (
+        <div className="absolute left-0 top-0 bottom-0 w-1 bg-emerald-600" />
+      )}
+      <div className={cn("flex items-center gap-2 min-w-0", isTrendyol && "pl-2")}>
+        {isTrendyol && (
+          <span
+            className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-emerald-600 text-[10px] font-black text-white shadow-sm"
+            title="Trendyol GO"
+          >
+            T
+          </span>
+        )}
         <div className="text-sm min-w-0 flex items-center flex-wrap gap-x-2">
           <span className="font-semibold">#{order.orderNumber}</span>
           <span className="text-muted-foreground hidden sm:inline">·</span>

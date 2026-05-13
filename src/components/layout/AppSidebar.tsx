@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useLinkStatus } from "next/link";
-import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { getActiveTrendyolCount } from "@/actions/orders";
 import {
   Home,
   BarChart3,
@@ -15,12 +16,14 @@ import {
   ChevronLeft,
   ChevronRight,
   Loader2,
+  Store,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export const NAV_ITEMS = [
   { href: "/", label: "Panel", icon: Home, color: "text-slate-300" },
   { href: "/dashboard", label: "Dashboard", icon: BarChart3, color: "text-blue-400", activeBg: "bg-blue-500/15" },
+  { href: "/dashboard/trendyol", label: "Trendyol", icon: Store, color: "text-emerald-400", activeBg: "bg-emerald-500/15" },
   { href: "/orders/new", label: "Yeni Sipariş", icon: ShoppingBag, color: "text-orange-400", activeBg: "bg-orange-500/15" },
   { href: "/orders", label: "Siparişler", icon: ClipboardList, color: "text-emerald-400", activeBg: "bg-emerald-500/15" },
   { href: "/customers", label: "Müşteriler", icon: Users, color: "text-pink-400", activeBg: "bg-pink-500/15" },
@@ -28,10 +31,23 @@ export const NAV_ITEMS = [
   { href: "/products", label: "Menü", icon: UtensilsCrossed, color: "text-amber-400", activeBg: "bg-amber-500/15" },
 ] as const;
 
-function isItemActive(pathname: string, href: string) {
+function isItemActive(
+  pathname: string,
+  href: string,
+  currentSource: string | null,
+) {
   if (href === "/") return pathname === "/";
   if (href === "/orders") {
     return pathname === "/orders" || (pathname.startsWith("/orders") && !pathname.startsWith("/orders/new"));
+  }
+  // Trendyol kendi sayfasına taşındı (/dashboard/trendyol); ana dashboard onu kapsamasın.
+  if (href === "/dashboard/trendyol") return pathname.startsWith("/dashboard/trendyol");
+  if (href === "/dashboard") {
+    return pathname === "/dashboard" || (pathname.startsWith("/dashboard") && !pathname.startsWith("/dashboard/"));
+  }
+  if (pathname.startsWith("/dashboard")) {
+    void currentSource;
+    return false;
   }
   return pathname.startsWith(href);
 }
@@ -45,31 +61,87 @@ type Props = {
 
 type NavItem = (typeof NAV_ITEMS)[number];
 
+// Aktif Trendyol siparişlerini sayar; sidebar Trendyol linkindeki canlı rozet için.
+// 20 saniyede bir yenilenir + tab odağa geldiğinde tazelenir.
+function useTrendyolActiveCount() {
+  const [count, setCount] = useState(0);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    const tick = async () => {
+      try {
+        const c = await getActiveTrendyolCount();
+        if (mountedRef.current) setCount(c);
+      } catch {
+        // sessizce geç
+      }
+    };
+
+    tick();
+    timer = setInterval(() => {
+      if (!document.hidden) void tick();
+    }, 20_000);
+    const onFocus = () => void tick();
+    window.addEventListener("focus", onFocus);
+
+    return () => {
+      mountedRef.current = false;
+      if (timer) clearInterval(timer);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, []);
+
+  return count;
+}
+
 function NavItemContent({
   item,
   isActive,
   showCollapsed,
+  badge,
 }: {
   item: NavItem;
   isActive: boolean;
   showCollapsed: boolean;
+  badge?: number;
 }) {
   const { pending } = useLinkStatus();
   const Icon = item.icon;
+  const hasBadge = badge !== undefined && badge > 0;
+
   return (
     <>
-      {pending ? (
-        <Loader2
-          className={cn(
-            "h-4.5 w-4.5 shrink-0 animate-spin",
-            isActive ? item.color : "text-slate-300",
-          )}
-        />
-      ) : (
-        <Icon className={cn("h-4.5 w-4.5 shrink-0", isActive && item.color)} />
-      )}
+      <div className="relative shrink-0">
+        {pending ? (
+          <Loader2
+            className={cn(
+              "h-4.5 w-4.5 animate-spin",
+              isActive ? item.color : "text-slate-300",
+            )}
+          />
+        ) : (
+          <Icon className={cn("h-4.5 w-4.5", isActive && item.color)} />
+        )}
+        {/* Daraltılmış sidebar'da rozeti ikonun köşesinde göster */}
+        {hasBadge && showCollapsed && (
+          <span className="absolute -top-1.5 -right-2 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-500 px-1 text-[9px] font-bold text-white ring-2 ring-slate-900">
+            {badge > 9 ? "9+" : badge}
+          </span>
+        )}
+      </div>
       {!showCollapsed && <span className="truncate">{item.label}</span>}
-      {isActive && !showCollapsed && !pending && (
+      {hasBadge && !showCollapsed && (
+        <span className="ml-auto relative inline-flex items-center">
+          <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
+          <span className="relative inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-emerald-500 px-1.5 text-[10px] font-bold text-white shadow-sm">
+            {badge > 99 ? "99+" : badge}
+          </span>
+        </span>
+      )}
+      {isActive && !showCollapsed && !pending && !hasBadge && (
         <div
           className={cn(
             "ml-auto h-1.5 w-1.5 rounded-full",
@@ -83,9 +155,12 @@ function NavItemContent({
 
 export default function AppSidebar({ variant = "desktop", onNavigate }: Props) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const currentSource = searchParams.get("source");
   const [collapsed, setCollapsed] = useState(false);
   const isCollapsible = variant === "desktop";
   const showCollapsed = isCollapsible && collapsed;
+  const trendyolActiveCount = useTrendyolActiveCount();
 
   return (
     <aside
@@ -114,7 +189,7 @@ export default function AppSidebar({ variant = "desktop", onNavigate }: Props) {
         )}
         <div className="space-y-0.5">
           {NAV_ITEMS.map((item) => {
-            const isActive = isItemActive(pathname, item.href);
+            const isActive = isItemActive(pathname, item.href, currentSource);
             const activeBg = "activeBg" in item ? item.activeBg : "bg-white/10";
             return (
               <Link
@@ -134,6 +209,11 @@ export default function AppSidebar({ variant = "desktop", onNavigate }: Props) {
                   item={item}
                   isActive={isActive}
                   showCollapsed={showCollapsed}
+                  badge={
+                    item.href === "/dashboard/trendyol"
+                      ? trendyolActiveCount
+                      : undefined
+                  }
                 />
               </Link>
             );

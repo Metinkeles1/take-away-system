@@ -12,7 +12,10 @@ import {
   TrendingUp,
   Clock,
   PlusCircle,
+  Store,
+  ArrowRight,
 } from "lucide-react";
+import Link from "next/link";
 import { formatCurrency } from "@/lib/utils";
 import { StatCard, computeDelta } from "./_components/dashboard/StatCard";
 import { HourlyTraffic } from "./_components/dashboard/HourlyTraffic";
@@ -34,8 +37,16 @@ export default function DashboardPage() {
 
   const showSkeleton = isLoading || bootstrapping;
 
-  const { todayOrders, yesterdayOrders, todayRevenue, yesterdayRevenue, hourly } =
-    useMemo(() => {
+  const {
+    todayOrders,
+    yesterdayOrders,
+    todayRevenue,
+    yesterdayRevenue,
+    hourly,
+    trendyolTodayCount,
+    trendyolTodayRevenue,
+    trendyolActiveCount,
+  } = useMemo(() => {
       const today = new Date();
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
@@ -59,12 +70,24 @@ export default function DashboardPage() {
         hourly[h] += 1;
       });
 
+      const trendyolToday = todayOrders.filter((o) => o.source === "trendyol");
+      const trendyolActive = orders.filter(
+        (o) =>
+          o.source === "trendyol" &&
+          (o.status === "pending" ||
+            o.status === "preparing" ||
+            o.status === "on-the-way"),
+      );
+
       return {
         todayOrders,
         yesterdayOrders,
         todayRevenue: sumRevenue(todayOrders),
         yesterdayRevenue: sumRevenue(yesterdayOrders),
         hourly,
+        trendyolTodayCount: trendyolToday.length,
+        trendyolTodayRevenue: sumRevenue(trendyolToday),
+        trendyolActiveCount: trendyolActive.length,
       };
     }, [orders]);
 
@@ -121,9 +144,9 @@ export default function DashboardPage() {
       </div>
 
       {/* İstatistik kartları */}
-      <div className="mb-4 grid gap-2.5 sm:gap-3 grid-cols-2 lg:grid-cols-4 shrink-0">
+      <div className="mb-4 grid gap-2.5 sm:gap-3 grid-cols-2 lg:grid-cols-5 shrink-0">
         {showSkeleton ? (
-          [...Array(4)].map((_, i) => (
+          [...Array(5)].map((_, i) => (
             <Card key={i}>
               <CardContent className="flex items-center gap-3 p-4 sm:gap-4 sm:p-6">
                 <Skeleton className="h-10 w-10 sm:h-12 sm:w-12 rounded-xl" />
@@ -166,6 +189,11 @@ export default function DashboardPage() {
               color="text-purple-600"
               bg="bg-purple-50"
             />
+            <TrendyolStatCard
+              todayCount={trendyolTodayCount}
+              todayRevenue={trendyolTodayRevenue}
+              activeCount={trendyolActiveCount}
+            />
           </>
         )}
       </div>
@@ -192,5 +220,70 @@ export default function DashboardPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+function TrendyolStatCard({
+  todayCount,
+  todayRevenue,
+  activeCount,
+}: {
+  todayCount: number;
+  todayRevenue: number;
+  activeCount: number;
+}) {
+  const hasActive = activeCount > 0;
+  return (
+    <Link
+      href="/dashboard/trendyol"
+      className="group relative overflow-hidden rounded-xl border border-emerald-200 bg-linear-to-br from-emerald-600 via-emerald-600 to-emerald-700 p-4 sm:p-5 text-white shadow-sm transition-all hover:shadow-md hover:scale-[1.01]"
+    >
+      {/* Sağ üst T rozeti */}
+      <div className="absolute top-0 right-0 flex items-center gap-1 rounded-bl-lg bg-white/15 px-2 py-1 backdrop-blur-sm">
+        <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-white text-[9px] font-black text-emerald-700">
+          T
+        </span>
+        <span className="text-[9px] font-bold uppercase tracking-wider">
+          Trendyol
+        </span>
+      </div>
+
+      <div className="flex items-center gap-3 sm:gap-4">
+        <div className="relative h-10 w-10 sm:h-12 sm:w-12 shrink-0 rounded-xl bg-white/15 flex items-center justify-center">
+          <Store className="h-5 w-5 sm:h-6 sm:w-6" />
+          {hasActive && (
+            <span className="absolute -top-1 -right-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white ring-2 ring-emerald-600">
+              {activeCount > 9 ? "9+" : activeCount}
+            </span>
+          )}
+          {hasActive && (
+            <span className="absolute -top-1 -right-1 inline-flex h-4 w-4 rounded-full bg-red-500 opacity-75 animate-ping" />
+          )}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[11px] sm:text-xs font-medium text-white/80 mt-2">
+            Trendyol · Bugün
+          </p>
+          <p className="text-xl sm:text-2xl font-bold leading-tight">
+            {todayCount}{" "}
+            <span className="text-xs sm:text-sm font-medium text-white/80">
+              sipariş
+            </span>
+          </p>
+          <p className="text-xs sm:text-sm font-semibold text-emerald-50 mt-0.5">
+            {formatCurrency(todayRevenue)}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-2 flex items-center justify-between text-[11px] font-medium text-white/90">
+        <span>
+          {hasActive ? `${activeCount} aktif` : "Aktif sipariş yok"}
+        </span>
+        <span className="flex items-center gap-1 opacity-80 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all">
+          Dashboard <ArrowRight className="h-3 w-3" />
+        </span>
+      </div>
+    </Link>
   );
 }
