@@ -6,7 +6,7 @@ import { Printer } from "lucide-react";
 import ThermalReceipt from "@/components/receipt/ThermalReceipt";
 import type { Order } from "@/types";
 import { forwardRef, memo } from "react";
-import { DEFAULT_IBAN_NAME, DEFAULT_IBAN_NUMBER } from "@/lib/constants";
+import { orderToReceiptDraft } from "@/lib/orderToReceiptDraft";
 
 interface Props {
   order: Order;
@@ -18,19 +18,7 @@ const ReceiptPreview = memo(
     { order, onPrint },
     ref
   ) {
-    const receiptDraft = {
-      items: order.items,
-      customer: order.customer,
-      payment: {
-        ...order.payment,
-        ibanName:
-          order.payment.method === "iban" ? DEFAULT_IBAN_NAME : undefined,
-        ibanNumber:
-          order.payment.method === "iban" ? DEFAULT_IBAN_NUMBER : undefined,
-      },
-      notes: order.notes,
-      currentStep: "summary" as const,
-    };
+    const receiptDraft = orderToReceiptDraft(order);
 
     return (
       <div className="hidden lg:flex flex-col w-72 shrink-0 pt-px pb-4">
