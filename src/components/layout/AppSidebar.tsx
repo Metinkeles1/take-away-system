@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useLinkStatus } from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { getActiveTrendyolCount } from "@/actions/orders";
 import {
@@ -31,11 +31,7 @@ export const NAV_ITEMS = [
   { href: "/products", label: "Menü", icon: UtensilsCrossed, color: "text-amber-400", activeBg: "bg-amber-500/15" },
 ] as const;
 
-function isItemActive(
-  pathname: string,
-  href: string,
-  currentSource: string | null,
-) {
+function isItemActive(pathname: string, href: string) {
   if (href === "/") return pathname === "/";
   if (href === "/orders") {
     return pathname === "/orders" || (pathname.startsWith("/orders") && !pathname.startsWith("/orders/new"));
@@ -45,10 +41,7 @@ function isItemActive(
   if (href === "/dashboard") {
     return pathname === "/dashboard" || (pathname.startsWith("/dashboard") && !pathname.startsWith("/dashboard/"));
   }
-  if (pathname.startsWith("/dashboard")) {
-    void currentSource;
-    return false;
-  }
+  if (pathname.startsWith("/dashboard")) return false;
   return pathname.startsWith(href);
 }
 
@@ -155,8 +148,6 @@ function NavItemContent({
 
 export default function AppSidebar({ variant = "desktop", onNavigate }: Props) {
   const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const currentSource = searchParams.get("source");
   const [collapsed, setCollapsed] = useState(false);
   const isCollapsible = variant === "desktop";
   const showCollapsed = isCollapsible && collapsed;
@@ -189,7 +180,7 @@ export default function AppSidebar({ variant = "desktop", onNavigate }: Props) {
         )}
         <div className="space-y-0.5">
           {NAV_ITEMS.map((item) => {
-            const isActive = isItemActive(pathname, item.href, currentSource);
+            const isActive = isItemActive(pathname, item.href);
             const activeBg = "activeBg" in item ? item.activeBg : "bg-white/10";
             return (
               <Link
