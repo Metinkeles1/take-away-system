@@ -21,6 +21,18 @@
 //   İptal:
 //      PUT /integrator/order/meal/suppliers/{supplierId}/packages/unsupplied
 
+// HTTP header'ları ASCII (ByteString) olmak zorunda — Türkçe karakterleri çevir.
+function toAsciiHeader(value: string): string {
+  return value
+    .replace(/ş/g, "s").replace(/Ş/g, "S")
+    .replace(/ı/g, "i").replace(/İ/g, "I")
+    .replace(/ğ/g, "g").replace(/Ğ/g, "G")
+    .replace(/ü/g, "u").replace(/Ü/g, "U")
+    .replace(/ö/g, "o").replace(/Ö/g, "O")
+    .replace(/ç/g, "c").replace(/Ç/g, "C")
+    .replace(/[^\x20-\x7E]/g, "?");
+}
+
 function readEnv() {
   const supplierId = process.env.TRENDYOL_SUPPLIER_ID;
   const baseUrl = process.env.TRENDYOL_API_BASE_URL ?? "https://api.tgoapis.com";
@@ -31,7 +43,7 @@ function readEnv() {
           `${process.env.TRENDYOL_API_KEY}:${process.env.TRENDYOL_API_SECRET}`,
         ).toString("base64")
       : undefined);
-  const agentName = process.env.TRENDYOL_AGENT_NAME ?? "PaketSipariş";
+  const agentName = toAsciiHeader(process.env.TRENDYOL_AGENT_NAME ?? "PaketSiparis");
   const executorUser = process.env.TRENDYOL_EXECUTOR_USER ?? "system@local";
 
   if (!supplierId || !token) {
@@ -100,6 +112,99 @@ async function trendyolRequest<T = unknown>(init: {
 function supplierPath(suffix: string) {
   const supplierId = process.env.TRENDYOL_SUPPLIER_ID!;
   return `/integrator/order/meal/suppliers/${supplierId}${suffix}`;
+}
+
+// ─── 0) Paket listesi çek (polling) ─────────────────────────────────────
+// Doküman: GET /integrator/order/meal/suppliers/{supplierId}/packages
+// status filtresi: Created, Picking, Invoiced, Cancelled, UnSupplied, Shipped, Delivered
+// Birden fazla: "Created,Picking"
+export interface TrendyolPackageLineItem {
+  packageItemId: string;
+  lineItemId: number;
+  isCancelled: boolean;
+}
+export interface TrendyolPackageLine {
+  productId: number;
+  name: string;
+  price: number;
+  unitSellingPrice: number;
+  description?: string;
+  items: TrendyolPackageLineItem[];
+  modifierProducts?: Array<{ name: string; price: number; productId: number }>;
+}
+export interface TrendyolPackage {
+  id: string;
+  supplierId: number;
+  storeId: number;
+  orderId: string;
+  orderNumber: string;
+  packageCreationDate: number;
+  packageModificationDate: number;
+  preparationTime: number;
+  totalPrice: number;
+  callCenterPhone?: string;
+  deliveryType: "STORE" | "GO";
+  storePickupSelected?: boolean | null;
+  customer?: { id?: number; firstName?: string; lastName?: string };
+  address?: {
+    firstName?: string;
+    lastName?: string;
+    address1?: string;
+    address2?: string;
+    city?: string;
+    district?: string;
+    neighborhood?: string;
+    addressDescription?: string;
+    phone?: string;
+    latitude?: string;
+    longitude?: string;
+  };
+  packageStatus:
+    | "Created"
+    | "Picking"
+    | "Invoiced"
+    | "Cancelled"
+    | "UnSupplied"
+    | "Shipped"
+    | "Delivered";
+  lines: TrendyolPackageLine[];
+  payment?: {
+    paymentType: "PAY_WITH_CARD" | "PAY_WITH_ON_DELIVERY" | "PAY_WITH_MEAL_CARD";
+    mealCard?: { cardSourceType?: string } | null;
+    onDelivery?: { paymentType?: string };
+  };
+  customerNote?: string;
+}
+export interface TrendyolPackagesResponse {
+  page: number;
+  size: number;
+  totalPages: number;
+  totalCount: number;
+  content: TrendyolPackage[];
+}
+
+export function listTrendyolPackages(params: {
+  storeId?: string | number;
+  packageStatuses?: string;
+  modificationStartDate?: number;
+  modificationEndDate?: number;
+  page?: number;
+  size?: number;
+} = {}) {
+  const qs = new URLSearchParams();
+  if (params.storeId) qs.set("storeId", String(params.storeId));
+  if (params.packageStatuses) qs.set("packageStatuses", params.packageStatuses);
+  if (params.modificationStartDate)
+    qs.set("packageModificationStartDate", String(params.modificationStartDate));
+  if (params.modificationEndDate)
+    qs.set("packageModificationEndDate", String(params.modificationEndDate));
+  if (params.page !== undefined) qs.set("page", String(params.page));
+  if (params.size !== undefined) qs.set("size", String(params.size));
+  const query = qs.toString();
+  return trendyolRequest<TrendyolPackagesResponse>({
+    method: "GET",
+    path: supplierPath(`/packages${query ? `?${query}` : ""}`),
+  });
 }
 
 // ─── 1) Siparişi kabul et (picked) ──────────────────────────────────────

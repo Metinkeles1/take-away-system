@@ -13,14 +13,33 @@ import { revalidatePath } from "next/cache";
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
+  const hasApiKey = req.headers.has("x-api-key");
+  const hasAuth = req.headers.has("authorization");
+  const ua = req.headers.get("user-agent") ?? "";
+  console.log("[trendyol webhook] inbound", {
+    hasApiKey,
+    hasAuth,
+    ua,
+    contentType: req.headers.get("content-type"),
+  });
+
   if (!verifyTrendyolRequest(req.headers)) {
+    console.warn("[trendyol webhook] 401 unauthorized — auth header eşleşmedi", {
+      hasApiKey,
+      hasAuth,
+      envHasWebhookKey: Boolean(process.env.TRENDYOL_WEBHOOK_API_KEY),
+      envHasApiKey: Boolean(process.env.TRENDYOL_API_KEY),
+      envHasToken: Boolean(process.env.TRENDYOL_API_TOKEN),
+      envHasSecret: Boolean(process.env.TRENDYOL_API_SECRET),
+    });
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
   let body: TrendyolWebhookEnvelope | TrendyolWebhookOrder;
   try {
     body = (await req.json()) as TrendyolWebhookEnvelope | TrendyolWebhookOrder;
-  } catch {
+  } catch (err) {
+    console.warn("[trendyol webhook] 400 invalid json", err);
     return NextResponse.json({ ok: false, error: "invalid json" }, { status: 400 });
   }
 
@@ -29,13 +48,20 @@ export async function POST(req: Request) {
     "order" in body && body.order ? body.order : (body as TrendyolWebhookOrder);
 
   if (!raw) {
+    console.warn("[trendyol webhook] 400 missing order — body:", JSON.stringify(body).slice(0, 500));
     return NextResponse.json({ ok: false, error: "missing order" }, { status: 400 });
   }
 
   const mapped = mapTrendyolOrder(raw);
   if (!mapped.ok) {
+    console.warn("[trendyol webhook] 400 mapping failed:", mapped.error, "raw:", JSON.stringify(raw).slice(0, 500));
     return NextResponse.json({ ok: false, error: mapped.error }, { status: 400 });
   }
+
+  console.log("[trendyol webhook] mapped OK", {
+    externalRef: mapped.order.externalRef,
+    items: mapped.order.items.length,
+  });
 
   const { order } = mapped;
 
