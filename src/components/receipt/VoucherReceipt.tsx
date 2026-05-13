@@ -14,7 +14,7 @@ const Divider = ({ dashed }: { dashed?: boolean }) => (
   <div
     style={{
       borderTop: dashed ? "1px dashed #000" : "1px solid #000",
-      margin: "5px 0",
+      margin: "3px 0",
     }}
   />
 );
@@ -95,8 +95,15 @@ export default function VoucherReceipt({ voucher }: { voucher: Voucher }) {
             padding: 0 !important;
             width: ${PAPER_WIDTH} !important;
           }
-          body * { visibility: hidden !important; }
-          #${receiptId}, #${receiptId} * { visibility: visible !important; }
+
+          body * {
+            visibility: hidden !important;
+          }
+
+          #${receiptId}, #${receiptId} * {
+            visibility: visible !important;
+          }
+
           #${receiptId} {
             position: fixed !important;
             top: 0 !important;
@@ -106,10 +113,17 @@ export default function VoucherReceipt({ voucher }: { voucher: Voucher }) {
             margin: 0 !important;
             padding: 0 !important;
             border: none !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
             background: #fff !important;
+            overflow: hidden !important;
             box-sizing: border-box !important;
           }
-          @page { size: 72mm auto; margin: 0; }
+
+          @page {
+            size: 72mm auto;
+            margin: 0;
+          }
         }
       `}</style>
 
@@ -121,12 +135,13 @@ export default function VoucherReceipt({ voucher }: { voucher: Voucher }) {
           backgroundColor: "#fff",
           color: "#000",
           boxSizing: "border-box",
+          overflow: "hidden",
           border: "1px solid #ddd",
+          padding: "0",
           fontFamily:
             "Consolas, 'Liberation Mono', 'DejaVu Sans Mono', monospace",
           textRendering: "geometricPrecision",
           WebkitFontSmoothing: "none",
-          margin: "0 auto",
         }}
       >
         <div
@@ -134,13 +149,14 @@ export default function VoucherReceipt({ voucher }: { voucher: Voucher }) {
             width: CONTENT_WIDTH,
             maxWidth: CONTENT_WIDTH,
             margin: "0 auto",
-            padding: "3mm 0",
+            padding: "2mm 0",
             boxSizing: "border-box",
             fontSize: FONT_SIZE_NORMAL,
-            lineHeight: 1.35,
+            lineHeight: 1.3,
+            fontWeight: 400,
           }}
         >
-          <div style={{ textAlign: "center", marginBottom: "6px" }}>
+          <div style={{ textAlign: "center", marginBottom: "4px" }}>
             <div
               style={{
                 fontSize: "15px",
@@ -288,8 +304,6 @@ export default function VoucherReceipt({ voucher }: { voucher: Voucher }) {
               </div>
             </>
           )}
-
-          <Divider />
         </div>
       </div>
     </>

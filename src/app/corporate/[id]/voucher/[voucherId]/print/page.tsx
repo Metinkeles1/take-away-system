@@ -19,9 +19,29 @@ export default async function VoucherPrintPage({ params }: Props) {
   if (!corporate || !voucher || voucher.corporateId !== id) notFound();
 
   return (
-    <div style={{ padding: "12px 0", background: "#f5f5f5", minHeight: "100vh" }}>
-      <VoucherReceipt voucher={voucher} />
-      <AutoPrint />
-    </div>
+    <>
+      <style>{`
+        @media screen {
+          .voucher-print-wrapper {
+            padding: 12px 0;
+            background: #f5f5f5;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+          }
+        }
+        @media print {
+          .voucher-print-wrapper {
+            padding: 0 !important;
+            background: #fff !important;
+            min-height: 0 !important;
+          }
+        }
+      `}</style>
+      <div className="voucher-print-wrapper">
+        <VoucherReceipt voucher={voucher} />
+        <AutoPrint />
+      </div>
+    </>
   );
 }
