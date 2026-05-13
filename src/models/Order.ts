@@ -74,6 +74,12 @@ const OrderSchema = new Schema(
     subtotal: { type: Number, required: true },
     deliveryFee: { type: Number, required: true },
     total: { type: Number, required: true },
+    source: {
+      type: String,
+      enum: ["manual", "trendyol", "getir", "yemeksepeti"],
+      default: "manual",
+    },
+    externalRef: { type: String, index: true, sparse: true },
   },
   {
     timestamps: true, // createdAt & updatedAt otomatik

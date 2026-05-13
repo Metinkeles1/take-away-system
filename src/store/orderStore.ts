@@ -289,6 +289,7 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
       subtotal: getSubtotal(),
       deliveryFee: getDeliveryFee(),
       total,
+      source: "manual",
       createdAt: new Date(),
       updatedAt: new Date(),
     };

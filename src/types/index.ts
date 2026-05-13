@@ -84,6 +84,10 @@ export type OrderStatus =
   | "delivered" // Teslim edildi
   | "cancelled"; // İptal edildi
 
+// ─── Sipariş Kaynağı ─────────────────────────────────────────────────────────
+// Manuel = panelden açılan; diğerleri 3. parti pazaryeri entegrasyonları
+export type OrderSource = "manual" | "trendyol" | "getir" | "yemeksepeti";
+
 // ─── Sipariş ─────────────────────────────────────────────────────────────────
 export interface Order {
   id: string;
@@ -98,6 +102,9 @@ export interface Order {
   total: number;
   createdAt: Date;
   updatedAt: Date;
+  // Pazaryeri entegrasyonu — manuel siparişler için boş
+  source?: OrderSource;
+  externalRef?: string; // örn. Trendyol sipariş kodu
 }
 
 // ─── Sipariş Oluşturma Taslağı ───────────────────────────────────────────────
