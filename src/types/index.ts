@@ -35,7 +35,7 @@ export interface Product {
   category: ProductCategory;
   description?: string;
   available: boolean;
-  image?: string; // /images/products/{id}.jpg yolu otomatik kullanılır; bu alan elle override içindir
+  image?: string; // /images/products/{slug}.jpg yolu otomatik üretilir (slug = ürün adı, ör. "adana-kebap.jpg"); bu alan elle override içindir
 }
 
 // ─── Sipariş Kalemi ───────────────────────────────────────────────────────────

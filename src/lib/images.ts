@@ -1,13 +1,35 @@
 import { type Product, type ProductCategory } from "@/types";
 
 /**
- * Ürün için resim. Elle `image` verilmişse onu kullanır; aksi halde
- * deterministik SVG tile döner (network çağrısı yok, 404 yok).
+ * Ürün için resim. Öncelik sırası:
+ *   1) Elle verilmiş `product.image` (override)
+ *   2) /images/products/{slug}.jpg — slug ürün adından üretilir (ör. "adana-kebap.jpg")
+ *
+ * Dosya yoksa render eden component `fallbackSrc` (SVG tile) ile devreye girer.
  */
 export function productImage(
   product: Pick<Product, "id" | "image" | "category" | "name">,
 ): string {
-  return product.image ?? fallbackProductUrl(product.id, product.category, product.name);
+  if (product.image) return product.image;
+  return `/images/products/${productSlug(product.name)}.jpg`;
+}
+
+/**
+ * Ürün adından dosya adı slug'ı üretir. Türkçe karakterleri sadeleştirir.
+ * Örn: "Adana Kebap" → "adana-kebap", "Kuşbaşı Kaşarlı Pide" → "kusbasi-kasarli-pide"
+ */
+export function productSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .replaceAll("ı", "i").replaceAll("İ", "i")
+    .replaceAll("ş", "s").replaceAll("Ş", "s")
+    .replaceAll("ç", "c").replaceAll("Ç", "c")
+    .replaceAll("ğ", "g").replaceAll("Ğ", "g")
+    .replaceAll("ö", "o").replaceAll("Ö", "o")
+    .replaceAll("ü", "u").replaceAll("Ü", "u")
+    .replace(/[^a-z0-9\s-]/g, " ") // /, ., vs. boşluğa çevir ki tire olsun
+    .trim()
+    .replace(/\s+/g, "-");
 }
 
 export function categoryImage(category: ProductCategory): string {

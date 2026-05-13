@@ -172,6 +172,19 @@ export async function updateOrderPayment(
   }
 }
 
+// ─── Tüm aktif sipariş sayısı (sidebar rozeti için, hafif sorgu) ────────────
+export async function getActiveOrdersCount(): Promise<number> {
+  try {
+    await connectDB();
+    return await OrderModel.countDocuments({
+      status: { $in: ["pending", "preparing", "on-the-way"] },
+    });
+  } catch (error) {
+    console.error("[getActiveOrdersCount]", error);
+    return 0;
+  }
+}
+
 // ─── Aktif Trendyol siparişi sayısı (sidebar rozeti için, hafif sorgu) ───────
 export async function getActiveTrendyolCount(): Promise<number> {
   try {

@@ -4,7 +4,10 @@ import Link from "next/link";
 import { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { getActiveTrendyolCount } from "@/actions/orders";
+import {
+  getActiveTrendyolCount,
+  getActiveOrdersCount,
+} from "@/actions/orders";
 import {
   Home,
   BarChart3,
@@ -54,11 +57,13 @@ type Props = {
 
 type NavItem = (typeof NAV_ITEMS)[number];
 
-// Aktif Trendyol siparişlerini sayar; sidebar Trendyol linkindeki canlı rozet için.
-// 20 saniyede bir yenilenir + tab odağa geldiğinde tazelenir.
-function useTrendyolActiveCount() {
+// Sidebar rozetleri için canlı sayaç hook'u.
+// 20 sn'de bir + tab odağa geldiğinde tazelenir.
+function useLiveCount(fetcher: () => Promise<number>) {
   const [count, setCount] = useState(0);
   const mountedRef = useRef(true);
+  const fetcherRef = useRef(fetcher);
+  fetcherRef.current = fetcher;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -66,7 +71,7 @@ function useTrendyolActiveCount() {
 
     const tick = async () => {
       try {
-        const c = await getActiveTrendyolCount();
+        const c = await fetcherRef.current();
         if (mountedRef.current) setCount(c);
       } catch {
         // sessizce geç
@@ -151,7 +156,8 @@ export default function AppSidebar({ variant = "desktop", onNavigate }: Props) {
   const [collapsed, setCollapsed] = useState(false);
   const isCollapsible = variant === "desktop";
   const showCollapsed = isCollapsible && collapsed;
-  const trendyolActiveCount = useTrendyolActiveCount();
+  const trendyolActiveCount = useLiveCount(getActiveTrendyolCount);
+  const activeOrdersCount = useLiveCount(getActiveOrdersCount);
 
   return (
     <aside
@@ -203,7 +209,9 @@ export default function AppSidebar({ variant = "desktop", onNavigate }: Props) {
                   badge={
                     item.href === "/dashboard/trendyol"
                       ? trendyolActiveCount
-                      : undefined
+                      : item.href === "/orders"
+                        ? activeOrdersCount
+                        : undefined
                   }
                 />
               </Link>
