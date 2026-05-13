@@ -6,9 +6,9 @@ import { formatCurrency } from "@/lib/utils";
 
 const PAPER_WIDTH = "72mm";
 const CONTENT_WIDTH = "64mm";
-const FONT_SIZE_NORMAL = "13px";
-const FONT_SIZE_XSMALL = "11px";
-const FONT_SIZE_LARGE = "16px";
+const FONT_SIZE_NORMAL = "15px";
+const FONT_SIZE_XSMALL = "13px";
+const FONT_SIZE_LARGE = "19px";
 
 const Divider = ({ dashed }: { dashed?: boolean }) => (
   <div
@@ -159,7 +159,7 @@ export default function VoucherReceipt({ voucher }: { voucher: Voucher }) {
           <div style={{ textAlign: "center", marginBottom: "4px" }}>
             <div
               style={{
-                fontSize: "15px",
+                fontSize: "17px",
                 fontWeight: 700,
                 letterSpacing: "1px",
               }}
