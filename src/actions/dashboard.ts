@@ -4,6 +4,19 @@ import { connectDB } from "@/lib/mongodb";
 import OrderModel from "@/models/Order";
 import CustomerModel from "@/models/Customer";
 import ProductModel from "@/models/Product";
+import { type OrderSource } from "@/types";
+
+// "all" = filtre yok; OrderSource = sadece o kaynak.
+// "manual" filtresi eski (source alanı olmayan) kayıtları da kapsar.
+export type DashboardSource = "all" | OrderSource;
+
+function buildSourceFilter(source: DashboardSource): Record<string, unknown> {
+  if (source === "all") return {};
+  if (source === "manual") {
+    return { $or: [{ source: "manual" }, { source: { $exists: false } }] };
+  }
+  return { source };
+}
 
 // ─── Dashboard veri tipleri ────────────────────────────────────────────────
 export interface DashboardStats {
@@ -96,7 +109,9 @@ const CATEGORY_LABELS: Record<string, string> = {
   icecek: "İçecek",
 };
 
-export async function getDashboardStats(): Promise<DashboardStats> {
+export async function getDashboardStats(
+  source: DashboardSource = "all",
+): Promise<DashboardStats> {
   await connectDB();
 
   const now = new Date();
@@ -104,8 +119,10 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   const sevenDaysAgo = new Date(todayStart);
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
 
-  // Tüm siparişleri çek (aggregate yerine lean — küçük-orta ölçek restoran için yeterli)
-  const allOrders = await OrderModel.find().sort({ createdAt: -1 }).lean();
+  // Kaynak filtresine göre siparişleri çek
+  const allOrders = await OrderModel.find(buildSourceFilter(source))
+    .sort({ createdAt: -1 })
+    .lean();
 
   const nonCancelled = allOrders.filter((o) => o.status !== "cancelled");
   const todayOrders = nonCancelled.filter(

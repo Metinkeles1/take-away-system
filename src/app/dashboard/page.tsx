@@ -2,10 +2,32 @@
 
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
-import { getDashboardStats, type DashboardStats } from "@/actions/dashboard";
+import {
+  getDashboardStats,
+  type DashboardStats,
+  type DashboardSource,
+} from "@/actions/dashboard";
 import { ShoppingBag, CircleDollarSign, Flame, TrendingUp, Users, UtensilsCrossed, Package } from "lucide-react";
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { DashboardTabs } from "@/components/dashboard/DashboardTabs";
+import { SourceFilter } from "@/components/dashboard/SourceFilter";
+
+const VALID_SOURCES: DashboardSource[] = ["all", "manual", "trendyol", "getir", "yemeksepeti"];
+
+function parseSource(value: string | null): DashboardSource {
+  if (value && (VALID_SOURCES as string[]).includes(value)) {
+    return value as DashboardSource;
+  }
+  return "all";
+}
+
+const SOURCE_TITLE: Record<DashboardSource, string> = {
+  all: "Dashboard",
+  manual: "Dashboard · Manuel Siparişler",
+  trendyol: "Dashboard · Trendyol",
+  getir: "Dashboard · Getir",
+  yemeksepeti: "Dashboard · Yemeksepeti",
+};
 import { KPICard, KPICardSkeleton } from "@/components/dashboard/KPICard";
 import { MiniStat } from "@/components/dashboard/MiniStat";
 import { OverviewTab } from "@/components/dashboard/tabs/OverviewTab";
@@ -17,18 +39,19 @@ import { AddressesTab } from "@/components/dashboard/tabs/AddressesTab";
 export default function DashboardPage() {
   const searchParams = useSearchParams();
   const activeTab = searchParams.get("tab") || "overview";
+  const source = parseSource(searchParams.get("source"));
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const loadStats = useCallback(async () => {
     setIsLoading(true);
     try {
-      const data = await getDashboardStats();
+      const data = await getDashboardStats(source);
       setStats(data);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [source]);
 
   useEffect(() => {
     loadStats();
@@ -48,7 +71,12 @@ export default function DashboardPage() {
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
-      <DashboardHeader isLoading={isLoading} onRefresh={loadStats} />
+      <DashboardHeader
+        isLoading={isLoading}
+        onRefresh={loadStats}
+        title={SOURCE_TITLE[source]}
+        source={source}
+      />
       <DashboardTabs />
 
       <div className="flex-1 min-h-0 overflow-y-auto bg-gray-50/60">
