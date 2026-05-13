@@ -6,35 +6,74 @@ import { formatCurrency } from "@/lib/utils";
 
 const PAPER_WIDTH = "72mm";
 const CONTENT_WIDTH = "64mm";
+const FONT_SIZE_NORMAL = "13px";
+const FONT_SIZE_XSMALL = "11px";
+const FONT_SIZE_LARGE = "16px";
 
-const Line = () => (
-  <div style={{ borderTop: "1px solid #000", margin: "2mm 0" }} />
-);
-
-const DoubleLine = () => (
+const Divider = ({ dashed }: { dashed?: boolean }) => (
   <div
     style={{
-      borderTop: "1px solid #000",
-      borderBottom: "1px solid #000",
-      height: "1.5mm",
-      margin: "2mm 0",
+      borderTop: dashed ? "1px dashed #000" : "1px solid #000",
+      margin: "5px 0",
     }}
   />
 );
 
-// Hizalanmış label : value satırı (label sabit genişlikte)
-const Field = ({ label, value }: { label: string; value: string }) => (
+const SectionTitle = ({ children }: { children: React.ReactNode }) => (
+  <div
+    style={{
+      fontSize: FONT_SIZE_XSMALL,
+      fontWeight: 700,
+      letterSpacing: "1px",
+      marginBottom: "3px",
+      textTransform: "uppercase",
+    }}
+  >
+    {children}
+  </div>
+);
+
+const Row = ({
+  left,
+  right,
+  bold,
+  large,
+}: {
+  left: string;
+  right: string;
+  bold?: boolean;
+  large?: boolean;
+}) => (
   <div
     style={{
       display: "grid",
-      gridTemplateColumns: "26mm 1fr",
-      columnGap: "2mm",
-      fontSize: "12px",
-      lineHeight: 1.6,
+      gridTemplateColumns: "1fr auto",
+      columnGap: "4px",
+      alignItems: "baseline",
+      fontWeight: bold ? 700 : 400,
+      fontSize: large ? FONT_SIZE_LARGE : FONT_SIZE_NORMAL,
+      marginBottom: "2px",
     }}
   >
-    <span>{label}</span>
-    <span style={{ fontWeight: 600, wordBreak: "break-word" }}>{value}</span>
+    <span
+      style={{
+        minWidth: 0,
+        overflow: "hidden",
+        whiteSpace: "nowrap",
+        textOverflow: "ellipsis",
+      }}
+    >
+      {left}
+    </span>
+    <span
+      style={{
+        whiteSpace: "nowrap",
+        textAlign: "right",
+        fontVariantNumeric: "tabular-nums",
+      }}
+    >
+      {right}
+    </span>
   </div>
 );
 
@@ -84,7 +123,9 @@ export default function VoucherReceipt({ voucher }: { voucher: Voucher }) {
           boxSizing: "border-box",
           border: "1px solid #ddd",
           fontFamily:
-            "-apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, Helvetica, sans-serif",
+            "Consolas, 'Liberation Mono', 'DejaVu Sans Mono', monospace",
+          textRendering: "geometricPrecision",
+          WebkitFontSmoothing: "none",
           margin: "0 auto",
         }}
       >
@@ -93,14 +134,13 @@ export default function VoucherReceipt({ voucher }: { voucher: Voucher }) {
             width: CONTENT_WIDTH,
             maxWidth: CONTENT_WIDTH,
             margin: "0 auto",
-            padding: "4mm 0",
+            padding: "3mm 0",
             boxSizing: "border-box",
-            fontSize: "12px",
-            lineHeight: 1.5,
+            fontSize: FONT_SIZE_NORMAL,
+            lineHeight: 1.35,
           }}
         >
-          {/* Başlık */}
-          <div style={{ textAlign: "center" }}>
+          <div style={{ textAlign: "center", marginBottom: "6px" }}>
             <div
               style={{
                 fontSize: "15px",
@@ -110,118 +150,146 @@ export default function VoucherReceipt({ voucher }: { voucher: Voucher }) {
             >
               KONAK KEBAP
             </div>
-            <div style={{ fontSize: "11px", marginTop: "0.5mm" }}>
-              Teslim Fişi
+            <div style={{ fontSize: FONT_SIZE_NORMAL, marginTop: "2px" }}>
+              Kurumsal Teslim Fişi
             </div>
           </div>
 
-          <DoubleLine />
+          <Divider />
 
-          {/* Fiş bilgileri */}
-          <Field label="Fiş No" value={`#${voucher.voucherNumber}`} />
-          <Field label="Tarih" value={dateStr} />
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "baseline",
+              fontSize: FONT_SIZE_NORMAL,
+              marginBottom: "2px",
+            }}
+          >
+            <span style={{ fontWeight: 700 }}>
+              Fiş No: #{voucher.voucherNumber}
+            </span>
+            <span style={{ whiteSpace: "nowrap" }}>{dateStr}</span>
+          </div>
 
-          <Line />
+          <Divider dashed />
 
-          {/* İşletme */}
-          <Field label="İşletme" value={voucher.corporateName} />
+          <SectionTitle>İşletme</SectionTitle>
+          <div
+            style={{
+              fontSize: FONT_SIZE_NORMAL,
+              fontWeight: 700,
+              wordBreak: "break-word",
+              lineHeight: 1.3,
+            }}
+          >
+            {voucher.corporateName}
+          </div>
 
-          <Line />
+          <Divider dashed />
 
-          {/* Detay */}
           {voucher.billingType === "per_person" ? (
             <>
-              <Field label="Kişi Sayısı" value={String(voucher.personCount ?? 0)} />
-              <Field
-                label="Birim Fiyat"
-                value={formatCurrency(voucher.pricePerPerson ?? 0)}
+              <SectionTitle>Detay</SectionTitle>
+              <Row
+                left={`Kişi x${voucher.personCount ?? 0}`}
+                right={formatCurrency(voucher.pricePerPerson ?? 0)}
               />
             </>
           ) : (
-            <div style={{ fontSize: "12px", lineHeight: 1.5 }}>
+            <>
+              <SectionTitle>Sipariş Kalemleri</SectionTitle>
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "1fr 8mm 18mm",
+                  gridTemplateColumns: "1fr 11mm 20mm",
                   columnGap: "2mm",
-                  fontSize: "10px",
+                  fontSize: FONT_SIZE_XSMALL,
                   fontWeight: 700,
                   borderBottom: "1px solid #000",
-                  paddingBottom: "1mm",
-                  marginBottom: "1mm",
-                  textTransform: "uppercase",
+                  paddingBottom: "3px",
+                  marginBottom: "4px",
                 }}
               >
-                <span>Ürün</span>
-                <span style={{ textAlign: "center" }}>Ad</span>
-                <span style={{ textAlign: "right" }}>Tutar</span>
+                <span>ÜRÜN</span>
+                <span style={{ textAlign: "center" }}>AD</span>
+                <span style={{ textAlign: "right" }}>TUTAR</span>
               </div>
               {(voucher.items ?? []).map((it, idx) => (
                 <div
                   key={`${it.productId}-${idx}`}
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "1fr 8mm 18mm",
+                    gridTemplateColumns: "1fr 11mm 20mm",
                     columnGap: "2mm",
-                    alignItems: "baseline",
-                    padding: "0.5mm 0",
+                    alignItems: "start",
+                    fontSize: FONT_SIZE_NORMAL,
+                    marginBottom: "4px",
                   }}
                 >
-                  <span style={{ wordBreak: "break-word", fontWeight: 600 }}>
+                  <span
+                    style={{
+                      minWidth: 0,
+                      whiteSpace: "normal",
+                      overflowWrap: "break-word",
+                      lineHeight: 1.25,
+                      fontWeight: 700,
+                    }}
+                  >
                     {it.name}
                     {it.portionLabel && (
-                      <span style={{ fontWeight: 400, fontSize: "10px" }}>
+                      <span style={{ fontWeight: 400, fontSize: "0.85em" }}>
                         {" "}
                         ({it.portionLabel})
                       </span>
                     )}
                   </span>
-                  <span style={{ textAlign: "center" }}>x{it.quantity}</span>
+                  <span style={{ textAlign: "center", whiteSpace: "nowrap" }}>
+                    x{it.quantity}
+                  </span>
                   <span
                     style={{
                       textAlign: "right",
+                      whiteSpace: "nowrap",
                       fontVariantNumeric: "tabular-nums",
-                      fontWeight: 600,
+                      fontWeight: 700,
                     }}
                   >
                     {formatCurrency(it.totalPrice)}
                   </span>
                 </div>
               ))}
-            </div>
-          )}
-          {voucher.note && (
-            <div style={{ marginTop: "1mm" }}>
-              <Field label="Açıklama" value={voucher.note} />
-            </div>
+            </>
           )}
 
-          <DoubleLine />
+          <Divider />
 
-          {/* Toplam */}
           <div
             style={{
-              display: "grid",
-              gridTemplateColumns: "26mm 1fr",
-              columnGap: "2mm",
-              alignItems: "baseline",
-              fontSize: "14px",
-              fontWeight: 700,
-              padding: "1mm 0",
+              borderTop: "2px solid #000",
+              marginTop: "4px",
+              paddingTop: "4px",
             }}
           >
-            <span>TOPLAM</span>
-            <span
-              style={{
-                textAlign: "right",
-                fontVariantNumeric: "tabular-nums",
-              }}
-            >
-              {formatCurrency(voucher.total)}
-            </span>
+            <Row left="TOPLAM" right={formatCurrency(voucher.total)} bold large />
           </div>
 
-          <DoubleLine />
+          {voucher.note && (
+            <>
+              <Divider dashed />
+              <SectionTitle>Açıklama</SectionTitle>
+              <div
+                style={{
+                  fontSize: FONT_SIZE_NORMAL,
+                  wordBreak: "break-word",
+                }}
+              >
+                {voucher.note}
+              </div>
+            </>
+          )}
+
+          <Divider />
         </div>
       </div>
     </>

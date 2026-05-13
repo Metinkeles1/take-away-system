@@ -10,7 +10,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Loader2 } from "lucide-react";
+import { Loader2, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { type Corporate, type Voucher } from "@/types";
 import { createVoucher, updateVoucher } from "@/actions/vouchers";
@@ -29,6 +29,7 @@ function PerPersonForm({
   setDate,
   isSaving,
   onSubmit,
+  onSubmitAndPrint,
   onCancel,
   initial,
   submitLabel,
@@ -38,6 +39,11 @@ function PerPersonForm({
   setDate: (v: string) => void;
   isSaving: boolean;
   onSubmit: (data: { personCount: number; pricePerPerson: number; note?: string }) => void;
+  onSubmitAndPrint?: (data: {
+    personCount: number;
+    pricePerPerson: number;
+    note?: string;
+  }) => void;
   onCancel: () => void;
   initial?: PerPersonInitial;
   submitLabel?: string;
@@ -117,10 +123,38 @@ function PerPersonForm({
           <span className="text-lg font-bold tabular-nums">{formatCurrency(total)}</span>
         </div>
       </div>
-      <DialogFooter>
+      <DialogFooter className="gap-2">
         <Button variant="outline" onClick={onCancel}>
           İptal
         </Button>
+        {onSubmitAndPrint && (
+          <Button
+            variant="secondary"
+            disabled={isSaving}
+            onClick={() => {
+              if (!Number.isFinite(personNum) || personNum < 1) {
+                toast.error("Geçerli bir kişi sayısı girin");
+                return;
+              }
+              if (!Number.isFinite(priceNum) || priceNum < 0) {
+                toast.error("Geçerli bir kişi başı ücret girin");
+                return;
+              }
+              onSubmitAndPrint({
+                personCount: personNum,
+                pricePerPerson: priceNum,
+                note: note.trim() || undefined,
+              });
+            }}
+          >
+            {isSaving ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Printer className="mr-2 h-4 w-4" />
+            )}
+            Oluştur & Yazdır
+          </Button>
+        )}
         <Button
           disabled={isSaving}
           onClick={() => {
@@ -208,6 +242,39 @@ export const PerPersonVoucherDialog = memo(function PerPersonVoucherDialog({
     }
   };
 
+  const handleSubmitAndPrint = async (data: {
+    personCount: number;
+    pricePerPerson: number;
+    note?: string;
+  }) => {
+    const printWindow = window.open("about:blank", "_blank");
+    setIsSaving(true);
+    try {
+      const result = await createVoucher({
+        type: "per_person",
+        corporateId: corporate.id,
+        date: new Date(date + "T12:00:00"),
+        ...data,
+      });
+      if (!result.ok || !result.voucherId) {
+        printWindow?.close();
+        toast.error(result.error ?? "Fiş oluşturulamadı");
+        return;
+      }
+      toast.success(`Fiş #${result.voucherNumber} oluşturuldu`);
+      const printUrl = `/corporate/${corporate.id}/voucher/${result.voucherId}/print`;
+      if (printWindow) {
+        printWindow.location.href = printUrl;
+      } else {
+        window.open(printUrl, "_blank");
+      }
+      onOpenChange(false);
+      onSuccess();
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const initial: PerPersonInitial | undefined = editing
     ? {
         personCount: editing.personCount ?? 0,
@@ -233,6 +300,7 @@ export const PerPersonVoucherDialog = memo(function PerPersonVoucherDialog({
           setDate={setDate}
           isSaving={isSaving}
           onSubmit={handleSubmit}
+          onSubmitAndPrint={isEdit ? undefined : handleSubmitAndPrint}
           onCancel={() => onOpenChange(false)}
           initial={initial}
           submitLabel={isEdit ? "Kaydet" : "Fiş Oluştur"}

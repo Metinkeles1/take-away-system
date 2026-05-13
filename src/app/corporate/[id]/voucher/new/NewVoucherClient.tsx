@@ -177,6 +177,19 @@ export default function NewVoucherClient({
     if (foundKey) decrementByKey(foundKey);
   };
 
+  const buildVoucherItems = (): VoucherItem[] =>
+    Array.from(items.values()).map((it) => {
+      const unitPrice = calcUnitPrice(it.product, it.portion);
+      return {
+        productId: it.product.id,
+        name: it.product.name,
+        quantity: it.quantity,
+        unitPrice,
+        totalPrice: Math.round(unitPrice * it.quantity * 100) / 100,
+        portionLabel: it.portion?.label,
+      };
+    });
+
   const handleSubmit = async () => {
     if (items.size === 0) {
       toast.error("En az bir ürün seçin");
@@ -184,17 +197,7 @@ export default function NewVoucherClient({
     }
     setIsSaving(true);
     try {
-      const voucherItems: VoucherItem[] = Array.from(items.values()).map((it) => {
-        const unitPrice = calcUnitPrice(it.product, it.portion);
-        return {
-          productId: it.product.id,
-          name: it.product.name,
-          quantity: it.quantity,
-          unitPrice,
-          totalPrice: Math.round(unitPrice * it.quantity * 100) / 100,
-          portionLabel: it.portion?.label,
-        };
-      });
+      const voucherItems = buildVoucherItems();
 
       if (isEdit && voucher) {
         const result = await updateVoucher(voucher.id, {
@@ -229,6 +232,39 @@ export default function NewVoucherClient({
     }
   };
 
+  const handleSubmitAndPrint = async () => {
+    if (items.size === 0) {
+      toast.error("En az bir ürün seçin");
+      return;
+    }
+    const printWindow = window.open("about:blank", "_blank");
+    setIsSaving(true);
+    try {
+      const result = await createVoucher({
+        type: "per_item",
+        corporateId: corporate.id,
+        date: new Date(date + "T12:00:00"),
+        items: buildVoucherItems(),
+        note: note.trim() || undefined,
+      });
+      if (!result.ok || !result.voucherId) {
+        printWindow?.close();
+        toast.error(result.error ?? "Fiş oluşturulamadı");
+        return;
+      }
+      toast.success(`Fiş #${result.voucherNumber} oluşturuldu`);
+      const printUrl = `/corporate/${corporate.id}/voucher/${result.voucherId}/print`;
+      if (printWindow) {
+        printWindow.location.href = printUrl;
+      } else {
+        window.open(printUrl, "_blank");
+      }
+      router.push(`/corporate/${corporate.id}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const cart = (
     <VoucherCart
       corporate={corporate}
@@ -245,6 +281,7 @@ export default function NewVoucherClient({
       onDecrement={decrementByKey}
       onRemove={removeByKey}
       onSubmit={handleSubmit}
+      onSubmitAndPrint={handleSubmitAndPrint}
     />
   );
 

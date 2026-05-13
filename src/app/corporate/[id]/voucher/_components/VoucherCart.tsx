@@ -12,6 +12,7 @@ import {
   Trash2,
   Loader2,
   Receipt,
+  Printer,
 } from "lucide-react";
 
 export interface VoucherDraftItem {
@@ -41,6 +42,7 @@ interface VoucherCartProps {
   onDecrement: (key: string) => void;
   onRemove: (key: string) => void;
   onSubmit: () => void;
+  onSubmitAndPrint?: () => void;
 }
 
 export function VoucherCart({
@@ -58,6 +60,7 @@ export function VoucherCart({
   onDecrement,
   onRemove,
   onSubmit,
+  onSubmitAndPrint,
 }: VoucherCartProps) {
   return (
     <div className="h-full flex flex-col min-h-0">
@@ -183,6 +186,21 @@ export function VoucherCart({
           )}
           {isEdit ? "Kaydet" : "Fiş Oluştur"}
         </Button>
+        {!isEdit && onSubmitAndPrint && (
+          <Button
+            variant="outline"
+            className="w-full h-11"
+            disabled={isSaving || items.size === 0}
+            onClick={onSubmitAndPrint}
+          >
+            {isSaving ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Printer className="mr-2 h-4 w-4" />
+            )}
+            Oluştur & Yazdır
+          </Button>
+        )}
       </div>
     </div>
   );

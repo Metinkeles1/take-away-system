@@ -110,7 +110,7 @@ export async function getAvailablePeriods(corporateId: string): Promise<string[]
 
 export async function createVoucher(
   input: VoucherInput,
-): Promise<{ ok: boolean; error?: string; voucherNumber?: number }> {
+): Promise<{ ok: boolean; error?: string; voucherNumber?: number; voucherId?: string }> {
   try {
     await connectDB();
 
@@ -175,7 +175,7 @@ export async function createVoucher(
     revalidatePath(`/corporate/${corporate.id}`);
     revalidatePath("/corporate");
 
-    return { ok: true, voucherNumber };
+    return { ok: true, voucherNumber, voucherId: id };
   } catch (error) {
     console.error("[createVoucher]", error);
     return { ok: false, error: "Fiş oluşturulamadı." };
