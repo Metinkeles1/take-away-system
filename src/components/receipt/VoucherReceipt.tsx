@@ -94,6 +94,11 @@ export default function VoucherReceipt({ voucher }: { voucher: Voucher }) {
             margin: 0 !important;
             padding: 0 !important;
             width: ${PAPER_WIDTH} !important;
+            height: auto !important;
+            min-height: 0 !important;
+            max-height: none !important;
+            overflow: visible !important;
+            display: block !important;
           }
 
           body * {
