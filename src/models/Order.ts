@@ -87,6 +87,10 @@ const OrderSchema = new Schema(
   },
 );
 
+// Trendyol watcher'ın sık çalıştırdığı sorgular için compound index.
+// `find({ source, createdAt > X }).sort({ createdAt: -1 })` collection scan'den kurtulur.
+OrderSchema.index({ source: 1, createdAt: -1 });
+
 export type OrderDocument = InferSchemaType<typeof OrderSchema>;
 
 // Hot-reload sırasında model çoğalmasını önle

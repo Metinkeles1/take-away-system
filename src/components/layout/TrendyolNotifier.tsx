@@ -1,20 +1,20 @@
 "use client";
 
 // Global Trendyol sipariş bildiricisi.
-// Her sayfada AppShell altında çalışır. 15 sn'de bir poll yapar; yeni
-// Trendyol siparişi tespit ederse:
-//   1) iki tonlu "ding" sesi çalar (autoplay unlock'tan sonra)
-//   2) toast gösterir
+// Her sayfada AppShell altında çalışır. Polling YAPMAZ — global
+// `trendyolWatcherStore`'a abone olur, store yeni sipariş tespit edince
+// freshOrders'a push'lar; bu bileşen drain edip ses+toast oynatır.
 //
 // Tarayıcı autoplay politikası: AudioContext kullanıcı etkileşimi
 // olmadan çalmaz. Sayfa açıldıktan sonraki ilk tıklamada AudioContext'i
 // hazırlıyoruz — sonrasında programatik olarak ses çalabiliyoruz.
 
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { toast } from "sonner";
-import { getRecentTrendyolRefs } from "@/actions/orders";
-
-const POLL_MS = 15_000;
+import {
+  subscribeTrendyolWatcher,
+  useTrendyolWatcherStore,
+} from "@/store/trendyolWatcherStore";
 
 // Modül-seviyesi tek AudioContext — birden fazla mount/unmount olsa bile
 // state korunsun. Browser policy gereği user gesture'dan sonra resume edilir.
@@ -99,72 +99,45 @@ function playTrendyolDing() {
 }
 
 export function TrendyolNotifier() {
-  const seenRefsRef = useRef<Set<string> | null>(null);
-  const initializedRef = useRef(false);
+  // Store'daki freshOrders dizisi değiştikçe drain et, ses+toast oynat.
+  const freshCount = useTrendyolWatcherStore((s) => s.freshOrders.length);
 
   useEffect(() => {
-    // İlk yüklemede AudioContext'i kullanıcı tıklamasına bağla
-    if (!audioUnlocked) {
-      const onUserGesture = () => {
-        unlockAudio();
-        window.removeEventListener("pointerdown", onUserGesture);
-        window.removeEventListener("keydown", onUserGesture);
-      };
-      window.addEventListener("pointerdown", onUserGesture, { once: false });
-      window.addEventListener("keydown", onUserGesture, { once: false });
-    }
-
-    let cancelled = false;
-
-    const tick = async () => {
-      if (document.hidden) return;
-      try {
-        const refs = await getRecentTrendyolRefs(15);
-        if (cancelled) return;
-
-        if (!initializedRef.current) {
-          // İlk çağrıda mevcut siparişleri "görüldü" kabul et — eski siparişler
-          // sayfa açılınca toast yağdırmasın.
-          seenRefsRef.current = new Set(refs.map((r) => r.externalRef));
-          initializedRef.current = true;
-          return;
-        }
-
-        const seen = seenRefsRef.current!;
-        const fresh = refs.filter((r) => !seen.has(r.externalRef));
-        if (fresh.length === 0) return;
-
-        fresh.forEach((r) => seen.add(r.externalRef));
-
-        // Ses + toast
-        playTrendyolDing();
-        const first = fresh[0];
-        toast.success(
-          fresh.length === 1
-            ? `🛵 Trendyol siparişi: #${first.orderNumber} — ${first.customerName}`
-            : `🛵 ${fresh.length} yeni Trendyol siparişi geldi`,
-          {
-            duration: 6000,
-            className:
-              "!bg-emerald-600 !text-white !border-emerald-700 [&_*]:!text-white",
-          },
-        );
-      } catch {
-        // sessiz başarısızlık
-      }
+    if (audioUnlocked) return;
+    const onUserGesture = () => {
+      unlockAudio();
+      window.removeEventListener("pointerdown", onUserGesture);
+      window.removeEventListener("keydown", onUserGesture);
     };
-
-    void tick();
-    const id = setInterval(tick, POLL_MS);
-    const onFocus = () => void tick();
-    window.addEventListener("focus", onFocus);
-
+    window.addEventListener("pointerdown", onUserGesture);
+    window.addEventListener("keydown", onUserGesture);
     return () => {
-      cancelled = true;
-      clearInterval(id);
-      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("pointerdown", onUserGesture);
+      window.removeEventListener("keydown", onUserGesture);
     };
   }, []);
+
+  // Global poller'a abone ol — ilk mount başlatır, son unmount durdurur.
+  useEffect(() => subscribeTrendyolWatcher(), []);
+
+  useEffect(() => {
+    if (freshCount === 0) return;
+    const fresh = useTrendyolWatcherStore.getState().consumeFresh();
+    if (fresh.length === 0) return;
+
+    playTrendyolDing();
+    const first = fresh[0]!;
+    toast.success(
+      fresh.length === 1
+        ? `🛵 Trendyol siparişi: #${first.orderNumber} — ${first.customerName}`
+        : `🛵 ${fresh.length} yeni Trendyol siparişi geldi`,
+      {
+        duration: 6000,
+        className:
+          "!bg-emerald-600 !text-white !border-emerald-700 [&_*]:!text-white",
+      },
+    );
+  }, [freshCount]);
 
   return null;
 }

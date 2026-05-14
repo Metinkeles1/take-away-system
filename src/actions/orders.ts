@@ -201,20 +201,36 @@ export async function getActiveTrendyolCount(): Promise<number> {
 
 // ─── Son Trendyol siparişleri (global bildirim watcher'ı için) ───────────────
 // Sadece yeni gelen siparişleri tespit etmek için minimum alan döner.
-export async function getRecentTrendyolRefs(limit = 15): Promise<
-  {
-    externalRef: string;
-    orderNumber: number;
-    customerName: string;
-    total: number;
-  }[]
-> {
+// `since` verilirse o tarihten sonra eklenenler gelir — çoğu tick'te boş array.
+export type RecentTrendyolRef = {
+  externalRef: string;
+  orderNumber: number;
+  customerName: string;
+  total: number;
+  createdAt: number; // ms epoch — client `since` cursor'unu güncellemek için
+};
+
+export async function getRecentTrendyolRefs(
+  options: { limit?: number; since?: number } = {},
+): Promise<RecentTrendyolRef[]> {
+  const limit = options.limit ?? 15;
   try {
     await connectDB();
-    const docs = await OrderModel.find(
-      { source: "trendyol", externalRef: { $exists: true, $ne: null } },
-      { externalRef: 1, orderNumber: 1, "customer.name": 1, total: 1, _id: 0 },
-    )
+    const filter: Record<string, unknown> = {
+      source: "trendyol",
+      externalRef: { $exists: true, $ne: null },
+    };
+    if (options.since && Number.isFinite(options.since)) {
+      filter.createdAt = { $gt: new Date(options.since) };
+    }
+    const docs = await OrderModel.find(filter, {
+      externalRef: 1,
+      orderNumber: 1,
+      "customer.name": 1,
+      total: 1,
+      createdAt: 1,
+      _id: 0,
+    })
       .sort({ createdAt: -1 })
       .limit(limit)
       .lean();
@@ -223,6 +239,7 @@ export async function getRecentTrendyolRefs(limit = 15): Promise<
       orderNumber: d.orderNumber,
       customerName: d.customer?.name ?? "—",
       total: d.total,
+      createdAt: (d as { createdAt?: Date }).createdAt?.getTime() ?? 0,
     }));
   } catch (error) {
     console.error("[getRecentTrendyolRefs]", error);

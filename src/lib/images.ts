@@ -1,17 +1,22 @@
 import { type Product, type ProductCategory } from "@/types";
+import { PRODUCT_IMAGE_FILES } from "@/lib/product-images.manifest";
 
 /**
  * Ürün için resim. Öncelik sırası:
  *   1) Elle verilmiş `product.image` (override)
- *   2) /images/products/{slug}.jpg — slug ürün adından üretilir (ör. "adana-kebap.jpg")
+ *   2) public/images/products/ altında slug ile eşleşen gerçek dosya (manifest'ten)
+ *   3) Yoksa direkt fallback SVG (tarayıcıda 404 oluşmaz)
  *
- * Dosya yoksa render eden component `fallbackSrc` (SVG tile) ile devreye girer.
+ * Manifest dev/build öncesi `scripts/generate-product-images-manifest.mjs` ile üretilir.
  */
 export function productImage(
   product: Pick<Product, "id" | "image" | "category" | "name">,
 ): string {
   if (product.image) return product.image;
-  return `/images/products/${productSlug(product.name)}.jpg`;
+  const slug = productSlug(product.name);
+  const file = PRODUCT_IMAGE_FILES[slug];
+  if (file) return `/images/products/${file}`;
+  return fallbackProductUrl(product.id, product.category, product.name);
 }
 
 /**
