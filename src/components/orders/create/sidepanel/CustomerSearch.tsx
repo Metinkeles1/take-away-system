@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { type SavedCustomer } from "@/types";
-import { cn, formatPhone, formatRelativeTime } from "@/lib/utils";
+import { cn, formatPhone } from "@/lib/utils";
+import { RelativeTime } from "@/components/RelativeTime";
 import { Phone, MapPin, Building2, BookUser } from "lucide-react";
 import { SectionTitle } from "./SectionTitle";
 import { User } from "lucide-react";
@@ -212,7 +213,7 @@ export function CustomerSearch({
                             {c.orderCount}× sipariş
                           </span>
                           <span className="text-[10px] text-muted-foreground">
-                            {formatRelativeTime(c.updatedAt)}
+                            <RelativeTime date={c.updatedAt} />
                           </span>
                         </div>
                       </button>

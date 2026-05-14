@@ -11,7 +11,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { type Order, type OrderStatus } from "@/types";
-import { cn, formatCurrency, formatDate, formatRelativeTime } from "@/lib/utils";
+import { cn, formatCurrency, formatDate } from "@/lib/utils";
+import { RelativeTime } from "@/components/RelativeTime";
 import { ORDER_STATUS_CONFIG, ORDER_STATUS_ORDER } from "@/lib/orderStatus";
 import {
   Phone,
@@ -110,7 +111,7 @@ export function OrderListCard({ order, onStatusChange }: OrderListCardProps) {
             )}
             <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground bg-muted rounded-full px-2 py-0.5">
               <Timer className="h-3 w-3" />
-              {formatRelativeTime(order.createdAt)}
+              <RelativeTime date={order.createdAt} />
             </span>
           </div>
           <div className="flex items-center gap-2 flex-wrap">

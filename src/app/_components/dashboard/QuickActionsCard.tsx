@@ -6,7 +6,8 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PlusCircle, ClipboardList } from "lucide-react";
 import { type Order } from "@/types";
-import { formatCurrency, formatRelativeTime } from "@/lib/utils";
+import { formatCurrency } from "@/lib/utils";
+import { RelativeTime } from "@/components/RelativeTime";
 
 interface QuickActionsCardProps {
   isLoading: boolean;
@@ -91,7 +92,7 @@ export function QuickActionsCard({ isLoading, recentOrders }: QuickActionsCardPr
                   <div className="text-right shrink-0 ml-2">
                     <div className="font-medium">{formatCurrency(order.total)}</div>
                     <div className="text-xs text-muted-foreground">
-                      {formatRelativeTime(order.createdAt)}
+                      <RelativeTime date={order.createdAt} />
                     </div>
                   </div>
                 </Link>
