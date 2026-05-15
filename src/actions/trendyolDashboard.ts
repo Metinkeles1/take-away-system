@@ -4,6 +4,7 @@
 // yazmaz. Period seçimine göre /packages endpoint'i sorgulanır, paket listesi
 // üzerinden ciro/sipariş/ödeme/saatlik dağılım hesaplanır.
 
+import { unstable_cache } from "next/cache";
 import {
   listTrendyolPackages,
   listTrendyolSettlements,
@@ -397,30 +398,94 @@ async function fetchAllPackages(
   start: number,
   end: number,
 ): Promise<{ ok: true; packages: TrendyolPackage[] } | { ok: false; error: string }> {
-  const packages: TrendyolPackage[] = [];
-  let page = 0;
   // Trendyol API size üst sınırı 50 (FilterRequest.Size lte). 200'de BindError döner.
   const size = 50;
-  while (page < 200) {
-    const res = await listTrendyolPackages({
-      modificationStartDate: start,
-      modificationEndDate: end,
-      page,
-      size,
-    });
-    if (!res.ok) {
-      return { ok: false, error: `Trendyol API hatası (${res.status}): ${res.error}` };
+
+  // İlk sayfayı çek, totalPages'i öğren, kalanları paralel çek (sıralı loop yerine).
+  const firstRes = await listTrendyolPackages({
+    modificationStartDate: start,
+    modificationEndDate: end,
+    page: 0,
+    size,
+  });
+  if (!firstRes.ok) {
+    return { ok: false, error: `Trendyol API hatası (${firstRes.status}): ${firstRes.error}` };
+  }
+  const totalPages = Math.min(firstRes.data.totalPages ?? 1, 200);
+  const packages: TrendyolPackage[] = [...(firstRes.data.content ?? [])];
+
+  if (totalPages <= 1) return { ok: true, packages };
+
+  // Kalan sayfaları paralel çek, ama rate-limit için 5'er batch halinde.
+  const BATCH = 5;
+  for (let pageStart = 1; pageStart < totalPages; pageStart += BATCH) {
+    const pageNums = Array.from(
+      { length: Math.min(BATCH, totalPages - pageStart) },
+      (_, i) => pageStart + i,
+    );
+    const results = await Promise.all(
+      pageNums.map((page) =>
+        listTrendyolPackages({
+          modificationStartDate: start,
+          modificationEndDate: end,
+          page,
+          size,
+        }),
+      ),
+    );
+    for (const r of results) {
+      if (!r.ok) {
+        return { ok: false, error: `Trendyol API hatası (${r.status}): ${r.error}` };
+      }
+      packages.push(...(r.data.content ?? []));
     }
-    packages.push(...(res.data.content ?? []));
-    const totalPages = res.data.totalPages ?? 1;
-    if (page + 1 >= totalPages) break;
-    page++;
   }
   return { ok: true, packages };
 }
 
+// ─── Cache layer ───────────────────────────────────────────────────
+// Aynı (period, gün) için arka arkaya gelen istekler API'yi tekrar
+// vurmasın. "Bugün" verisi 60sn, geçmiş günler 10dk cache'lenir
+// (geçmiş veriler immutable). Cache key gün granülaritesinde — saat/ms
+// farkları cache miss'e yol açmaz.
+
+function dateKey(referenceDate?: number): string {
+  const d = referenceDate !== undefined ? new Date(referenceDate) : new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function isReferenceToday(referenceDate?: number): boolean {
+  if (referenceDate === undefined) return true;
+  return new Date(referenceDate).toDateString() === new Date().toDateString();
+}
+
+// Cache key argümanları: [period, key]. Aynı period+gün → aynı cache.
+const cachedComputeToday = unstable_cache(
+  async (period: TrendyolPeriod, _key: string, refTs: number) =>
+    computeTrendyolDashboardStats(period, refTs),
+  ["trendyol-dashboard-today"],
+  { revalidate: 60 },
+);
+
+const cachedComputePast = unstable_cache(
+  async (period: TrendyolPeriod, _key: string, refTs: number) =>
+    computeTrendyolDashboardStats(period, refTs),
+  ["trendyol-dashboard-past"],
+  { revalidate: 600 },
+);
+
 export async function getTrendyolDashboardStats(
   period: TrendyolPeriod = "today",
+  referenceDate?: number,
+): Promise<TrendyolDashboardStats> {
+  const key = dateKey(referenceDate);
+  const refTs = referenceDate ?? Date.now();
+  const fn = isReferenceToday(referenceDate) ? cachedComputeToday : cachedComputePast;
+  return fn(period, key, refTs);
+}
+
+async function computeTrendyolDashboardStats(
+  period: TrendyolPeriod,
   referenceDate?: number,
 ): Promise<TrendyolDashboardStats> {
   const { start, end } = periodRange(period, referenceDate);

@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { ChevronRight } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { formatCurrency } from "@/lib/utils";
 import { PAYMENT_LABELS } from "@/app/dashboard/constants/dashboardConfig";
@@ -9,6 +10,7 @@ interface PaymentBreakdownProps {
   emptyText?: string;
   totalLabel?: string;
   totalColor?: string;
+  onMethodClick?: (method: string) => void;
 }
 
 export const PaymentBreakdown = memo(function PaymentBreakdown({
@@ -17,6 +19,7 @@ export const PaymentBreakdown = memo(function PaymentBreakdown({
   emptyText,
   totalLabel = "Toplam",
   totalColor = "text-gray-900",
+  onMethodClick,
 }: PaymentBreakdownProps) {
   const allZero = data && Object.values(data).every((v) => v === 0);
 
@@ -27,14 +30,30 @@ export const PaymentBreakdown = memo(function PaymentBreakdown({
         if (!config) return null;
         const pct = total > 0 ? (amount / total) * 100 : 0;
         const PayIcon = config.icon;
+        const clickable = !!onMethodClick && amount > 0;
+        const Row = clickable ? "button" : "div";
         return (
-          <div key={method} className="flex items-center gap-4">
+          <Row
+            key={method}
+            type={clickable ? "button" : undefined}
+            onClick={clickable ? () => onMethodClick(method) : undefined}
+            className={`flex w-full items-center gap-4 text-left ${
+              clickable
+                ? "group rounded-md -mx-1 px-1 py-0.5 hover:bg-muted/50 transition-colors cursor-pointer"
+                : ""
+            }`}
+          >
             <div className={`rounded-xl p-2.5 ${config.bg}`}>
               <PayIcon className={`h-4 w-4 ${config.color}`} />
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between mb-1">
-                <span className="text-sm font-medium text-gray-700">{config.label}</span>
+                <span className="text-sm font-medium text-gray-700 flex items-center gap-1">
+                  {config.label}
+                  {clickable && (
+                    <ChevronRight className="h-3.5 w-3.5 text-gray-400 group-hover:text-orange-600 transition-colors" />
+                  )}
+                </span>
                 <span className="text-sm font-bold text-gray-900">{formatCurrency(amount)}</span>
               </div>
               <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
@@ -45,7 +64,7 @@ export const PaymentBreakdown = memo(function PaymentBreakdown({
               </div>
             </div>
             <span className="text-xs text-gray-400 w-12 text-right font-medium">{pct.toFixed(0)}%</span>
-          </div>
+          </Row>
         );
       })}
       {allZero && emptyText && (
