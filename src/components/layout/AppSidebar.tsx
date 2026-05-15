@@ -4,10 +4,7 @@ import Link from "next/link";
 import { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import {
-  getActiveTrendyolCount,
-  getActiveOrdersCount,
-} from "@/actions/orders";
+import { getActiveOrdersCount } from "@/actions/orders";
 import {
   Home,
   BarChart3,
@@ -156,7 +153,6 @@ export default function AppSidebar({ variant = "desktop", onNavigate }: Props) {
   const [collapsed, setCollapsed] = useState(false);
   const isCollapsible = variant === "desktop";
   const showCollapsed = isCollapsible && collapsed;
-  const trendyolActiveCount = useLiveCount(getActiveTrendyolCount);
   const activeOrdersCount = useLiveCount(getActiveOrdersCount);
 
   return (
@@ -207,11 +203,7 @@ export default function AppSidebar({ variant = "desktop", onNavigate }: Props) {
                   isActive={isActive}
                   showCollapsed={showCollapsed}
                   badge={
-                    item.href === "/dashboard/trendyol"
-                      ? trendyolActiveCount
-                      : item.href === "/orders"
-                        ? activeOrdersCount
-                        : undefined
+                    item.href === "/orders" ? activeOrdersCount : undefined
                   }
                 />
               </Link>

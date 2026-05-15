@@ -7,8 +7,6 @@ import AppSidebar from "./AppSidebar";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { VisuallyHidden } from "radix-ui";
-import { TrendyolNotifier } from "./TrendyolNotifier";
-
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
@@ -20,9 +18,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="h-full flex">
-      {/* Global Trendyol bildirimi — her sayfada çalar */}
-      <TrendyolNotifier />
-
       {/* Desktop sidebar — lg ve üzeri */}
       <div className="hidden lg:flex h-full">
         <AppSidebar variant="desktop" />

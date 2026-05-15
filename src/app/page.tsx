@@ -12,9 +12,7 @@ import {
   TrendingUp,
   Clock,
   PlusCircle,
-  Store,
 } from "lucide-react";
-import Link from "next/link";
 import { formatCurrency } from "@/lib/utils";
 import { StatCard, computeDelta } from "./_components/dashboard/StatCard";
 import { HourlyTraffic } from "./_components/dashboard/HourlyTraffic";
@@ -42,9 +40,6 @@ export default function DashboardPage() {
     todayRevenue,
     yesterdayRevenue,
     hourly,
-    trendyolTodayCount,
-    trendyolTodayRevenue,
-    trendyolActiveCount,
   } = useMemo(() => {
       const today = new Date();
       const yesterday = new Date();
@@ -69,24 +64,12 @@ export default function DashboardPage() {
         hourly[h] += 1;
       });
 
-      const trendyolToday = todayOrders.filter((o) => o.source === "trendyol");
-      const trendyolActive = orders.filter(
-        (o) =>
-          o.source === "trendyol" &&
-          (o.status === "pending" ||
-            o.status === "preparing" ||
-            o.status === "on-the-way"),
-      );
-
       return {
         todayOrders,
         yesterdayOrders,
         todayRevenue: sumRevenue(todayOrders),
         yesterdayRevenue: sumRevenue(yesterdayOrders),
         hourly,
-        trendyolTodayCount: trendyolToday.length,
-        trendyolTodayRevenue: sumRevenue(trendyolToday),
-        trendyolActiveCount: trendyolActive.length,
       };
     }, [orders]);
 
@@ -143,9 +126,9 @@ export default function DashboardPage() {
       </div>
 
       {/* İstatistik kartları */}
-      <div className="mb-4 grid gap-2.5 sm:gap-3 grid-cols-2 lg:grid-cols-5 shrink-0">
+      <div className="mb-4 grid gap-2.5 sm:gap-3 grid-cols-2 lg:grid-cols-4 shrink-0">
         {showSkeleton ? (
-          [...Array(5)].map((_, i) => (
+          [...Array(4)].map((_, i) => (
             <Card key={i}>
               <CardContent className="flex items-center gap-3 p-4 sm:gap-4 sm:p-6">
                 <Skeleton className="h-10 w-10 sm:h-12 sm:w-12 rounded-xl" />
@@ -188,11 +171,6 @@ export default function DashboardPage() {
               color="text-purple-600"
               bg="bg-purple-50"
             />
-            <TrendyolStatCard
-              todayCount={trendyolTodayCount}
-              todayRevenue={trendyolTodayRevenue}
-              activeCount={trendyolActiveCount}
-            />
           </>
         )}
       </div>
@@ -222,42 +200,3 @@ export default function DashboardPage() {
   );
 }
 
-function TrendyolStatCard({
-  todayCount,
-  todayRevenue,
-  activeCount,
-}: {
-  todayCount: number;
-  todayRevenue: number;
-  activeCount: number;
-}) {
-  const hasActive = activeCount > 0;
-  return (
-    <Link
-      href="/dashboard/trendyol"
-      className="group relative flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-600 p-4 sm:gap-4 sm:p-6 text-white shadow-sm transition-colors hover:bg-emerald-700"
-    >
-      <div className="relative rounded-xl bg-white/15 p-2.5 sm:p-3 shrink-0">
-        <Store className="h-5 w-5 sm:h-6 sm:w-6" />
-        {hasActive && (
-          <span className="absolute -top-1 -right-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold ring-2 ring-emerald-600">
-            {activeCount > 9 ? "9+" : activeCount}
-          </span>
-        )}
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="text-xs sm:text-sm text-white/80 truncate">
-          Trendyol · Bugün
-        </p>
-        <div className="flex items-baseline gap-2 flex-wrap">
-          <p className="text-lg sm:text-2xl font-bold leading-tight">
-            {todayCount}
-          </p>
-          <p className="text-xs sm:text-sm font-medium text-emerald-50 truncate">
-            {formatCurrency(todayRevenue)}
-          </p>
-        </div>
-      </div>
-    </Link>
-  );
-}

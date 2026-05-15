@@ -185,68 +185,6 @@ export async function getActiveOrdersCount(): Promise<number> {
   }
 }
 
-// ─── Aktif Trendyol siparişi sayısı (sidebar rozeti için, hafif sorgu) ───────
-export async function getActiveTrendyolCount(): Promise<number> {
-  try {
-    await connectDB();
-    return await OrderModel.countDocuments({
-      source: "trendyol",
-      status: { $in: ["pending", "preparing", "on-the-way"] },
-    });
-  } catch (error) {
-    console.error("[getActiveTrendyolCount]", error);
-    return 0;
-  }
-}
-
-// ─── Son Trendyol siparişleri (global bildirim watcher'ı için) ───────────────
-// Sadece yeni gelen siparişleri tespit etmek için minimum alan döner.
-// `since` verilirse o tarihten sonra eklenenler gelir — çoğu tick'te boş array.
-export type RecentTrendyolRef = {
-  externalRef: string;
-  orderNumber: number;
-  customerName: string;
-  total: number;
-  createdAt: number; // ms epoch — client `since` cursor'unu güncellemek için
-};
-
-export async function getRecentTrendyolRefs(
-  options: { limit?: number; since?: number } = {},
-): Promise<RecentTrendyolRef[]> {
-  const limit = options.limit ?? 15;
-  try {
-    await connectDB();
-    const filter: Record<string, unknown> = {
-      source: "trendyol",
-      externalRef: { $exists: true, $ne: null },
-    };
-    if (options.since && Number.isFinite(options.since)) {
-      filter.createdAt = { $gt: new Date(options.since) };
-    }
-    const docs = await OrderModel.find(filter, {
-      externalRef: 1,
-      orderNumber: 1,
-      "customer.name": 1,
-      total: 1,
-      createdAt: 1,
-      _id: 0,
-    })
-      .sort({ createdAt: -1 })
-      .limit(limit)
-      .lean();
-    return docs.map((d) => ({
-      externalRef: d.externalRef as string,
-      orderNumber: d.orderNumber,
-      customerName: d.customer?.name ?? "—",
-      total: d.total,
-      createdAt: (d as { createdAt?: Date }).createdAt?.getTime() ?? 0,
-    }));
-  } catch (error) {
-    console.error("[getRecentTrendyolRefs]", error);
-    return [];
-  }
-}
-
 // ─── Sipariş sil ─────────────────────────────────────────────────────────────
 export async function deleteOrder(id: string): Promise<{ ok: boolean; error?: string }> {
   try {
