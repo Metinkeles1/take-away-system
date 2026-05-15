@@ -119,7 +119,7 @@ export default function TrendyolDashboardPage() {
         isToday={isToday}
       />
 
-      <div className="flex-1 min-h-0 overflow-y-auto bg-gradient-to-br from-orange-50/40 via-gray-50 to-white">
+      <div className="flex-1 min-h-0 overflow-y-auto bg-linear-to-br from-orange-50/40 via-gray-50 to-white">
         <div className="px-8 py-6 space-y-6">
           {stats?.error && (
             <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 flex items-start gap-3 text-sm text-amber-900">
@@ -603,7 +603,7 @@ function TopProductsList({ products }: { products: TopProduct[] }) {
         </div>
       </div>
 
-      <ul className="space-y-1.5 max-h-[480px] overflow-y-auto pr-1">
+      <ul className="space-y-1.5 max-h-120 overflow-y-auto pr-1">
         {sorted.map((p, i) => {
           const pct = maxValue > 0 ? (p[sortBy] / maxValue) * 100 : 0;
           return (
