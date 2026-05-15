@@ -21,6 +21,13 @@ export interface PaymentBreakdownItem {
   revenue: number;
 }
 
+export interface MealCardBreakdownItem {
+  brand: string;       // Multinet, Sodexo, Metropol, Ticket, Setcard, Edenred, Pluxee, Diğer
+  count: number;
+  revenue: number;
+  source: "online" | "on_delivery" | "mixed";
+}
+
 export interface TrendyolDashboardStats {
   period: TrendyolPeriod;
   fetchedAt: string; // ISO
@@ -36,6 +43,7 @@ export interface TrendyolDashboardStats {
 
   // Dağılımlar
   paymentBreakdown: PaymentBreakdownItem[];
+  mealCardBreakdown: MealCardBreakdownItem[];
   statusBreakdown: { status: string; count: number }[];
   hourly: { hour: number; orders: number; revenue: number }[];
   topProducts: { name: string; quantity: number; revenue: number }[];
@@ -77,7 +85,11 @@ function paymentKey(p: TrendyolPackage): string {
   if (t === "PAY_WITH_MEAL_CARD") return "meal_card";
   if (t === "PAY_WITH_ON_DELIVERY") {
     const sub = p.payment?.onDelivery?.paymentType?.toUpperCase();
-    return sub === "CARD" ? "card" : "cash";
+    if (sub === "CARD") return "card";
+    if (sub === "CASH" || !sub) return "cash";
+    // METROPOL_CODE / MULTINET_CODE vb. → kapıda yemek kartı kodu
+    if (normalizeMealCardBrand(sub)) return "meal_card";
+    return "cash";
   }
   return "online";
 }
@@ -88,6 +100,40 @@ const PAYMENT_LABEL: Record<string, string> = {
   online: "Online",
   meal_card: "Yemek Kartı",
 };
+
+// Trendyol'un yemek kartı identifier'larını ortak marka adına normalize eder.
+// cardSourceType (online ödeme) ve onDelivery.paymentType (kapıda kod) için ortak.
+function normalizeMealCardBrand(raw: string | undefined | null): string | null {
+  if (!raw) return null;
+  const s = raw.toUpperCase();
+  if (s.includes("MULTINET")) return "Multinet";
+  if (s.includes("SODEXO") || s.includes("PLUXEE")) return "Sodexo / Pluxee";
+  if (s.includes("METROPOL")) return "Metropol";
+  if (s.includes("TICKET")) return "Ticket";
+  if (s.includes("SETCARD") || s.includes("SET_CARD")) return "Setcard";
+  if (s.includes("EDENRED") || s.includes("WINWIN") || s.includes("WIN_WIN")) return "Edenred";
+  if (s.includes("TOKENFLEX") || s.includes("TOKEN_FLEX")) return "TokenFlex";
+  if (s.includes("PAYE")) return "Paye";
+  if (s.includes("SMARTPAY") || s.includes("SMART_PAY")) return "SmartPay";
+  return null;
+}
+
+// Bir paketin yemek kartı bilgisini (varsa) çıkarır. Yoksa null döner.
+function mealCardInfo(
+  p: TrendyolPackage,
+): { brand: string; source: "online" | "on_delivery" } | null {
+  const t = p.payment?.paymentType;
+  if (t === "PAY_WITH_MEAL_CARD") {
+    const brand = normalizeMealCardBrand(p.payment?.mealCard?.cardSourceType) ?? "Diğer";
+    return { brand, source: "online" };
+  }
+  if (t === "PAY_WITH_ON_DELIVERY") {
+    const sub = p.payment?.onDelivery?.paymentType;
+    const brand = normalizeMealCardBrand(sub);
+    if (brand) return { brand, source: "on_delivery" };
+  }
+  return null;
+}
 
 const NON_REVENUE_STATUSES = new Set(["Cancelled", "UnSupplied"]);
 
@@ -176,6 +222,7 @@ function emptyStats(
     revenue: 0,
     avgBasket: 0,
     paymentBreakdown: [],
+    mealCardBreakdown: [],
     statusBreakdown: [],
     hourly: Array.from({ length: 24 }, (_, hour) => ({ hour, orders: 0, revenue: 0 })),
     topProducts: [],
@@ -433,6 +480,38 @@ export async function getTrendyolDashboardStats(
     }))
     .sort((a, b) => b.revenue - a.revenue);
 
+  // Yemek kartı marka dağılımı (online + kapıda kod birleşik)
+  const mealCardMap = new Map<
+    string,
+    { count: number; revenue: number; sources: Set<"online" | "on_delivery"> }
+  >();
+  for (const p of completed) {
+    const info = mealCardInfo(p);
+    if (!info) continue;
+    const cur = mealCardMap.get(info.brand) ?? {
+      count: 0,
+      revenue: 0,
+      sources: new Set<"online" | "on_delivery">(),
+    };
+    cur.count++;
+    cur.revenue += p.totalPrice ?? 0;
+    cur.sources.add(info.source);
+    mealCardMap.set(info.brand, cur);
+  }
+  const mealCardBreakdown: MealCardBreakdownItem[] = [...mealCardMap.entries()]
+    .map(([brand, v]) => ({
+      brand,
+      count: v.count,
+      revenue: v.revenue,
+      source:
+        v.sources.size === 2
+          ? ("mixed" as const)
+          : v.sources.has("online")
+            ? ("online" as const)
+            : ("on_delivery" as const),
+    }))
+    .sort((a, b) => b.revenue - a.revenue);
+
   // Durum dağılımı
   const statusMap = new Map<string, number>();
   for (const p of packages) {
@@ -497,6 +576,7 @@ export async function getTrendyolDashboardStats(
     revenue,
     avgBasket,
     paymentBreakdown,
+    mealCardBreakdown,
     statusBreakdown,
     hourly,
     topProducts,

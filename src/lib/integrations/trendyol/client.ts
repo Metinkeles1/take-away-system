@@ -293,6 +293,62 @@ export function listTrendyolSettlements(params: {
   });
 }
 
+// ─── Menü / Ürün listesi ───────────────────────────────────────────────
+// Doküman: GET /integrator/product/meal/suppliers/{supplierId}/stores/{storeId}/products
+// storeId ZORUNLU. Response { products, sections, ingredients, modifierGroups }.
+// sections[].products[] üzerinden ürün → kategori eşlemesi yapılır.
+export interface TrendyolMenuProduct {
+  id: number;
+  name: string;
+  description?: string | null;
+  originalPrice?: number;
+  sellingPrice?: number;
+  status?: "ACTIVE" | "INACTIVE" | string;
+  ingredients?: number[];
+  extraIngredients?: number[];
+  modifierGroups?: Array<{ id: number; position?: number }>;
+}
+
+export interface TrendyolMenuSection {
+  id: number;
+  name: string;
+  position?: number;
+  status?: "ACTIVE" | "INACTIVE" | string;
+  products?: Array<{ id: number; position?: number }>;
+}
+
+export interface TrendyolMenuIngredient {
+  id: number;
+  name: string;
+  price?: number;
+  status?: "ACTIVE" | "INACTIVE" | string;
+}
+
+export interface TrendyolMenuModifierGroup {
+  id: number;
+  name: string;
+  min?: number;
+  max?: number;
+  modifierProducts?: Array<{ id: number; price?: number; position?: number }>;
+}
+
+export interface TrendyolMenuResponse {
+  products: TrendyolMenuProduct[];
+  sections?: TrendyolMenuSection[];
+  ingredients?: TrendyolMenuIngredient[];
+  modifierGroups?: TrendyolMenuModifierGroup[];
+}
+
+export function listTrendyolMenuProducts(params: {
+  storeId: string | number;
+}) {
+  const supplierId = process.env.TRENDYOL_SUPPLIER_ID!;
+  return trendyolRequest<TrendyolMenuResponse>({
+    method: "GET",
+    path: `/integrator/product/meal/suppliers/${supplierId}/stores/${params.storeId}/products`,
+  });
+}
+
 // ─── 1) Siparişi kabul et (picked) ──────────────────────────────────────
 // preparationTime: dakika cinsinden hazırlık tahmini
 export function acceptTrendyolPackage(packageId: string, preparationTime = 20) {
