@@ -4,77 +4,106 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import {
   getTrendyolDashboardStats,
   type TrendyolDashboardStats,
+  type TrendyolPeriod,
 } from "@/actions/trendyolDashboard";
 import {
   ShoppingBag,
   CircleDollarSign,
-  Flame,
-  TrendingUp,
-  TrendingDown,
-  Receipt,
   CheckCircle2,
+  Receipt,
   XCircle,
   RefreshCw,
   Store,
   CalendarDays,
+  Flame,
+  AlertTriangle,
+  Wallet,
+  Percent,
+  Ticket,
+  Undo2,
+  Banknote,
+  PiggyBank,
+  Package,
 } from "lucide-react";
 import { KPICard, KPICardSkeleton } from "@/components/dashboard/KPICard";
 import { PaymentBreakdown } from "@/components/dashboard/PaymentBreakdown";
-import { StatusDonut } from "@/components/dashboard/StatusDonut";
 import { EmptyState } from "@/components/dashboard/EmptyState";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatCurrency } from "@/lib/utils";
-import { statusConfig } from "@/app/dashboard/constants/dashboardConfig";
-import { type Order } from "@/types";
 
-const POLL_INTERVAL_MS = 30_000;
+const STATUS_LABEL: Record<string, { label: string; color: string }> = {
+  Created: { label: "Yeni", color: "bg-blue-50 text-blue-700 border-blue-200" },
+  Picking: { label: "Kabul Edildi", color: "bg-amber-50 text-amber-700 border-amber-200" },
+  Invoiced: { label: "Hazırlandı", color: "bg-violet-50 text-violet-700 border-violet-200" },
+  Shipped: { label: "Yolda", color: "bg-orange-50 text-orange-700 border-orange-200" },
+  Delivered: { label: "Teslim Edildi", color: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  Cancelled: { label: "İptal", color: "bg-red-50 text-red-700 border-red-200" },
+  UnSupplied: { label: "Karşılanamadı", color: "bg-red-50 text-red-700 border-red-200" },
+};
+
+function toDateInputValue(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function parseDateInputValue(v: string): Date {
+  const [y, m, d] = v.split("-").map(Number);
+  return new Date(y, (m ?? 1) - 1, d ?? 1);
+}
 
 export default function TrendyolDashboardPage() {
+  const [period, setPeriod] = useState<TrendyolPeriod>("today");
+  const [selectedDate, setSelectedDate] = useState<string>(() =>
+    toDateInputValue(new Date()),
+  );
   const [stats, setStats] = useState<TrendyolDashboardStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
+  const todayValue = useMemo(() => toDateInputValue(new Date()), []);
+  const isToday = selectedDate === todayValue;
+
   const loadStats = useCallback(async () => {
     setIsLoading(true);
     try {
-      const data = await getTrendyolDashboardStats();
+      const refDate = parseDateInputValue(selectedDate).getTime();
+      const data = await getTrendyolDashboardStats(period, refDate);
       setStats(data);
       setLastUpdated(new Date());
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [period, selectedDate]);
 
   useEffect(() => {
     loadStats();
-    const interval = setInterval(loadStats, POLL_INTERVAL_MS);
-    const handleFocus = () => loadStats();
-    window.addEventListener("focus", handleFocus);
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener("focus", handleFocus);
-    };
   }, [loadStats]);
 
-  const todayTrend = useMemo(() => {
-    if (!stats) return null;
-    if (stats.yesterdayRevenue === 0) return null;
-    const pct =
-      ((stats.todayRevenue - stats.yesterdayRevenue) / stats.yesterdayRevenue) * 100;
-    return { pct: Math.round(pct), up: pct >= 0 };
-  }, [stats]);
+  const totalPayment = useMemo(
+    () => stats?.paymentBreakdown.reduce((s, p) => s + p.revenue, 0) ?? 0,
+    [stats?.paymentBreakdown],
+  );
 
-  const totalPaymentToday = useMemo(
-    () => Object.values(stats?.paymentToday ?? {}).reduce((a, b) => a + b, 0),
-    [stats?.paymentToday],
-  );
-  const totalPaymentAll = useMemo(
-    () => Object.values(stats?.paymentAll ?? {}).reduce((a, b) => a + b, 0),
-    [stats?.paymentAll],
-  );
+  const paymentRecord = useMemo<Record<string, number>>(() => {
+    const out: Record<string, number> = { cash: 0, card: 0, online: 0, meal_card: 0 };
+    for (const p of stats?.paymentBreakdown ?? []) out[p.key] = (out[p.key] ?? 0) + p.revenue;
+    return out;
+  }, [stats?.paymentBreakdown]);
+
+  const periodLabel = useMemo(() => {
+    if (period === "today") {
+      if (isToday) return "Bugün";
+      const d = parseDateInputValue(selectedDate);
+      return d.toLocaleDateString("tr-TR", { day: "numeric", month: "long" });
+    }
+    if (period === "week") return isToday ? "Son 7 Gün" : "7 Günlük";
+    return isToday ? "Son 30 Gün" : "30 Günlük";
+  }, [period, isToday, selectedDate]);
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -82,109 +111,136 @@ export default function TrendyolDashboardPage() {
         isLoading={isLoading}
         onRefresh={loadStats}
         lastUpdated={lastUpdated}
+        period={period}
+        onPeriodChange={setPeriod}
+        selectedDate={selectedDate}
+        onDateChange={setSelectedDate}
+        maxDate={todayValue}
+        isToday={isToday}
       />
 
       <div className="flex-1 min-h-0 overflow-y-auto bg-gradient-to-br from-orange-50/40 via-gray-50 to-white">
         <div className="px-8 py-6 space-y-6">
-          {/* KPI Kartları */}
+          {stats?.error && (
+            <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 flex items-start gap-3 text-sm text-amber-900">
+              <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold">Trendyol API&apos;sına ulaşılamadı</p>
+                <p className="text-xs mt-0.5 text-amber-800">{stats.error}</p>
+                <p className="text-xs mt-1.5 text-amber-700">
+                  Env değişkenleri (TRENDYOL_API_KEY, TRENDYOL_API_SECRET, TRENDYOL_SUPPLIER_ID) kontrol et.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* KPI Kartları — period bazlı */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
             {isLoading && !stats ? (
               [...Array(4)].map((_, i) => <KPICardSkeleton key={i} />)
             ) : (
               <>
                 <KPICard
-                  label="Bugünkü Trendyol Siparişi"
-                  value={String(stats?.todayOrderCount ?? 0)}
+                  label={`${periodLabel} · Toplam Sipariş`}
+                  value={String(stats?.orderCount ?? 0)}
                   icon={ShoppingBag}
                   color="blue"
-                  trend={todayTrend}
-                  trendLabel="dünkü ciroya göre"
                 />
                 <KPICard
-                  label="Bugünkü Trendyol Cirosu"
-                  value={formatCurrency(stats?.todayRevenue ?? 0)}
+                  label={`${periodLabel} · Ciro`}
+                  value={formatCurrency(stats?.revenue ?? 0)}
                   icon={CircleDollarSign}
                   color="emerald"
                 />
                 <KPICard
-                  label="Aktif Trendyol Siparişi"
-                  value={String(stats?.activeOrderCount ?? 0)}
-                  icon={Flame}
-                  color="amber"
+                  label="Teslim Edildi"
+                  value={String(stats?.deliveredCount ?? 0)}
+                  icon={CheckCircle2}
+                  color="violet"
                 />
                 <KPICard
                   label="Ortalama Sepet"
                   value={formatCurrency(stats?.avgBasket ?? 0)}
                   icon={Receipt}
-                  color="violet"
+                  color="amber"
                 />
               </>
             )}
           </div>
 
-          {/* Sağlık Göstergeleri */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            <HealthCard
-              icon={CheckCircle2}
-              label="Kabul Oranı (Bugün)"
-              value={`%${(stats?.acceptanceRate ?? 100).toFixed(0)}`}
-              tone="emerald"
-              hint={`${stats?.todayCancelledCount ?? 0} iptal`}
-              loading={isLoading && !stats}
-            />
-            <HealthCard
-              icon={TrendingUp}
-              label="Toplam Sipariş (Trendyol)"
-              value={String(stats?.totalOrderCount ?? 0)}
-              tone="blue"
-              hint={`${formatCurrency(stats?.totalRevenue ?? 0)} ciro`}
-              loading={isLoading && !stats}
-            />
-            <HealthCard
-              icon={TrendingDown}
-              label="Dünkü Ciro"
-              value={formatCurrency(stats?.yesterdayRevenue ?? 0)}
-              tone="slate"
-              hint="karşılaştırma için"
-              loading={isLoading && !stats}
-            />
-          </div>
-
-          {/* Saatlik + Durum + Ödeme */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-            <Card className="lg:col-span-2 bg-white rounded-2xl border shadow-sm">
-              <CardHeader>
-                <CardTitle className="text-base font-semibold">
-                  Bugün Saatlik Sipariş Yoğunluğu
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <HourlyChart data={stats?.hourlyToday} loading={isLoading && !stats} />
-              </CardContent>
-            </Card>
-
+          {/* Finansal Özet */}
+          {!isLoading && stats && (
             <Card className="bg-white rounded-2xl border shadow-sm">
-              <CardHeader>
-                <CardTitle className="text-base font-semibold">
-                  Sipariş Durum Dağılımı
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {isLoading && !stats ? (
-                  <Skeleton className="h-48 w-full" />
-                ) : (
-                  <StatusDonut statusBreakdown={stats?.statusBreakdown ?? {}} />
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <CardTitle className="text-base font-semibold flex items-center gap-2">
+                    <Wallet className="h-4 w-4 text-emerald-600" />
+                    Finansal Özet ({periodLabel})
+                  </CardTitle>
+                  {!stats.settlementsAvailable && (
+                    <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">
+                      Settlement verisi alınamadı
+                    </span>
+                  )}
+                </div>
+                {stats.settlementsError && (
+                  <p className="text-[11px] text-amber-700 mt-1">{stats.settlementsError}</p>
                 )}
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                  <FinanceTile
+                    icon={Banknote}
+                    label="Brüt Satış"
+                    value={stats.finance.grossSales}
+                    tone="blue"
+                  />
+                  <FinanceTile
+                    icon={Percent}
+                    label="İndirim"
+                    value={stats.finance.totalDiscount}
+                    tone="amber"
+                    negative
+                  />
+                  <FinanceTile
+                    icon={Ticket}
+                    label="Kupon"
+                    value={stats.finance.totalCoupon}
+                    tone="violet"
+                    negative
+                  />
+                  <FinanceTile
+                    icon={Undo2}
+                    label="İade"
+                    value={stats.finance.totalRefund}
+                    tone="red"
+                    negative
+                  />
+                  <FinanceTile
+                    icon={Receipt}
+                    label="Komisyon"
+                    value={stats.finance.totalCommission}
+                    tone="orange"
+                    negative
+                  />
+                  <FinanceTile
+                    icon={PiggyBank}
+                    label="Net Hakediş"
+                    value={stats.finance.netRevenue}
+                    tone="emerald"
+                    highlight
+                  />
+                </div>
               </CardContent>
             </Card>
-          </div>
+          )}
 
-          {/* Ödeme yöntemleri — bugün ve tüm zamanlar yan yana */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          {/* Ödeme yöntemleri (1 col) + En çok satanlar (2 col) */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
             <Card className="bg-white rounded-2xl border shadow-sm">
               <CardHeader>
                 <CardTitle className="text-base font-semibold">
-                  Ödeme Yöntemleri · Bugün
+                  Ödeme Yöntemleri ({periodLabel})
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -192,99 +248,51 @@ export default function TrendyolDashboardPage() {
                   <Skeleton className="h-40 w-full" />
                 ) : (
                   <PaymentBreakdown
-                    data={stats?.paymentToday}
-                    total={totalPaymentToday}
-                    emptyText="Bugün Trendyol siparişi yok"
-                    totalLabel="Bugünkü Toplam"
+                    data={paymentRecord}
+                    total={totalPayment}
+                    emptyText="Bu dönemde Trendyol siparişi yok"
+                    totalLabel={`${periodLabel} Toplam`}
                     totalColor="text-emerald-700"
                   />
                 )}
               </CardContent>
             </Card>
 
-            <Card className="bg-white rounded-2xl border shadow-sm">
-              <CardHeader>
-                <CardTitle className="text-base font-semibold">
-                  Ödeme Yöntemleri · Tüm Zamanlar
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {isLoading && !stats ? (
-                  <Skeleton className="h-40 w-full" />
-                ) : (
-                  <PaymentBreakdown
-                    data={stats?.paymentAll}
-                    total={totalPaymentAll}
-                    emptyText="Henüz Trendyol siparişi yok"
-                  />
-                )}
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* 7 günlük trend + Top ürünler */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-            <Card className="bg-white rounded-2xl border shadow-sm">
-              <CardHeader>
-                <CardTitle className="text-base font-semibold">
-                  Son 7 Gün Trendyol Trendi
+            <Card className="lg:col-span-2 bg-white rounded-2xl border shadow-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base font-semibold flex items-center gap-2">
+                  <Package className="h-4 w-4 text-orange-600" />
+                  En Çok Satan Ürünler ({periodLabel})
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 {isLoading && !stats ? (
                   <Skeleton className="h-48 w-full" />
                 ) : (
-                  <DailyTrend data={stats?.dailyTrend ?? []} />
-                )}
-              </CardContent>
-            </Card>
-
-            <Card className="bg-white rounded-2xl border shadow-sm">
-              <CardHeader>
-                <CardTitle className="text-base font-semibold">
-                  En Çok Satan Ürünler (Trendyol)
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {isLoading && !stats ? (
-                  <Skeleton className="h-48 w-full" />
-                ) : stats?.topProducts.length ? (
-                  <ul className="space-y-2.5">
-                    {stats.topProducts.map((p, i) => (
-                      <li
-                        key={p.name}
-                        className="flex items-center justify-between gap-3 text-sm"
-                      >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-orange-100 text-orange-700 text-xs font-bold shrink-0">
-                            {i + 1}
-                          </span>
-                          <span className="truncate font-medium text-gray-800">
-                            {p.name}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-3 shrink-0">
-                          <span className="text-xs text-gray-500">×{p.quantity}</span>
-                          <span className="text-sm font-bold text-gray-900 w-24 text-right">
-                            {formatCurrency(p.revenue)}
-                          </span>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <EmptyState icon={ShoppingBag} text="Henüz veri yok" />
+                  <TopProductsList products={stats?.topProducts ?? []} />
                 )}
               </CardContent>
             </Card>
           </div>
 
-          {/* Son Trendyol siparişleri */}
+          {/* Durum dağılımı — full width */}
           <Card className="bg-white rounded-2xl border shadow-sm">
             <CardHeader>
-              <CardTitle className="text-base font-semibold">
-                Son Trendyol Siparişleri
-              </CardTitle>
+              <CardTitle className="text-base font-semibold">Durum Dağılımı</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {isLoading && !stats ? (
+                <Skeleton className="h-24 w-full" />
+              ) : (
+                <StatusList items={stats?.statusBreakdown ?? []} />
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Son siparişler */}
+          <Card className="bg-white rounded-2xl border shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-base font-semibold">Son Trendyol Siparişleri</CardTitle>
             </CardHeader>
             <CardContent>
               {isLoading && !stats ? (
@@ -296,24 +304,19 @@ export default function TrendyolDashboardPage() {
                       <tr>
                         <th className="text-left py-2 px-2 font-medium">Sipariş</th>
                         <th className="text-left py-2 px-2 font-medium">Müşteri</th>
-                        <th className="text-left py-2 px-2 font-medium">Ref</th>
                         <th className="text-left py-2 px-2 font-medium">Ödeme</th>
                         <th className="text-left py-2 px-2 font-medium">Durum</th>
                         <th className="text-right py-2 px-2 font-medium">Tutar</th>
+                        <th className="text-right py-2 px-2 font-medium">Net Hakediş</th>
                       </tr>
                     </thead>
                     <tbody>
                       {stats.recentOrders.map((o) => {
-                        const cfg = statusConfig[o.status as Order["status"]];
+                        const cfg = STATUS_LABEL[o.status];
                         return (
                           <tr key={o.id} className="border-b last:border-b-0 hover:bg-gray-50">
-                            <td className="py-2.5 px-2 font-semibold text-gray-900">
-                              #{o.orderNumber}
-                            </td>
+                            <td className="py-2.5 px-2 font-semibold text-gray-900">#{o.orderNumber}</td>
                             <td className="py-2.5 px-2 text-gray-700">{o.customerName}</td>
-                            <td className="py-2.5 px-2 text-xs text-gray-500 font-mono">
-                              {o.externalRef ?? "—"}
-                            </td>
                             <td className="py-2.5 px-2">
                               <Badge variant="secondary" className="text-xs">
                                 {o.paymentMethod}
@@ -321,13 +324,18 @@ export default function TrendyolDashboardPage() {
                             </td>
                             <td className="py-2.5 px-2">
                               <span
-                                className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-md border ${cfg?.bg ?? "bg-gray-50"} ${cfg?.color ?? "text-gray-600"}`}
+                                className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-md border ${cfg?.color ?? "bg-gray-50 text-gray-600 border-gray-200"}`}
                               >
                                 {cfg?.label ?? o.status}
                               </span>
                             </td>
                             <td className="py-2.5 px-2 text-right font-bold text-gray-900">
                               {formatCurrency(o.total)}
+                            </td>
+                            <td className="py-2.5 px-2 text-right font-bold text-emerald-700">
+                              {o.netRevenue !== undefined
+                                ? formatCurrency(o.netRevenue)
+                                : "—"}
                             </td>
                           </tr>
                         );
@@ -336,7 +344,7 @@ export default function TrendyolDashboardPage() {
                   </table>
                 </div>
               ) : (
-                <EmptyState icon={XCircle} text="Henüz Trendyol siparişi yok" />
+                <EmptyState icon={XCircle} text="Bu dönemde Trendyol siparişi yok" />
               )}
             </CardContent>
           </Card>
@@ -352,11 +360,24 @@ function TrendyolHeader({
   isLoading,
   onRefresh,
   lastUpdated,
+  period,
+  onPeriodChange,
+  selectedDate,
+  onDateChange,
+  maxDate,
+  isToday,
 }: {
   isLoading: boolean;
   onRefresh: () => void;
   lastUpdated: Date | null;
+  period: TrendyolPeriod;
+  onPeriodChange: (p: TrendyolPeriod) => void;
+  selectedDate: string;
+  onDateChange: (v: string) => void;
+  maxDate: string;
+  isToday: boolean;
 }) {
+  const dateObj = parseDateInputValue(selectedDate);
   return (
     <header className="shrink-0 bg-white border-b px-8 py-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
       <div className="flex items-center gap-3">
@@ -370,7 +391,7 @@ function TrendyolHeader({
             suppressHydrationWarning
           >
             <CalendarDays className="h-3.5 w-3.5" />
-            {new Date().toLocaleDateString("tr-TR", {
+            {dateObj.toLocaleDateString("tr-TR", {
               weekday: "long",
               year: "numeric",
               month: "long",
@@ -378,133 +399,248 @@ function TrendyolHeader({
             })}
             {lastUpdated && (
               <span className="text-xs text-gray-400 ml-2" suppressHydrationWarning>
-                · son güncelleme {lastUpdated.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}
+                · son güncelleme{" "}
+                {lastUpdated.toLocaleTimeString("tr-TR", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
               </span>
             )}
           </p>
         </div>
       </div>
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={onRefresh}
-        disabled={isLoading}
-        className="gap-2 self-start md:self-auto"
-      >
-        <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
-        Yenile
-      </Button>
+      <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
+        <div className="inline-flex items-center gap-1.5 rounded-lg border bg-white px-2 py-1">
+          <CalendarDays className="h-3.5 w-3.5 text-gray-500" />
+          <input
+            type="date"
+            value={selectedDate}
+            max={maxDate}
+            onChange={(e) => onDateChange(e.target.value)}
+            disabled={isLoading}
+            className="text-xs font-medium text-gray-700 bg-transparent outline-none disabled:opacity-50"
+          />
+          {!isToday && (
+            <button
+              type="button"
+              onClick={() => onDateChange(maxDate)}
+              disabled={isLoading}
+              className="text-[10px] font-semibold text-orange-600 hover:text-orange-700 ml-1"
+              title="Bugüne dön"
+            >
+              bugün
+            </button>
+          )}
+        </div>
+        <PeriodToggle period={period} onChange={onPeriodChange} disabled={isLoading} isToday={isToday} />
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onRefresh}
+          disabled={isLoading}
+          className="gap-2"
+        >
+          <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+          Yenile
+        </Button>
+      </div>
     </header>
   );
 }
 
-function HealthCard({
+function PeriodToggle({
+  period,
+  onChange,
+  disabled,
+  isToday,
+}: {
+  period: TrendyolPeriod;
+  onChange: (p: TrendyolPeriod) => void;
+  disabled?: boolean;
+  isToday: boolean;
+}) {
+  const opts: { key: TrendyolPeriod; label: string }[] = [
+    { key: "today", label: isToday ? "Bugün" : "Gün" },
+    { key: "week", label: isToday ? "Son 7 Gün" : "7 Gün" },
+    { key: "month", label: isToday ? "Son 30 Gün" : "30 Gün" },
+  ];
+  return (
+    <div className="inline-flex rounded-lg border bg-white p-0.5">
+      {opts.map(({ key, label }) => {
+        const active = key === period;
+        return (
+          <button
+            key={key}
+            type="button"
+            onClick={() => onChange(key)}
+            disabled={disabled || active}
+            className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
+              active
+                ? "bg-orange-500 text-white shadow-sm"
+                : "text-gray-600 hover:bg-gray-100"
+            } ${disabled && !active ? "opacity-50 cursor-not-allowed" : ""}`}
+          >
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function StatusList({ items }: { items: { status: string; count: number }[] }) {
+  if (items.length === 0) return <EmptyState icon={Flame} text="Henüz veri yok" />;
+  const total = items.reduce((s, i) => s + i.count, 0);
+  return (
+    <ul className="space-y-2.5">
+      {items.map((i) => {
+        const cfg = STATUS_LABEL[i.status];
+        const pct = total > 0 ? (i.count / total) * 100 : 0;
+        return (
+          <li key={i.status} className="flex items-center gap-3 text-sm">
+            <span
+              className={`inline-flex items-center text-xs font-medium px-2 py-0.5 rounded-md border ${cfg?.color ?? "bg-gray-50 text-gray-600 border-gray-200"}`}
+            >
+              {cfg?.label ?? i.status}
+            </span>
+            <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-orange-400 rounded-full transition-all"
+                style={{ width: `${Math.max(pct, 1)}%` }}
+              />
+            </div>
+            <span className="text-sm font-bold text-gray-900 w-8 text-right">{i.count}</span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function FinanceTile({
   icon: Icon,
   label,
   value,
-  hint,
   tone,
-  loading,
+  negative,
+  highlight,
 }: {
   icon: React.ElementType;
   label: string;
-  value: string;
-  hint: string;
-  tone: "emerald" | "blue" | "slate";
-  loading: boolean;
+  value: number;
+  tone: "blue" | "amber" | "violet" | "red" | "orange" | "emerald";
+  negative?: boolean;
+  highlight?: boolean;
 }) {
   const tones = {
-    emerald: { bg: "bg-emerald-100", text: "text-emerald-600" },
-    blue: { bg: "bg-blue-100", text: "text-blue-600" },
-    slate: { bg: "bg-slate-100", text: "text-slate-600" },
+    blue: { bg: "bg-blue-50", text: "text-blue-700", icon: "text-blue-600" },
+    amber: { bg: "bg-amber-50", text: "text-amber-700", icon: "text-amber-600" },
+    violet: { bg: "bg-violet-50", text: "text-violet-700", icon: "text-violet-600" },
+    red: { bg: "bg-red-50", text: "text-red-700", icon: "text-red-600" },
+    orange: { bg: "bg-orange-50", text: "text-orange-700", icon: "text-orange-600" },
+    emerald: { bg: "bg-emerald-50", text: "text-emerald-700", icon: "text-emerald-600" },
   }[tone];
-  if (loading) {
-    return (
-      <div className="bg-white rounded-2xl border p-4">
-        <Skeleton className="h-16 w-full" />
-      </div>
-    );
-  }
   return (
-    <div className="bg-white rounded-2xl border p-4 flex items-center gap-4">
-      <div className={`rounded-xl p-2.5 ${tones.bg}`}>
-        <Icon className={`h-5 w-5 ${tones.text}`} />
+    <div
+      className={`rounded-xl border p-3 ${highlight ? "border-emerald-300 bg-emerald-50/50 ring-1 ring-emerald-200" : "border-gray-100 bg-white"}`}
+    >
+      <div className="flex items-center gap-2">
+        <div className={`rounded-lg p-1.5 ${tones.bg}`}>
+          <Icon className={`h-3.5 w-3.5 ${tones.icon}`} />
+        </div>
+        <span className="text-[11px] font-medium text-gray-500">{label}</span>
       </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-xs text-gray-500 font-medium">{label}</p>
-        <p className="text-xl font-bold leading-tight text-gray-900">{value}</p>
-        <p className="text-[11px] text-gray-400 mt-0.5">{hint}</p>
-      </div>
+      <p className={`mt-1.5 text-base font-bold ${highlight ? "text-emerald-700" : tones.text}`}>
+        {negative && value > 0 ? "−" : ""}
+        {formatCurrency(value)}
+      </p>
     </div>
   );
 }
 
-function HourlyChart({
-  data,
-  loading,
-}: {
-  data?: TrendyolDashboardStats["hourlyToday"];
-  loading: boolean;
-}) {
-  if (loading) return <Skeleton className="h-48 w-full" />;
-  if (!data || data.every((d) => d.orders === 0)) {
-    return <EmptyState icon={Flame} text="Bugün henüz Trendyol siparişi yok" />;
-  }
-  const max = Math.max(...data.map((d) => d.orders), 1);
-  return (
-    <div className="flex items-end gap-1 h-48 px-1">
-      {data.map((d) => {
-        const h = (d.orders / max) * 100;
-        const isPeak = d.orders === max && max > 0;
-        return (
-          <div
-            key={d.hour}
-            className="flex-1 flex flex-col items-center gap-1 group min-w-0"
-            title={`${d.hour}:00 — ${d.orders} sipariş · ${formatCurrency(d.revenue)}`}
-          >
-            <div
-              className={`w-full rounded-t-md transition-all ${
-                isPeak ? "bg-orange-500" : "bg-orange-300 group-hover:bg-orange-400"
-              }`}
-              style={{ height: `${Math.max(h, 2)}%` }}
-            />
-            <span className="text-[9px] text-gray-400 font-mono">
-              {String(d.hour).padStart(2, "0")}
-            </span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
+type TopProduct = TrendyolDashboardStats["topProducts"][number];
+type ProductSort = "quantity" | "revenue";
 
-function DailyTrend({ data }: { data: TrendyolDashboardStats["dailyTrend"] }) {
-  if (!data.length || data.every((d) => d.orders === 0)) {
-    return <EmptyState icon={TrendingUp} text="Son 7 günde Trendyol siparişi yok" />;
+function TopProductsList({ products }: { products: TopProduct[] }) {
+  const [sortBy, setSortBy] = useState<ProductSort>("quantity");
+
+  const sorted = useMemo(
+    () => [...products].sort((a, b) => b[sortBy] - a[sortBy]),
+    [products, sortBy],
+  );
+
+  if (products.length === 0) {
+    return <EmptyState icon={ShoppingBag} text="Henüz veri yok" />;
   }
-  const max = Math.max(...data.map((d) => d.revenue), 1);
+
+  const maxValue = sorted[0]?.[sortBy] ?? 1;
+  const totalQty = products.reduce((s, p) => s + p.quantity, 0);
+
   return (
-    <div className="space-y-2.5">
-      {data.map((d) => {
-        const w = (d.revenue / max) * 100;
-        return (
-          <div key={d.date} className="flex items-center gap-3 text-sm">
-            <span className="text-xs text-gray-500 w-28 shrink-0">{d.date}</span>
-            <div className="flex-1 h-6 bg-gray-100 rounded-md overflow-hidden relative">
-              <div
-                className="h-full bg-gradient-to-r from-orange-400 to-orange-500 rounded-md transition-all"
-                style={{ width: `${Math.max(w, 1)}%` }}
-              />
-              <span className="absolute inset-0 flex items-center px-2 text-xs font-medium text-gray-800">
-                {d.orders} sipariş
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-xs text-gray-500">
+          {products.length} ürün · toplam {totalQty} adet
+        </span>
+        <div className="inline-flex rounded-lg border bg-white p-0.5">
+          {(["quantity", "revenue"] as const).map((opt) => {
+            const active = sortBy === opt;
+            return (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => setSortBy(opt)}
+                className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${
+                  active
+                    ? "bg-orange-500 text-white shadow-sm"
+                    : "text-gray-600 hover:bg-gray-100"
+                }`}
+              >
+                {opt === "quantity" ? "Adet" : "Ciro"}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <ul className="space-y-1.5 max-h-[480px] overflow-y-auto pr-1">
+        {sorted.map((p, i) => {
+          const pct = maxValue > 0 ? (p[sortBy] / maxValue) * 100 : 0;
+          return (
+            <li
+              key={p.name}
+              className="grid grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-3 text-sm py-1.5"
+            >
+              <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-orange-100 text-orange-700 text-xs font-bold">
+                {i + 1}
               </span>
-            </div>
-            <span className="text-sm font-bold text-gray-900 w-24 text-right">
-              {formatCurrency(d.revenue)}
-            </span>
-          </div>
-        );
-      })}
+              <div className="min-w-0">
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <span className="truncate font-medium text-gray-800">{p.name}</span>
+                </div>
+                <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-orange-400 rounded-full transition-all"
+                    style={{ width: `${Math.max(pct, 2)}%` }}
+                  />
+                </div>
+              </div>
+              <div className="flex items-center gap-4 shrink-0 tabular-nums">
+                <span
+                  className={`text-xs ${sortBy === "quantity" ? "font-bold text-gray-900" : "text-gray-500"}`}
+                >
+                  ×{p.quantity}
+                </span>
+                <span
+                  className={`text-sm w-24 text-right ${sortBy === "revenue" ? "font-bold text-gray-900" : "text-gray-600"}`}
+                >
+                  {formatCurrency(p.revenue)}
+                </span>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }

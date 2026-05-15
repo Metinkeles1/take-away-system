@@ -1,349 +1,508 @@
 "use server";
 
-import { connectDB } from "@/lib/mongodb";
-import OrderModel from "@/models/Order";
+// Trendyol GO Yemek dashboard'u — doğrudan Trendyol API'sından okur, DB'ye
+// yazmaz. Period seçimine göre /packages endpoint'i sorgulanır, paket listesi
+// üzerinden ciro/sipariş/ödeme/saatlik dağılım hesaplanır.
+
+import {
+  listTrendyolPackages,
+  listTrendyolSettlements,
+  type TrendyolPackage,
+  type TrendyolSettlement,
+  type TrendyolSettlementTransactionType,
+} from "@/lib/integrations/trendyol/client";
+
+export type TrendyolPeriod = "today" | "week" | "month";
+
+export interface PaymentBreakdownItem {
+  key: string;
+  label: string;
+  count: number;
+  revenue: number;
+}
 
 export interface TrendyolDashboardStats {
-  // Özet
-  todayOrderCount: number;
-  todayRevenue: number;
-  yesterdayRevenue: number;
-  activeOrderCount: number;
-  totalOrderCount: number;
-  totalRevenue: number;
+  period: TrendyolPeriod;
+  fetchedAt: string; // ISO
+  rangeStart: number;
+  rangeEnd: number;
+
+  // Özet (cancelled/unsupplied hariç)
+  orderCount: number;
+  deliveredCount: number;
+  cancelledCount: number;
+  revenue: number;
   avgBasket: number;
-  todayCancelledCount: number;
-  acceptanceRate: number; // bugün non-cancelled / bugün toplam
 
-  // Ödeme dağılımı (bugün ve tüm zamanlar)
-  paymentToday: Record<string, number>;
-  paymentAll: Record<string, number>;
-
-  // Durum dağılımı (tüm zamanlar)
-  statusBreakdown: Record<string, number>;
-
-  // Bugün saatlik (24 bucket)
-  hourlyToday: { hour: number; orders: number; revenue: number }[];
-
-  // Son 7 gün
-  dailyTrend: { date: string; orders: number; revenue: number }[];
-
-  // En çok satan ürünler
+  // Dağılımlar
+  paymentBreakdown: PaymentBreakdownItem[];
+  statusBreakdown: { status: string; count: number }[];
+  hourly: { hour: number; orders: number; revenue: number }[];
   topProducts: { name: string; quantity: number; revenue: number }[];
 
-  // Son Trendyol siparişleri
   recentOrders: {
     id: string;
-    orderNumber: number;
+    orderNumber: string;
     customerName: string;
     total: number;
     status: string;
     paymentMethod: string;
-    externalRef?: string;
-    createdAt: Date;
+    createdAt: number;
+    netRevenue?: number; // settlement'tan eşleşen sellerRevenue toplamı
   }[];
+
+  // ─── Finansal özet (settlements API'sından) ───────────────────────────
+  // settlementsAvailable=false ise endpoint çağrısı başarısız olmuş demektir;
+  // orderCount/revenue gibi packages alanları yine doludur.
+  settlementsAvailable: boolean;
+  settlementsError?: string;
+  finance: {
+    grossSales: number;       // Sale.credit toplamı (brüt satış)
+    totalDiscount: number;    // Discount.debt − DiscountCancel.credit (net indirim)
+    totalCoupon: number;      // Coupon.debt − CouponCancel.credit (satıcı kuponu)
+    totalRefund: number;      // Return.debt + ManualRefund.debt − iptaller
+    totalCommission: number;  // tüm transactionType'larda commissionAmount işaretli toplam
+    netRevenue: number;       // tüm transactionType'larda sellerRevenue işaretli toplam
+  };
+
+  // API erişilemezse / env eksikse buradan akar
+  error?: string;
 }
 
-const EMPTY_PAYMENT: Record<string, number> = {
-  cash: 0,
-  card: 0,
-  online: 0,
-  meal_card: 0,
-  iban: 0,
+// Trendyol paymentType -> proje genelindeki ortak ödeme key'i (PAYMENT_LABELS).
+// On-delivery için sub-type (CASH/CARD) okunur, yoksa "cash" varsayılır.
+function paymentKey(p: TrendyolPackage): string {
+  const t = p.payment?.paymentType;
+  if (t === "PAY_WITH_CARD") return "online";
+  if (t === "PAY_WITH_MEAL_CARD") return "meal_card";
+  if (t === "PAY_WITH_ON_DELIVERY") {
+    const sub = p.payment?.onDelivery?.paymentType?.toUpperCase();
+    return sub === "CARD" ? "card" : "cash";
+  }
+  return "online";
+}
+
+const PAYMENT_LABEL: Record<string, string> = {
+  cash: "Nakit",
+  card: "Kredi Kartı",
+  online: "Online",
+  meal_card: "Yemek Kartı",
 };
 
-type PaymentAgg = { _id: string; total: number };
-type StatusAgg = { _id: string; count: number };
-type HourAgg = { _id: number; orders: number; revenue: number };
-type DayAgg = { _id: string; orders: number; revenue: number };
-type ProductAgg = { _id: string; quantity: number; revenue: number };
-type SummaryAgg = {
-  todayOrderCount: number;
-  todayRevenue: number;
-  todayCancelledCount: number;
-  activeOrderCount: number;
-  totalOrderCount: number;
-  totalRevenue: number;
-};
-type RecentAgg = {
-  id: string;
-  orderNumber: number;
-  customer: { name: string };
-  total: number;
-  status: string;
-  payment: { method: string };
-  externalRef?: string;
-  createdAt: Date;
-};
+const NON_REVENUE_STATUSES = new Set(["Cancelled", "UnSupplied"]);
 
-export async function getTrendyolDashboardStats(): Promise<TrendyolDashboardStats> {
-  await connectDB();
 
-  const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const tomorrowStart = new Date(todayStart);
-  tomorrowStart.setDate(tomorrowStart.getDate() + 1);
-  const yesterdayStart = new Date(todayStart);
-  yesterdayStart.setDate(yesterdayStart.getDate() - 1);
-  const sevenDaysAgo = new Date(todayStart);
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+// API'a gönderilen aralık, gerçek period aralığından geriye doğru tampon içerir.
+// Sebep: /packages endpoint'i `packageModificationDate` ile filtreler — eski bir
+// sipariş bugün teslim/iptal olursa bugünkü filtreye düşer ama sipariş tarihi
+// değildir. Settlement endpoint'i ise `transactionDate` ile filtreler ama her
+// kayıtta `orderDate` alanı var. Her iki kaynaktan gelen veriyi client-side
+// `packageCreationDate` / `orderDate` ile gerçek period'a daraltıyoruz.
+const API_BUFFER_MS = 14 * 24 * 60 * 60 * 1000;
 
-  const baseMatch = { source: "trendyol" } as const;
-  const activeStatuses = ["pending", "preparing", "on-the-way"];
+function apiRange(
+  period: TrendyolPeriod,
+  referenceDate?: number,
+): { start: number; end: number } {
+  const r = periodRange(period, referenceDate);
+  return { start: r.start - API_BUFFER_MS, end: r.end };
+}
 
-  // Tek aggregation pipeline ile tüm hesaplamaları $facet altında topla
-  const [result] = await OrderModel.aggregate<{
-    summary: SummaryAgg[];
-    yesterday: { revenue: number }[];
-    paymentToday: PaymentAgg[];
-    paymentAll: PaymentAgg[];
-    statusBreakdown: StatusAgg[];
-    hourlyToday: HourAgg[];
-    dailyTrend: DayAgg[];
-    topProducts: ProductAgg[];
-    recentOrders: RecentAgg[];
-  }>([
-    { $match: baseMatch },
-    {
-      $facet: {
-        summary: [
-          {
-            $group: {
-              _id: null,
-              todayOrderCount: {
-                $sum: {
-                  $cond: [
-                    {
-                      $and: [
-                        { $gte: ["$createdAt", todayStart] },
-                        { $lt: ["$createdAt", tomorrowStart] },
-                        { $ne: ["$status", "cancelled"] },
-                      ],
-                    },
-                    1,
-                    0,
-                  ],
-                },
-              },
-              todayRevenue: {
-                $sum: {
-                  $cond: [
-                    {
-                      $and: [
-                        { $gte: ["$createdAt", todayStart] },
-                        { $lt: ["$createdAt", tomorrowStart] },
-                        { $ne: ["$status", "cancelled"] },
-                      ],
-                    },
-                    "$total",
-                    0,
-                  ],
-                },
-              },
-              todayCancelledCount: {
-                $sum: {
-                  $cond: [
-                    {
-                      $and: [
-                        { $gte: ["$createdAt", todayStart] },
-                        { $lt: ["$createdAt", tomorrowStart] },
-                        { $eq: ["$status", "cancelled"] },
-                      ],
-                    },
-                    1,
-                    0,
-                  ],
-                },
-              },
-              activeOrderCount: {
-                $sum: { $cond: [{ $in: ["$status", activeStatuses] }, 1, 0] },
-              },
-              totalOrderCount: {
-                $sum: { $cond: [{ $ne: ["$status", "cancelled"] }, 1, 0] },
-              },
-              totalRevenue: {
-                $sum: { $cond: [{ $ne: ["$status", "cancelled"] }, "$total", 0] },
-              },
-            },
-          },
-          { $project: { _id: 0 } },
-        ],
-        yesterday: [
-          {
-            $match: {
-              createdAt: { $gte: yesterdayStart, $lt: todayStart },
-              status: { $ne: "cancelled" },
-            },
-          },
-          { $group: { _id: null, revenue: { $sum: "$total" } } },
-          { $project: { _id: 0, revenue: 1 } },
-        ],
-        paymentToday: [
-          {
-            $match: {
-              createdAt: { $gte: todayStart, $lt: tomorrowStart },
-              status: { $ne: "cancelled" },
-            },
-          },
-          { $group: { _id: "$payment.method", total: { $sum: "$total" } } },
-        ],
-        paymentAll: [
-          { $match: { status: { $ne: "cancelled" } } },
-          { $group: { _id: "$payment.method", total: { $sum: "$total" } } },
-        ],
-        statusBreakdown: [
-          { $group: { _id: "$status", count: { $sum: 1 } } },
-        ],
-        hourlyToday: [
-          {
-            $match: {
-              createdAt: { $gte: todayStart, $lt: tomorrowStart },
-              status: { $ne: "cancelled" },
-            },
-          },
-          {
-            $group: {
-              _id: { $hour: { date: "$createdAt", timezone: "Europe/Istanbul" } },
-              orders: { $sum: 1 },
-              revenue: { $sum: "$total" },
-            },
-          },
-          { $sort: { _id: 1 } },
-        ],
-        dailyTrend: [
-          {
-            $match: {
-              createdAt: { $gte: sevenDaysAgo, $lt: tomorrowStart },
-              status: { $ne: "cancelled" },
-            },
-          },
-          {
-            $group: {
-              _id: {
-                $dateToString: {
-                  format: "%Y-%m-%d",
-                  date: "$createdAt",
-                  timezone: "Europe/Istanbul",
-                },
-              },
-              orders: { $sum: 1 },
-              revenue: { $sum: "$total" },
-            },
-          },
-          { $sort: { _id: 1 } },
-        ],
-        topProducts: [
-          { $match: { status: { $ne: "cancelled" } } },
-          { $unwind: "$items" },
-          {
-            $group: {
-              _id: "$items.product.name",
-              quantity: { $sum: "$items.quantity" },
-              revenue: { $sum: "$items.totalPrice" },
-            },
-          },
-          { $sort: { quantity: -1 } },
-          { $limit: 10 },
-        ],
-        recentOrders: [
-          { $sort: { createdAt: -1 } },
-          { $limit: 8 },
-          {
-            $project: {
-              _id: 0,
-              id: 1,
-              orderNumber: 1,
-              "customer.name": 1,
-              total: 1,
-              status: 1,
-              "payment.method": 1,
-              externalRef: 1,
-              createdAt: 1,
-            },
-          },
-        ],
-      },
-    },
-  ]);
-
-  const summary = result.summary[0] ?? {
-    todayOrderCount: 0,
-    todayRevenue: 0,
-    todayCancelledCount: 0,
-    activeOrderCount: 0,
-    totalOrderCount: 0,
-    totalRevenue: 0,
+// Settlement endpoint `transactionDate` ile filtreler ama her kayıtta `orderDate`
+// var. Bir siparişin orderDate'i 14.05 olsa bile, settlement kaydının
+// transactionDate'i vade tarihinde (örn. 16.05) oluşur. Bu yüzden settlement
+// çağrılarında end'i her zaman `now + 30 gün`'e kadar uzatıp client-side
+// `orderDate` ile daraltıyoruz — aksi halde geçmiş bir günün siparişlerinin
+// vade tarihinde oluşan settlement kayıtları kaçar.
+const SETTLEMENT_FORWARD_BUFFER_MS = 30 * 24 * 60 * 60 * 1000;
+function settlementApiRange(
+  period: TrendyolPeriod,
+  referenceDate?: number,
+): { start: number; end: number } {
+  const r = periodRange(period, referenceDate);
+  return {
+    start: r.start - API_BUFFER_MS,
+    end: Math.max(r.end, Date.now() + SETTLEMENT_FORWARD_BUFFER_MS),
   };
-  const yesterdayRevenue = result.yesterday[0]?.revenue ?? 0;
-  const avgBasket =
-    summary.totalOrderCount > 0 ? summary.totalRevenue / summary.totalOrderCount : 0;
-  const todayTotal = summary.todayOrderCount + summary.todayCancelledCount;
-  const acceptanceRate =
-    todayTotal > 0 ? (summary.todayOrderCount / todayTotal) * 100 : 100;
+}
 
-  const paymentToday = { ...EMPTY_PAYMENT };
-  for (const p of result.paymentToday) if (p._id in paymentToday) paymentToday[p._id] = p.total;
-  const paymentAll = { ...EMPTY_PAYMENT };
-  for (const p of result.paymentAll) if (p._id in paymentAll) paymentAll[p._id] = p.total;
+// referenceDate verilmezse "bugün" referans alınır. Verilirse o günün sonu (23:59:59.999)
+// referans olur; "today" o günün 00:00-23:59 aralığını verir, week/month geriye doğru
+// 7/30 günlük pencereyi referans günde biten şekilde döndürür.
+function periodRange(
+  period: TrendyolPeriod,
+  referenceDate?: number,
+): { start: number; end: number } {
+  const now = new Date();
+  const isReferenceToday =
+    referenceDate === undefined ||
+    new Date(referenceDate).toDateString() === now.toDateString();
 
-  const statusBreakdown: Record<string, number> = {};
-  for (const s of result.statusBreakdown) statusBreakdown[s._id] = s.count;
+  const refBase = referenceDate !== undefined ? new Date(referenceDate) : now;
+  const startOfRef = new Date(refBase.getFullYear(), refBase.getMonth(), refBase.getDate());
+  const endOfRef = isReferenceToday
+    ? now.getTime()
+    : new Date(
+        refBase.getFullYear(),
+        refBase.getMonth(),
+        refBase.getDate(),
+        23,
+        59,
+        59,
+        999,
+      ).getTime();
 
-  // 24 saatlik bucket — eksik saatleri 0 ile doldur
-  const hourlyMap = new Map(result.hourlyToday.map((h) => [h._id, h]));
-  const hourlyToday = Array.from({ length: 24 }, (_, i) => {
-    const h = hourlyMap.get(i);
-    return { hour: i, orders: h?.orders ?? 0, revenue: h?.revenue ?? 0 };
+  if (period === "today") return { start: startOfRef.getTime(), end: endOfRef };
+
+  const d = new Date(startOfRef);
+  d.setDate(d.getDate() - (period === "week" ? 6 : 29));
+  return { start: d.getTime(), end: endOfRef };
+}
+
+function emptyStats(
+  period: TrendyolPeriod,
+  start: number,
+  end: number,
+  error?: string,
+): TrendyolDashboardStats {
+  return {
+    period,
+    fetchedAt: new Date().toISOString(),
+    rangeStart: start,
+    rangeEnd: end,
+    orderCount: 0,
+    deliveredCount: 0,
+    cancelledCount: 0,
+    revenue: 0,
+    avgBasket: 0,
+    paymentBreakdown: [],
+    statusBreakdown: [],
+    hourly: Array.from({ length: 24 }, (_, hour) => ({ hour, orders: 0, revenue: 0 })),
+    topProducts: [],
+    recentOrders: [],
+    settlementsAvailable: false,
+    finance: {
+      grossSales: 0,
+      totalDiscount: 0,
+      totalCoupon: 0,
+      totalRefund: 0,
+      totalCommission: 0,
+      netRevenue: 0,
+    },
+    error,
+  };
+}
+
+// Settlement endpoint'inde tarih aralığı max 15 gün → daha uzun period'lar için
+// chunk'lara böl, paralel çağır, content'leri birleştir.
+const FIFTEEN_DAYS_MS = 15 * 24 * 60 * 60 * 1000;
+
+function chunkRange(start: number, end: number): Array<{ s: number; e: number }> {
+  const chunks: Array<{ s: number; e: number }> = [];
+  let cursor = start;
+  while (cursor < end) {
+    const next = Math.min(cursor + FIFTEEN_DAYS_MS - 1, end);
+    chunks.push({ s: cursor, e: next });
+    cursor = next + 1;
+  }
+  return chunks.length ? chunks : [{ s: start, e: end }];
+}
+
+async function fetchSettlementType(
+  type: TrendyolSettlementTransactionType,
+  start: number,
+  end: number,
+): Promise<{ ok: true; items: TrendyolSettlement[] } | { ok: false; error: string }> {
+  const chunks = chunkRange(start, end);
+  const all: TrendyolSettlement[] = [];
+
+  for (const { s, e } of chunks) {
+    let page = 0;
+    while (page < 50) {
+      const res = await listTrendyolSettlements({
+        transactionType: type,
+        startDate: s,
+        endDate: e,
+        page,
+        size: 1000,
+      });
+      if (!res.ok) {
+        return { ok: false, error: `${type} (${res.status}): ${res.error}` };
+      }
+      all.push(...(res.data.content ?? []));
+      const totalPages = res.data.totalPages ?? 1;
+      if (page + 1 >= totalPages) break;
+      page++;
+    }
+  }
+  return { ok: true, items: all };
+}
+
+const FINANCE_TYPES: TrendyolSettlementTransactionType[] = [
+  "Sale",
+  "Return",
+  "Discount",
+  "DiscountCancel",
+  "Coupon",
+  "CouponCancel",
+  "ManualRefund",
+  "ManualRefundCancel",
+];
+
+// Trendyol sellerRevenue ve commissionAmount değerlerini her transactionType için
+// MUTLAK (pozitif) gönderiyor; işaret transactionType'tan çıkarılır.
+// Doküman tablosundan: + = satıcı lehine, − = satıcı aleyhine.
+const TYPE_SIGN: Record<TrendyolSettlementTransactionType, 1 | -1> = {
+  Sale: 1,
+  DiscountCancel: 1,
+  CouponCancel: 1,
+  ManualRefundCancel: 1,
+  ProvisionPositive: 1,
+  Return: -1,
+  Discount: -1,
+  Coupon: -1,
+  ManualRefund: -1,
+  ProvisionNegative: -1,
+};
+
+async function aggregateFinance(
+  apiStart: number,
+  apiEnd: number,
+  targetStart: number,
+  targetEnd: number,
+): Promise<{
+  finance: TrendyolDashboardStats["finance"];
+  netByOrder: Map<string, number>;
+  ok: boolean;
+  error?: string;
+}> {
+  const results = await Promise.all(
+    FINANCE_TYPES.map((t) => fetchSettlementType(t, apiStart, apiEnd)),
+  );
+
+  const finance = {
+    grossSales: 0,
+    totalDiscount: 0,
+    totalCoupon: 0,
+    totalRefund: 0,
+    totalCommission: 0,
+    netRevenue: 0,
+  };
+  const netByOrder = new Map<string, number>();
+  let firstError: string | undefined;
+
+  results.forEach((res, i) => {
+    if (!res.ok) {
+      firstError ??= res.error;
+      return;
+    }
+    const type = FINANCE_TYPES[i];
+
+    const sign = TYPE_SIGN[type];
+
+    for (const item of res.items) {
+      const debt = item.debt ?? 0;
+      const credit = item.credit ?? 0;
+      const seller = item.sellerRevenue ?? 0;
+      const commission = item.commissionAmount ?? 0;
+      const signedSeller = seller * sign;
+
+      // OrderNumber bazlı haritaları RANGE FİLTRESİ OLMADAN topla.
+      // Sale'in transactionDate'i vade tarihinde (sipariş tarihinden gün sonra)
+      // oluşabilir; orderDate alanı boş gelirse target range dışına düşer ve
+      // map'e hiç girmez. Map'leri kayıtları olduğu gibi indeksliyoruz —
+      // paket eşleştirmesi orderNumber üzerinden yapılır, tarih önemi yok.
+      if (item.orderNumber) {
+        netByOrder.set(
+          item.orderNumber,
+          (netByOrder.get(item.orderNumber) ?? 0) + signedSeller,
+        );
+      }
+
+      // Toplam finans rakamları (Brüt/İndirim/Komisyon/Net Hakediş vb.) için
+      // target range filtresi: bu kalemler "şu period'da gerçekleşen" hesabı.
+      const refDate = item.orderDate ?? item.transactionDate ?? 0;
+      if (refDate < targetStart || refDate > targetEnd) continue;
+
+      finance.netRevenue += signedSeller;
+      finance.totalCommission += Math.abs(commission);
+
+      if (type === "Sale") finance.grossSales += credit;
+      else if (type === "Discount") finance.totalDiscount += debt;
+      else if (type === "DiscountCancel") finance.totalDiscount -= credit;
+      else if (type === "Coupon") finance.totalCoupon += debt;
+      else if (type === "CouponCancel") finance.totalCoupon -= credit;
+      else if (type === "Return") finance.totalRefund += debt;
+      else if (type === "ManualRefund") finance.totalRefund += debt;
+      else if (type === "ManualRefundCancel") finance.totalRefund -= credit;
+    }
   });
 
-  // 7 günlük — eksik günleri 0 ile doldur, tr-TR etiketle
-  const dailyMap = new Map(result.dailyTrend.map((d) => [d._id, d]));
-  const dailyTrend: TrendyolDashboardStats["dailyTrend"] = [];
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date(todayStart);
-    d.setDate(d.getDate() - i);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    const found = dailyMap.get(key);
-    dailyTrend.push({
-      date: d.toLocaleDateString("tr-TR", { weekday: "short", day: "numeric", month: "short" }),
-      orders: found?.orders ?? 0,
-      revenue: found?.revenue ?? 0,
+  return {
+    finance,
+    netByOrder,
+    ok: !firstError,
+    error: firstError,
+  };
+}
+
+async function fetchAllPackages(
+  start: number,
+  end: number,
+): Promise<{ ok: true; packages: TrendyolPackage[] } | { ok: false; error: string }> {
+  const packages: TrendyolPackage[] = [];
+  let page = 0;
+  // Trendyol API size üst sınırı 50 (FilterRequest.Size lte). 200'de BindError döner.
+  const size = 50;
+  while (page < 200) {
+    const res = await listTrendyolPackages({
+      modificationStartDate: start,
+      modificationEndDate: end,
+      page,
+      size,
     });
+    if (!res.ok) {
+      return { ok: false, error: `Trendyol API hatası (${res.status}): ${res.error}` };
+    }
+    packages.push(...(res.data.content ?? []));
+    const totalPages = res.data.totalPages ?? 1;
+    if (page + 1 >= totalPages) break;
+    page++;
+  }
+  return { ok: true, packages };
+}
+
+export async function getTrendyolDashboardStats(
+  period: TrendyolPeriod = "today",
+  referenceDate?: number,
+): Promise<TrendyolDashboardStats> {
+  const { start, end } = periodRange(period, referenceDate);
+
+  // API çağrılarına geriye doğru tampon ekle, sonra client-side daralt.
+  // Settlement için end ileriye uzatılır (vade tarihinde oluşan kayıtları
+  // kaçırmamak için); packages aynı kalır.
+  const { start: pkgApiStart, end: pkgApiEnd } = apiRange(period, referenceDate);
+  const { start: setApiStart, end: setApiEnd } = settlementApiRange(period, referenceDate);
+
+  let packagesResult: Awaited<ReturnType<typeof fetchAllPackages>>;
+  let financeResult: Awaited<ReturnType<typeof aggregateFinance>>;
+  try {
+    [packagesResult, financeResult] = await Promise.all([
+      fetchAllPackages(pkgApiStart, pkgApiEnd),
+      aggregateFinance(setApiStart, setApiEnd, start, end),
+    ]);
+  } catch (err) {
+    return emptyStats(
+      period,
+      start,
+      end,
+      err instanceof Error ? err.message : "Trendyol API'sına ulaşılamadı",
+    );
   }
 
-  const topProducts = result.topProducts.map((p) => ({
-    name: p._id,
-    quantity: p.quantity,
-    revenue: p.revenue,
-  }));
+  if (!packagesResult.ok) {
+    return emptyStats(period, start, end, packagesResult.error);
+  }
+  // Sadece sipariş tarihi (packageCreationDate) target period içinde olanları say.
+  const packages = packagesResult.packages.filter(
+    (p) => p.packageCreationDate >= start && p.packageCreationDate <= end,
+  );
 
-  const recentOrders = result.recentOrders.map((o) => ({
-    id: o.id,
-    orderNumber: o.orderNumber,
-    customerName: o.customer?.name ?? "—",
-    total: o.total,
-    status: o.status,
-    paymentMethod: o.payment?.method ?? "online",
-    externalRef: o.externalRef,
-    createdAt: o.createdAt,
-  }));
+  const completed = packages.filter((p) => !NON_REVENUE_STATUSES.has(p.packageStatus));
+  const delivered = packages.filter((p) => p.packageStatus === "Delivered");
+  const cancelled = packages.filter((p) => NON_REVENUE_STATUSES.has(p.packageStatus));
+
+  const revenue = completed.reduce((s, p) => s + (p.totalPrice ?? 0), 0);
+  const avgBasket = completed.length > 0 ? revenue / completed.length : 0;
+
+  // Ödeme dağılımı (ortak PAYMENT_LABELS key'lerine normalize)
+  const paymentMap = new Map<string, { count: number; revenue: number }>();
+  for (const p of completed) {
+    const key = paymentKey(p);
+    const cur = paymentMap.get(key) ?? { count: 0, revenue: 0 };
+    cur.count++;
+    cur.revenue += p.totalPrice ?? 0;
+    paymentMap.set(key, cur);
+  }
+  const paymentBreakdown: PaymentBreakdownItem[] = [...paymentMap.entries()]
+    .map(([key, v]) => ({
+      key,
+      label: PAYMENT_LABEL[key] ?? key,
+      count: v.count,
+      revenue: v.revenue,
+    }))
+    .sort((a, b) => b.revenue - a.revenue);
+
+  // Durum dağılımı
+  const statusMap = new Map<string, number>();
+  for (const p of packages) {
+    statusMap.set(p.packageStatus, (statusMap.get(p.packageStatus) ?? 0) + 1);
+  }
+  const statusBreakdown = [...statusMap.entries()]
+    .map(([status, count]) => ({ status, count }))
+    .sort((a, b) => b.count - a.count);
+
+  // Saatlik dağılım (24 bucket)
+  const hourly = Array.from({ length: 24 }, (_, hour) => ({ hour, orders: 0, revenue: 0 }));
+  for (const p of completed) {
+    const h = new Date(p.packageCreationDate).getHours();
+    if (h >= 0 && h < 24) {
+      hourly[h].orders++;
+      hourly[h].revenue += p.totalPrice ?? 0;
+    }
+  }
+
+  // En çok satanlar
+  const productMap = new Map<string, { quantity: number; revenue: number }>();
+  for (const p of completed) {
+    for (const line of p.lines ?? []) {
+      const qty = line.items?.length ?? 1;
+      const unit = line.unitSellingPrice ?? line.price ?? 0;
+      const cur = productMap.get(line.name) ?? { quantity: 0, revenue: 0 };
+      cur.quantity += qty;
+      cur.revenue += unit * qty;
+      productMap.set(line.name, cur);
+    }
+  }
+  const topProducts = [...productMap.entries()]
+    .map(([name, v]) => ({ name, ...v }))
+    .sort((a, b) => b.quantity - a.quantity)
+    .slice(0, 20);
+
+  // Son 8 sipariş — settlement'tan eşleşen net hakediş varsa ekle
+  const recentOrders = [...packages]
+    .sort((a, b) => b.packageCreationDate - a.packageCreationDate)
+    .slice(0, 8)
+    .map((p) => ({
+      id: p.id,
+      orderNumber: p.orderNumber,
+      customerName:
+        [p.customer?.firstName, p.customer?.lastName].filter(Boolean).join(" ") || "—",
+      total: p.totalPrice ?? 0,
+      status: p.packageStatus,
+      paymentMethod: PAYMENT_LABEL[paymentKey(p)] ?? "—",
+      createdAt: p.packageCreationDate,
+      netRevenue: financeResult.netByOrder.get(p.orderNumber),
+    }));
+
 
   return {
-    todayOrderCount: summary.todayOrderCount,
-    todayRevenue: summary.todayRevenue,
-    yesterdayRevenue,
-    activeOrderCount: summary.activeOrderCount,
-    totalOrderCount: summary.totalOrderCount,
-    totalRevenue: summary.totalRevenue,
+    period,
+    fetchedAt: new Date().toISOString(),
+    rangeStart: start,
+    rangeEnd: end,
+    orderCount: completed.length,
+    deliveredCount: delivered.length,
+    cancelledCount: cancelled.length,
+    revenue,
     avgBasket,
-    todayCancelledCount: summary.todayCancelledCount,
-    acceptanceRate,
-    paymentToday,
-    paymentAll,
+    paymentBreakdown,
     statusBreakdown,
-    hourlyToday,
-    dailyTrend,
+    hourly,
     topProducts,
     recentOrders,
+    settlementsAvailable: financeResult.ok,
+    settlementsError: financeResult.error,
+    finance: financeResult.finance,
   };
 }

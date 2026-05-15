@@ -207,6 +207,92 @@ export function listTrendyolPackages(params: {
   });
 }
 
+// ─── Finansal kayıtlar (settlements) ───────────────────────────────────
+// Doküman: GET /integrator/settlement/meal/sellers/{supplierId}/settlements
+// Kısıtlar:
+//   - transactionType zorunlu, tek istekte 1 type
+//   - startDate/endDate zorunlu, arası max 15 gün
+//   - size: 500 veya 1000 (default 500)
+//
+// İşaret tablosu (raporda toplanırken işaretlere dikkat — debt = borç, credit = alacak):
+//   Sale                : credit(+) commissionAmount(-) sellerRevenue(+)
+//   Return              : debt(-)  commissionAmount(+) sellerRevenue(-)
+//   Discount            : debt(-)  commissionAmount(+) sellerRevenue(-)
+//   DiscountCancel      : credit(+) commissionAmount(-) sellerRevenue(+)
+//   Coupon              : credit(+) commissionAmount(-) sellerRevenue(-)
+//   CouponCancel        : debt(-)  commissionAmount(+) sellerRevenue(+)
+//   ManualRefund        : debt(-)  -                   sellerRevenue(-)
+//   ManualRefundCancel  : credit(+) -                  sellerRevenue(+)
+
+export type TrendyolSettlementTransactionType =
+  | "Sale"
+  | "Return"
+  | "Discount"
+  | "DiscountCancel"
+  | "Coupon"
+  | "CouponCancel"
+  | "ProvisionPositive"
+  | "ProvisionNegative"
+  | "ManualRefund"
+  | "ManualRefundCancel";
+
+export interface TrendyolSettlement {
+  id: string;
+  transactionDate: number;
+  barcode?: string | null;
+  transactionType: string; // Türkçe label dönebilir (Satış, İade, ...)
+  receiptId?: number | null;
+  description?: string | null;
+  debt: number;
+  credit: number;
+  paymentPeriod?: number | null;
+  commissionRate?: number | null;
+  commissionAmount?: number | null;
+  commissionInvoiceSerialNumber?: string | null;
+  sellerRevenue?: number | null;
+  orderNumber?: string | null;
+  paymentOrderId?: number | null;
+  paymentDate?: number | null;
+  sellerId?: number | null;
+  storeId?: number | null;
+  storeName?: string | null;
+  storeAddress?: string | null;
+  country?: string | null;
+  orderDate?: number | null;
+}
+
+export interface TrendyolSettlementsResponse {
+  page: number;
+  size: number;
+  totalPages: number;
+  totalElements: number;
+  content: TrendyolSettlement[];
+}
+
+function sellerSettlementPath(suffix: string) {
+  const supplierId = process.env.TRENDYOL_SUPPLIER_ID!;
+  return `/integrator/settlement/meal/sellers/${supplierId}${suffix}`;
+}
+
+export function listTrendyolSettlements(params: {
+  transactionType: TrendyolSettlementTransactionType;
+  startDate: number; // ms epoch
+  endDate: number;   // ms epoch (max 15 gün aralık)
+  page?: number;
+  size?: 500 | 1000;
+}) {
+  const qs = new URLSearchParams();
+  qs.set("transactionType", params.transactionType);
+  qs.set("startDate", String(params.startDate));
+  qs.set("endDate", String(params.endDate));
+  qs.set("page", String(params.page ?? 0));
+  qs.set("size", String(params.size ?? 500));
+  return trendyolRequest<TrendyolSettlementsResponse>({
+    method: "GET",
+    path: sellerSettlementPath(`/settlements?${qs.toString()}`),
+  });
+}
+
 // ─── 1) Siparişi kabul et (picked) ──────────────────────────────────────
 // preparationTime: dakika cinsinden hazırlık tahmini
 export function acceptTrendyolPackage(packageId: string, preparationTime = 20) {
