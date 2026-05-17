@@ -12,6 +12,9 @@ import {
   type TrendyolSettlement,
   type TrendyolSettlementTransactionType,
 } from "@/lib/integrations/trendyol/client";
+import { istanbulDayStart } from "@/lib/datetime";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 export type TrendyolPeriod = "today" | "week" | "month";
 
@@ -173,37 +176,33 @@ function settlementApiRange(
   };
 }
 
-// referenceDate verilmezse "bugün" referans alınır. Verilirse o günün sonu (23:59:59.999)
-// referans olur; "today" o günün 00:00-23:59 aralığını verir, week/month geriye doğru
-// 7/30 günlük pencereyi referans günde biten şekilde döndürür.
+// referenceDate verilmezse "bugün" referans alınır. Verilirse o günün sonu
+// (23:59:59.999) referans olur; "today" o günün 00:00-23:59 aralığını verir,
+// week/month geriye doğru 7/30 günlük pencereyi referans günde biten şekilde
+// döndürür.
+//
+// Tüm gün sınırları Istanbul TZ'sine göre normalize. Sebep: Vercel UTC çalışır,
+// `new Date(y, m, d)` lokal TZ'ye göre gece yarısı verir → "today" sorgusu
+// dünün geç saatlerini kapsıyor. Detay: @/lib/datetime
 function periodRange(
   period: TrendyolPeriod,
   referenceDate?: number,
 ): { start: number; end: number } {
-  const now = new Date();
-  const isReferenceToday =
-    referenceDate === undefined ||
-    new Date(referenceDate).toDateString() === now.toDateString();
+  const now = Date.now();
+  const refTs = referenceDate ?? now;
 
-  const refBase = referenceDate !== undefined ? new Date(referenceDate) : now;
-  const startOfRef = new Date(refBase.getFullYear(), refBase.getMonth(), refBase.getDate());
-  const endOfRef = isReferenceToday
-    ? now.getTime()
-    : new Date(
-        refBase.getFullYear(),
-        refBase.getMonth(),
-        refBase.getDate(),
-        23,
-        59,
-        59,
-        999,
-      ).getTime();
+  const startOfRef = istanbulDayStart(refTs).getTime();
+  const todayStart = istanbulDayStart(now).getTime();
+  const isReferenceToday = startOfRef === todayStart;
 
-  if (period === "today") return { start: startOfRef.getTime(), end: endOfRef };
+  // Geçmiş gün için end = referans gününün sonu (sonraki Istanbul gün başı − 1ms).
+  // Bugün için end = "şimdi".
+  const endOfRef = isReferenceToday ? now : startOfRef + DAY_MS - 1;
 
-  const d = new Date(startOfRef);
-  d.setDate(d.getDate() - (period === "week" ? 6 : 29));
-  return { start: d.getTime(), end: endOfRef };
+  if (period === "today") return { start: startOfRef, end: endOfRef };
+
+  const daysBack = period === "week" ? 6 : 29;
+  return { start: startOfRef - daysBack * DAY_MS, end: endOfRef };
 }
 
 function emptyStats(
@@ -449,14 +448,21 @@ async function fetchAllPackages(
 // (geçmiş veriler immutable). Cache key gün granülaritesinde — saat/ms
 // farkları cache miss'e yol açmaz.
 
+// Cache key Istanbul gününe göre — yoksa Vercel'de UTC günü flip olur ve
+// Istanbul 03:00'da "bugün" cache'i farklı key'e düşer.
 function dateKey(referenceDate?: number): string {
-  const d = referenceDate !== undefined ? new Date(referenceDate) : new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const start = istanbulDayStart(referenceDate ?? Date.now());
+  // Istanbul midnight UTC ms'i → Istanbul gün bileşenlerini al
+  const istMs = start.getTime() + 3 * 60 * 60 * 1000;
+  const d = new Date(istMs);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
 }
 
 function isReferenceToday(referenceDate?: number): boolean {
   if (referenceDate === undefined) return true;
-  return new Date(referenceDate).toDateString() === new Date().toDateString();
+  return (
+    istanbulDayStart(referenceDate).getTime() === istanbulDayStart().getTime()
+  );
 }
 
 // Cache key argümanları: [period, key]. Aynı period+gün → aynı cache.
