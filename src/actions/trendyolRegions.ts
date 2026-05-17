@@ -15,6 +15,7 @@ export interface RegionDistrict {
   count: number;
   revenue: number;
   neighborhoods: { name: string; count: number; revenue: number }[];
+  topProducts: { name: string; quantity: number; revenue: number }[];
 }
 
 export interface RegionPin {
@@ -146,6 +147,7 @@ export async function getTrendyolRegions(
       count: number;
       revenue: number;
       neighborhoods: Map<string, { count: number; revenue: number }>;
+      products: Map<string, { quantity: number; revenue: number }>;
     }
   >();
   const pins: RegionPin[] = [];
@@ -164,6 +166,7 @@ export async function getTrendyolRegions(
       count: 0,
       revenue: 0,
       neighborhoods: new Map<string, { count: number; revenue: number }>(),
+      products: new Map<string, { quantity: number; revenue: number }>(),
     };
     cur.count++;
     cur.revenue += revenue;
@@ -171,6 +174,14 @@ export async function getTrendyolRegions(
     nb.count++;
     nb.revenue += revenue;
     cur.neighborhoods.set(neighborhood, nb);
+    for (const line of p.lines ?? []) {
+      const qty = line.items?.length ?? 1;
+      const unit = line.unitSellingPrice ?? line.price ?? 0;
+      const pr = cur.products.get(line.name) ?? { quantity: 0, revenue: 0 };
+      pr.quantity += qty;
+      pr.revenue += unit * qty;
+      cur.products.set(line.name, pr);
+    }
     districtMap.set(district, cur);
 
     const lat = parseCoord(p.address?.latitude);
@@ -203,6 +214,10 @@ export async function getTrendyolRegions(
       neighborhoods: [...v.neighborhoods.entries()]
         .map(([n, nv]) => ({ name: n, count: nv.count, revenue: nv.revenue }))
         .sort((a, b) => b.count - a.count),
+      topProducts: [...v.products.entries()]
+        .map(([n, pv]) => ({ name: n, quantity: pv.quantity, revenue: pv.revenue }))
+        .sort((a, b) => b.quantity - a.quantity)
+        .slice(0, 5),
     }))
     .sort((a, b) => b.count - a.count);
 

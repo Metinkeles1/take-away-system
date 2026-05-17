@@ -14,8 +14,17 @@ import {
   Building2,
   Home,
   TrendingUp,
+  Package as PackageIcon,
+  X,
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/dashboard/EmptyState";
@@ -25,30 +34,62 @@ const RegionsMap = dynamic(
   () => import("./RegionsMap").then((m) => m.RegionsMap),
   {
     ssr: false,
-    loading: () => <Skeleton className="h-120 w-full rounded-xl" />,
+    loading: () => <Skeleton className="h-120 w-full rounded-md" />,
   },
 );
 
+function toDateInputValue(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function parseDateInputValue(v: string): Date {
+  const [y, m, d] = v.split("-").map(Number);
+  return new Date(y, (m ?? 1) - 1, d ?? 1);
+}
+
+const LEGEND = [
+  { label: "Yeni", color: "#3b82f6" },
+  { label: "Kabul", color: "#f59e0b" },
+  { label: "Hazırlandı", color: "#8b5cf6" },
+  { label: "Yolda", color: "#f97316" },
+  { label: "Teslim", color: "#10b981" },
+];
+
 export function RegionsTab() {
   const [period, setPeriod] = useState<TrendyolRegionPeriod>("today");
+  const [selectedDate, setSelectedDate] = useState<string>("");
+  const [todayValue, setTodayValue] = useState<string>("");
   const [data, setData] = useState<TrendyolRegionStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedDistrict, setSelectedDistrict] = useState<string | null>(null);
 
+  useEffect(() => {
+    const t = toDateInputValue(new Date());
+    setTodayValue(t);
+    setSelectedDate(t);
+  }, []);
+
+  const isToday = selectedDate === todayValue && todayValue !== "";
+
   const load = useCallback(async () => {
+    if (!selectedDate) return;
     setIsLoading(true);
     try {
-      const r = await getTrendyolRegions(period);
+      const refDate = parseDateInputValue(selectedDate).getTime();
+      const r = await getTrendyolRegions(period, refDate);
       setData(r);
       setSelectedDistrict(null);
     } finally {
       setIsLoading(false);
     }
-  }, [period]);
+  }, [period, selectedDate]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    if (selectedDate) load();
+  }, [load, selectedDate]);
 
   const pinsToShow = useMemo(() => {
     if (!data) return [];
@@ -61,96 +102,118 @@ export function RegionsTab() {
     return data.districts.find((d) => d.name === selectedDistrict) ?? null;
   }, [data, selectedDistrict]);
 
-  const periodLabel =
-    period === "today" ? "Bugün" : period === "week" ? "Son 7 Gün" : "Son 30 Gün";
+  const periodLabel = useMemo(() => {
+    if (!selectedDate) return "";
+    if (period === "today") {
+      if (isToday) return "Bugün";
+      return parseDateInputValue(selectedDate).toLocaleDateString("tr-TR", {
+        day: "numeric",
+        month: "long",
+      });
+    }
+    if (period === "week") return isToday ? "Son 7 Gün" : "7 Günlük";
+    return isToday ? "Son 30 Gün" : "30 Günlük";
+  }, [period, isToday, selectedDate]);
 
-  if (isLoading && !data) {
-    return (
-      <div className="space-y-4">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {[...Array(4)].map((_, i) => (
-            <Skeleton key={i} className="h-20 rounded-xl" />
-          ))}
-        </div>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <Skeleton className="lg:col-span-2 h-120 rounded-xl" />
-          <Skeleton className="h-120 rounded-xl" />
-        </div>
-      </div>
-    );
-  }
+  const totalNeighborhoods =
+    data?.districts.reduce((s, d) => s + d.neighborhoods.length, 0) ?? 0;
 
   return (
     <div className="space-y-4">
-      {/* Header + filtre */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <PeriodPicker period={period} onChange={setPeriod} disabled={isLoading} />
+      {/* Header */}
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="space-y-0.5">
+          <h2 className="text-2xl font-semibold tracking-tight">Bölgeler</h2>
+          <p className="text-sm text-muted-foreground">
+            {periodLabel} · Mahalle bazlı sipariş haritası ve ürün kırılımı
+          </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={load}
-          disabled={isLoading}
-          className="gap-2"
-        >
-          <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
-          Yenile
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Tabs
+            value={period}
+            onValueChange={(v) => setPeriod(v as TrendyolRegionPeriod)}
+          >
+            <TabsList>
+              <TabsTrigger value="today" disabled={isLoading}>
+                {isToday ? "Bugün" : "Gün"}
+              </TabsTrigger>
+              <TabsTrigger value="week" disabled={isLoading}>
+                {isToday ? "Son 7 Gün" : "7 Gün"}
+              </TabsTrigger>
+              <TabsTrigger value="month" disabled={isLoading}>
+                {isToday ? "Son 30 Gün" : "30 Gün"}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+          <input
+            type="date"
+            value={selectedDate}
+            max={todayValue}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            disabled={isLoading}
+            suppressHydrationWarning
+            className="h-8 rounded-md border bg-background px-2.5 text-sm tabular-nums outline-none transition focus:ring-2 focus:ring-ring/40 disabled:opacity-50"
+          />
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={load}
+            disabled={isLoading}
+            className="h-8 gap-1.5"
+          >
+            <RefreshCw className={`size-3.5 ${isLoading ? "animate-spin" : ""}`} />
+            Yenile
+          </Button>
+        </div>
       </div>
 
       {data?.error && (
-        <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 flex items-start gap-3 text-sm text-amber-900">
-          <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5" />
+        <div className="flex items-start gap-3 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
           <div>
-            <p className="font-semibold">Trendyol API&apos;sına ulaşılamadı</p>
-            <p className="text-xs mt-0.5 text-amber-800">{data.error}</p>
+            <p className="font-medium">Trendyol API&apos;sına ulaşılamadı</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">{data.error}</p>
           </div>
         </div>
       )}
 
-      {/* Özet KPI'lar */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Tile
+      {/* KPI */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <KpiTile
           icon={Building2}
-          label={`${periodLabel} · İlçe`}
-          value={String(data?.districts.length ?? 0)}
-          tone="blue"
+          label="İlçe"
+          value={data ? String(data.districts.length) : "—"}
+          loading={isLoading && !data}
         />
-        <Tile
+        <KpiTile
           icon={Home}
           label="Mahalle"
-          value={String(
-            data?.districts.reduce(
-              (s, d) => s + d.neighborhoods.length,
-              0,
-            ) ?? 0,
-          )}
-          tone="violet"
+          value={data ? String(totalNeighborhoods) : "—"}
+          loading={isLoading && !data}
         />
-        <Tile
+        <KpiTile
           icon={MapPin}
           label="Haritada Pin"
-          value={`${data?.withCoordinates ?? 0} / ${data?.totalOrders ?? 0}`}
-          tone="orange"
+          value={data ? `${data.withCoordinates} / ${data.totalOrders}` : "—"}
+          loading={isLoading && !data}
         />
-        <Tile
+        <KpiTile
           icon={TrendingUp}
           label="Toplam Ciro"
-          value={formatCurrency(data?.totalRevenue ?? 0)}
-          tone="emerald"
+          value={data ? formatCurrency(data.totalRevenue) : "—"}
+          loading={isLoading && !data}
         />
       </div>
 
-      {/* Harita + ilçe listesi */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card className="lg:col-span-2 bg-white rounded-2xl border shadow-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <MapPin className="h-4 w-4 text-orange-600" />
+      {/* Map + district list */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <MapPin className="size-4 text-muted-foreground" />
               Sipariş Haritası
               {selectedDistrict && (
-                <span className="text-xs font-normal text-gray-500">
+                <span className="text-xs font-normal text-muted-foreground">
                   · {selectedDistrict} ({pinsToShow.length} pin)
                 </span>
               )}
@@ -158,18 +221,20 @@ export function RegionsTab() {
                 <button
                   type="button"
                   onClick={() => setSelectedDistrict(null)}
-                  className="text-[11px] font-semibold text-orange-600 hover:text-orange-700 ml-1"
+                  className="ml-1 inline-flex items-center gap-0.5 text-[11px] font-medium text-foreground hover:text-foreground/80"
                 >
-                  filtreyi kaldır
+                  <X className="size-3" /> filtreyi kaldır
                 </button>
               )}
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {data && data.pins.length > 0 ? (
+            {isLoading && !data ? (
+              <Skeleton className="h-120 w-full" />
+            ) : data && data.pins.length > 0 ? (
               <RegionsMap pins={pinsToShow} bounds={data.bounds} height={480} />
             ) : (
-              <div className="h-120 flex items-center justify-center">
+              <div className="flex h-120 items-center justify-center">
                 <EmptyState
                   icon={MapPin}
                   text={
@@ -180,99 +245,121 @@ export function RegionsTab() {
                 />
               </div>
             )}
-            {/* Legend */}
-            <div className="flex flex-wrap items-center gap-3 mt-3 text-[11px]">
-              {[
-                { label: "Yeni", color: "#3b82f6" },
-                { label: "Kabul", color: "#f59e0b" },
-                { label: "Hazırlandı", color: "#8b5cf6" },
-                { label: "Yolda", color: "#f97316" },
-                { label: "Teslim", color: "#10b981" },
-              ].map((s) => (
+            <div className="mt-3 flex flex-wrap items-center gap-3 text-[11px]">
+              {LEGEND.map((s) => (
                 <div key={s.label} className="flex items-center gap-1.5">
                   <span
-                    className="h-2.5 w-2.5 rounded-full border border-white"
-                    style={{ backgroundColor: s.color, boxShadow: "0 0 0 1px #d1d5db" }}
+                    className="size-2.5 rounded-full border border-white"
+                    style={{
+                      backgroundColor: s.color,
+                      boxShadow: "0 0 0 1px var(--border)",
+                    }}
                   />
-                  <span className="text-gray-600">{s.label}</span>
+                  <span className="text-muted-foreground">{s.label}</span>
                 </div>
               ))}
             </div>
           </CardContent>
         </Card>
 
-        <Card className="bg-white rounded-2xl border shadow-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <Building2 className="h-4 w-4 text-blue-600" />
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Building2 className="size-4 text-muted-foreground" />
               İlçeler
             </CardTitle>
+            <CardDescription>
+              Bir ilçeye tıkla → harita ve ürün kırılımı süzülür
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <DistrictList
-              districts={data?.districts ?? []}
-              selected={selectedDistrict}
-              onSelect={setSelectedDistrict}
-            />
+            {isLoading && !data ? (
+              <Skeleton className="h-96 w-full" />
+            ) : (
+              <DistrictList
+                districts={data?.districts ?? []}
+                selected={selectedDistrict}
+                onSelect={setSelectedDistrict}
+              />
+            )}
           </CardContent>
         </Card>
       </div>
 
-      {/* Seçili ilçenin mahalleleri */}
+      {/* Seçili ilçe — mahalle + ürün */}
       {selectedDistrictData && (
-        <Card className="bg-white rounded-2xl border shadow-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <Home className="h-4 w-4 text-violet-600" />
-              {selectedDistrictData.name} · Mahalleler
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <NeighborhoodList items={selectedDistrictData.neighborhoods} />
-          </CardContent>
-        </Card>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Home className="size-4 text-muted-foreground" />
+                {selectedDistrictData.name} · Mahalleler
+              </CardTitle>
+              <CardDescription>
+                {selectedDistrictData.neighborhoods.length} mahalle ·{" "}
+                {selectedDistrictData.count} sipariş
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <NeighborhoodList items={selectedDistrictData.neighborhoods} />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <PackageIcon className="size-4 text-muted-foreground" />
+                {selectedDistrictData.name} · En Çok Sipariş Edilen Ürün
+              </CardTitle>
+              <CardDescription>İlk 5 · adet bazlı</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {selectedDistrictData.topProducts.length === 0 ? (
+                <EmptyState icon={PackageIcon} text="Ürün verisi yok" />
+              ) : (
+                <DistrictProductsList products={selectedDistrictData.topProducts} />
+              )}
+            </CardContent>
+          </Card>
+        </div>
       )}
     </div>
   );
 }
 
-function PeriodPicker({
-  period,
-  onChange,
-  disabled,
+// ─── KPI tile ──────────────────────────────────────────────────────
+
+function KpiTile({
+  icon: Icon,
+  label,
+  value,
+  loading,
 }: {
-  period: TrendyolRegionPeriod;
-  onChange: (p: TrendyolRegionPeriod) => void;
-  disabled?: boolean;
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: string;
+  loading: boolean;
 }) {
-  const opts: { k: TrendyolRegionPeriod; label: string }[] = [
-    { k: "today", label: "Bugün" },
-    { k: "week", label: "Son 7 Gün" },
-    { k: "month", label: "Son 30 Gün" },
-  ];
   return (
-    <div className="inline-flex rounded-lg border bg-white p-0.5">
-      {opts.map(({ k, label }) => {
-        const active = k === period;
-        return (
-          <button
-            key={k}
-            type="button"
-            disabled={disabled || active}
-            onClick={() => onChange(k)}
-            className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors ${
-              active
-                ? "bg-orange-500 text-white shadow-sm"
-                : "text-gray-600 hover:bg-gray-100"
-            } ${disabled && !active ? "opacity-50" : ""}`}
-          >
-            {label}
-          </button>
-        );
-      })}
-    </div>
+    <Card>
+      <CardHeader className="grid-cols-[1fr_auto]">
+        <CardDescription className="text-sm font-medium text-muted-foreground">
+          {label}
+        </CardDescription>
+        <Icon className="size-4 text-muted-foreground" />
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <Skeleton className="h-7 w-24" />
+        ) : (
+          <p className="text-xl font-bold tabular-nums tracking-tight">{value}</p>
+        )}
+      </CardContent>
+    </Card>
   );
 }
+
+// ─── District list ─────────────────────────────────────────────────
 
 function DistrictList({
   districts,
@@ -288,8 +375,8 @@ function DistrictList({
   }
   const maxCount = districts[0]?.count ?? 1;
   return (
-    <ul className="space-y-1.5 max-h-110 overflow-y-auto pr-1">
-      {districts.map((d) => {
+    <ul className="max-h-105 space-y-1.5 overflow-y-auto pr-1">
+      {districts.map((d, i) => {
         const pct = (d.count / maxCount) * 100;
         const active = selected === d.name;
         return (
@@ -297,29 +384,28 @@ function DistrictList({
             <button
               type="button"
               onClick={() => onSelect(active ? null : d.name)}
-              className={`w-full text-left rounded-lg border p-2 transition-colors ${
+              className={`w-full rounded-md border p-2.5 text-left transition-colors ${
                 active
-                  ? "bg-orange-50 border-orange-300"
-                  : "bg-white hover:bg-gray-50 border-gray-100"
+                  ? "border-foreground/30 bg-muted"
+                  : "border-transparent bg-card hover:bg-muted/50"
               }`}
             >
-              <div className="flex items-center justify-between gap-2 mb-1">
-                <span className="text-sm font-semibold text-gray-900 truncate">
-                  {d.name}
-                </span>
-                <span className="text-xs tabular-nums shrink-0">
-                  <span className="font-bold text-gray-900">×{d.count}</span>
-                  <span className="text-emerald-700 ml-2">
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <span className="truncate text-sm font-medium">{d.name}</span>
+                <span className="shrink-0 text-xs tabular-nums">
+                  <span className="font-semibold">×{d.count}</span>
+                  <span className="ml-2 text-muted-foreground">
                     {formatCurrency(d.revenue)}
                   </span>
                 </span>
               </div>
-              <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+              <div className="h-1.5 overflow-hidden rounded-full bg-muted">
                 <div
-                  className={`h-full rounded-full transition-all ${
-                    active ? "bg-orange-500" : "bg-blue-400"
-                  }`}
-                  style={{ width: `${Math.max(pct, 2)}%` }}
+                  className="h-full rounded-full transition-all"
+                  style={{
+                    width: `${Math.max(pct, 3)}%`,
+                    background: `var(--chart-${(i % 5) + 1})`,
+                  }}
                 />
               </div>
             </button>
@@ -329,6 +415,8 @@ function DistrictList({
     </ul>
   );
 }
+
+// ─── Neighborhood list ─────────────────────────────────────────────
 
 function NeighborhoodList({
   items,
@@ -340,29 +428,27 @@ function NeighborhoodList({
   }
   const maxCount = items[0]?.count ?? 1;
   return (
-    <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+    <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
       {items.map((n) => {
         const pct = (n.count / maxCount) * 100;
         return (
           <li
             key={n.name}
-            className="rounded-lg border border-gray-100 bg-white p-2.5"
+            className="rounded-md border bg-card p-2.5"
           >
-            <div className="flex items-center justify-between gap-2 mb-1.5">
-              <span className="text-sm font-medium text-gray-800 truncate">
-                {n.name}
-              </span>
-              <span className="text-xs font-bold text-gray-900 tabular-nums">
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <span className="truncate text-sm font-medium">{n.name}</span>
+              <span className="shrink-0 text-xs font-semibold tabular-nums">
                 ×{n.count}
               </span>
             </div>
-            <div className="h-1 bg-gray-100 rounded-full overflow-hidden mb-1">
+            <div className="mb-1 h-1 overflow-hidden rounded-full bg-muted">
               <div
-                className="h-full bg-violet-400 rounded-full"
-                style={{ width: `${Math.max(pct, 2)}%` }}
+                className="h-full rounded-full bg-foreground/40"
+                style={{ width: `${Math.max(pct, 3)}%` }}
               />
             </div>
-            <span className="text-xs text-emerald-700 font-semibold">
+            <span className="text-xs font-medium text-muted-foreground tabular-nums">
               {formatCurrency(n.revenue)}
             </span>
           </li>
@@ -372,44 +458,46 @@ function NeighborhoodList({
   );
 }
 
-function Tile({
-  icon: Icon,
-  label,
-  value,
-  tone,
+// ─── District products ─────────────────────────────────────────────
+
+function DistrictProductsList({
+  products,
 }: {
-  icon: React.ElementType;
-  label: string;
-  value: string;
-  tone: "blue" | "emerald" | "violet" | "orange";
+  products: { name: string; quantity: number; revenue: number }[];
 }) {
-  const tones = {
-    blue: { bg: "bg-blue-50", text: "text-blue-700", icon: "text-blue-600" },
-    emerald: {
-      bg: "bg-emerald-50",
-      text: "text-emerald-700",
-      icon: "text-emerald-600",
-    },
-    violet: {
-      bg: "bg-violet-50",
-      text: "text-violet-700",
-      icon: "text-violet-600",
-    },
-    orange: {
-      bg: "bg-orange-50",
-      text: "text-orange-700",
-      icon: "text-orange-600",
-    },
-  }[tone];
+  const max = Math.max(...products.map((p) => p.quantity), 1);
   return (
-    <div className="rounded-xl border bg-white p-3">
-      <div className="flex items-center gap-2">
-        <div className={`rounded-lg p-1.5 ${tones.bg}`}>
-          <Icon className={`h-4 w-4 ${tones.icon}`} />
-        </div>
-        <span className="text-xs font-medium text-gray-500">{label}</span>
-      </div>
-      <p className={`mt-1.5 text-lg font-bold ${tones.text}`}>{value}</p>
-    </div>
+    <ul className="space-y-3">
+      {products.map((p, i) => {
+        const pct = (p.quantity / max) * 100;
+        return (
+          <li key={p.name} className="space-y-1.5">
+            <div className="flex items-center justify-between gap-2 text-sm">
+              <span className="min-w-0 flex-1 truncate font-medium">
+                <span className="mr-1.5 inline-block size-5 rounded-sm text-center text-[10px] font-bold leading-5 text-muted-foreground">
+                  #{i + 1}
+                </span>
+                {p.name}
+              </span>
+              <span className="shrink-0 text-xs tabular-nums">
+                <span className="font-semibold">×{p.quantity}</span>
+                <span className="ml-2 text-muted-foreground">
+                  {formatCurrency(p.revenue)}
+                </span>
+              </span>
+            </div>
+            <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full transition-all"
+                style={{
+                  width: `${Math.max(pct, 5)}%`,
+                  background: `var(--chart-${(i % 5) + 1})`,
+                }}
+              />
+            </div>
+          </li>
+        );
+      })}
+    </ul>
   );
 }

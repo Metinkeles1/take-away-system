@@ -2,11 +2,15 @@
 
 import { useEffect, useState, useCallback, useMemo } from "react";
 import {
-  Area,
-  AreaChart,
+  Bar,
+  BarChart,
   CartesianGrid,
   XAxis,
   YAxis,
+  PieChart,
+  Pie,
+  Cell,
+  Label,
 } from "recharts";
 import {
   getTrendyolDashboardStats,
@@ -14,13 +18,15 @@ import {
   type TrendyolPeriod,
 } from "@/actions/trendyolDashboard";
 import {
-  XCircle,
-  RefreshCw,
-  CalendarDays,
-  Flame,
   AlertTriangle,
   CreditCard,
   ShoppingBag,
+  Wallet,
+  TrendingUp,
+  Receipt,
+  RefreshCw,
+  Download,
+  ArrowUpRight,
 } from "lucide-react";
 import { PaymentBreakdown } from "@/components/dashboard/PaymentBreakdown";
 import { EmptyState } from "@/components/dashboard/EmptyState";
@@ -32,18 +38,16 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
+  Tabs,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
+import {
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -52,19 +56,23 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { formatCurrency } from "@/lib/utils";
 
-const STATUS_LABEL: Record<string, { label: string; dot: string }> = {
-  Created: { label: "Yeni", dot: "bg-sky-500" },
-  Picking: { label: "Kabul Edildi", dot: "bg-amber-500" },
-  Invoiced: { label: "Hazırlandı", dot: "bg-violet-500" },
-  Shipped: { label: "Yolda", dot: "bg-orange-500" },
-  Delivered: { label: "Teslim Edildi", dot: "bg-emerald-500" },
-  Cancelled: { label: "İptal", dot: "bg-red-500" },
-  UnSupplied: { label: "Karşılanamadı", dot: "bg-rose-500" },
+// ─── status map (chart vars + muted-foreground tonlar) ──────────────
+
+const STATUS_LABEL: Record<
+  string,
+  { label: string; cssVar: string }
+> = {
+  Created:    { label: "Yeni",            cssVar: "var(--chart-1)" },
+  Picking:    { label: "Kabul Edildi",    cssVar: "var(--chart-2)" },
+  Invoiced:   { label: "Hazırlandı",      cssVar: "var(--chart-3)" },
+  Shipped:    { label: "Yolda",           cssVar: "var(--chart-4)" },
+  Delivered:  { label: "Teslim Edildi",   cssVar: "var(--chart-5)" },
+  Cancelled:  { label: "İptal",           cssVar: "var(--destructive)" },
+  UnSupplied: { label: "Karşılanamadı",   cssVar: "var(--destructive)" },
 };
 
 function toDateInputValue(d: Date): string {
@@ -79,9 +87,15 @@ function parseDateInputValue(v: string): Date {
   return new Date(y, (m ?? 1) - 1, d ?? 1);
 }
 
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 0 || !parts[0]) return "—";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
 export function OverviewTab() {
   const [period, setPeriod] = useState<TrendyolPeriod>("today");
-  // SSR/hydration safety: date değerlerini ilk render'da boş bırakıp client mount sonrası set ediyoruz.
   const [selectedDate, setSelectedDate] = useState<string>("");
   const [todayValue, setTodayValue] = useState<string>("");
   const [stats, setStats] = useState<TrendyolDashboardStats | null>(null);
@@ -136,207 +150,249 @@ export function OverviewTab() {
     return isToday ? "Son 30 Gün" : "30 Günlük";
   }, [period, isToday, selectedDate]);
 
-  // Veri zaten varken yenileme yapılıyorsa "soft loading" göster.
   const softLoading = isLoading && !!stats;
 
   return (
-    <div className="relative space-y-4 pb-4">
-      {/* Top loading bar */}
-      {isLoading && (
-        <div
-          className="pointer-events-none fixed inset-x-0 top-0 z-50 h-0.5 overflow-hidden"
-          aria-hidden
-        >
-          <div className="h-full w-1/3 animate-[loading-bar_1.2s_ease-in-out_infinite] bg-orange-500" />
-          <style>{`
-            @keyframes loading-bar {
-              0% { transform: translateX(-100%); }
-              50% { transform: translateX(200%); }
-              100% { transform: translateX(400%); }
-            }
-          `}</style>
+    <div className="relative space-y-4">
+      {/* ── Top bar: title + tabs + date + refresh ─────────────────── */}
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="space-y-0.5">
+          <h2 className="text-2xl font-semibold tracking-tight">Genel Bakış</h2>
+          <p className="text-sm text-muted-foreground">
+            {periodLabel} · Trendyol GO Yemek satış özeti
+          </p>
         </div>
-      )}
 
-      {/* Header bar */}
-      <Header
-        isLoading={isLoading}
-        onRefresh={loadStats}
-        lastUpdated={lastUpdated}
-        period={period}
-        onPeriodChange={setPeriod}
-        selectedDate={selectedDate}
-        onDateChange={setSelectedDate}
-        maxDate={todayValue}
-        isToday={isToday}
-      />
+        <div className="flex flex-wrap items-center gap-2">
+          <Tabs
+            value={period}
+            onValueChange={(v) => setPeriod(v as TrendyolPeriod)}
+          >
+            <TabsList>
+              <TabsTrigger value="today" disabled={isLoading}>
+                {isToday ? "Bugün" : "Gün"}
+              </TabsTrigger>
+              <TabsTrigger value="week" disabled={isLoading}>
+                {isToday ? "Son 7 Gün" : "7 Gün"}
+              </TabsTrigger>
+              <TabsTrigger value="month" disabled={isLoading}>
+                {isToday ? "Son 30 Gün" : "30 Gün"}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
 
-      <div
-        className={`space-y-4 transition-opacity duration-200 ${softLoading ? "opacity-60 pointer-events-none" : "opacity-100"}`}
-        aria-busy={softLoading}
-      >
+          <input
+            type="date"
+            value={selectedDate}
+            max={todayValue}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            disabled={isLoading}
+            suppressHydrationWarning
+            className="h-8 rounded-md border bg-background px-2.5 text-sm tabular-nums outline-none transition focus:ring-2 focus:ring-ring/40 disabled:opacity-50"
+          />
+
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={loadStats}
+            disabled={isLoading}
+            className="h-8 gap-1.5"
+          >
+            <RefreshCw className={`size-3.5 ${isLoading ? "animate-spin" : ""}`} />
+            Yenile
+          </Button>
+
+          <Button size="sm" variant="outline" disabled className="h-8 gap-1.5">
+            <Download className="size-3.5" />
+            <span className="hidden sm:inline">Dışa Aktar</span>
+          </Button>
+        </div>
+      </div>
 
       {stats?.error && (
-        <div className="flex items-start gap-3 rounded-lg border border-amber-300/80 bg-amber-50/60 p-3 text-sm text-amber-900">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+        <div className="flex items-start gap-3 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
           <div>
             <p className="font-medium">Trendyol API&apos;sına ulaşılamadı</p>
-            <p className="mt-0.5 text-xs text-amber-800">{stats.error}</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">{stats.error}</p>
           </div>
         </div>
       )}
 
-      {/* 1. KPI grid — 4 sade kart */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Kpi
-          label="Sipariş"
-          value={isLoading && !stats ? null : String(stats?.orderCount ?? 0)}
-          hint={isLoading && !stats ? "" : `${stats?.deliveredCount ?? 0} teslim · ${stats?.cancelledCount ?? 0} iptal`}
-        />
-        <Kpi
-          label="Ciro"
-          value={isLoading && !stats ? null : formatCurrency(stats?.revenue ?? 0)}
-          hint={periodLabel}
-          accent
-        />
-        <Kpi
-          label="Net Hakediş"
-          value={isLoading && !stats ? null : formatCurrency(stats?.finance.netRevenue ?? 0)}
-          hint={
-            isLoading && !stats
-              ? ""
-              : stats?.settlementsAvailable
-                ? "Settlement"
-                : "Tahmini"
-          }
-          tone="emerald"
-        />
-        <Kpi
-          label="Ortalama Sepet"
-          value={isLoading && !stats ? null : formatCurrency(stats?.avgBasket ?? 0)}
-          hint={isLoading && !stats ? "" : `${stats?.orderCount ?? 0} sipariş`}
-        />
-      </div>
+      <div
+        className={`space-y-4 transition-opacity ${softLoading ? "opacity-60 pointer-events-none" : "opacity-100"}`}
+        aria-busy={softLoading}
+      >
+        {/* ── KPI row ──────────────────────────────────────────────── */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <KpiCard
+            label="Toplam Sipariş"
+            value={stats?.orderCount}
+            valueFormat="number"
+            isLoading={isLoading && !stats}
+            icon={ShoppingBag}
+            footer={
+              stats
+                ? `${stats.deliveredCount} teslim · ${stats.cancelledCount} iptal`
+                : ""
+            }
+          />
+          <KpiCard
+            label="Toplam Ciro"
+            value={stats?.revenue}
+            valueFormat="currency"
+            isLoading={isLoading && !stats}
+            icon={Wallet}
+            footer={periodLabel}
+          />
+          <KpiCard
+            label="Net Hakediş"
+            value={stats?.finance.netRevenue}
+            valueFormat="currency"
+            isLoading={isLoading && !stats}
+            icon={TrendingUp}
+            footer={
+              stats?.settlementsAvailable ? "Settlement bazlı" : "Tahmini hesap"
+            }
+          />
+          <KpiCard
+            label="Ortalama Sepet"
+            value={stats?.avgBasket}
+            valueFormat="currency"
+            isLoading={isLoading && !stats}
+            icon={Receipt}
+            footer={stats ? `${stats.orderCount} sipariş` : ""}
+          />
+        </div>
 
-      {/* 2. Chart + Finans yan yana lg'de */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        {/* Chart — 2/3 */}
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardDescription>Saatlik Sipariş Trafiği</CardDescription>
-            <CardTitle className="text-base">{periodLabel}</CardTitle>
-          </CardHeader>
-          <CardContent className="px-2 pt-1 sm:px-3">
-            {isLoading && !stats ? (
-              <Skeleton className="h-56 w-full" />
-            ) : (
-              <HourlyChart hourly={stats?.hourly ?? []} />
-            )}
-          </CardContent>
-        </Card>
+        {/* ── Row 2: hourly chart + recent orders ─────────────────── */}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-7">
+          <Card className="lg:col-span-4">
+            <CardHeader>
+              <CardTitle>Saatlik Sipariş Trafiği</CardTitle>
+              <CardDescription>{periodLabel}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {isLoading && !stats ? (
+                <Skeleton className="h-64 w-full" />
+              ) : (
+                <HourlyChart hourly={stats?.hourly ?? []} />
+              )}
+            </CardContent>
+          </Card>
 
-        {/* Finans listesi — 1/3 */}
-        <Card>
-          <CardHeader>
-            <CardDescription>Finansal Akış</CardDescription>
-            <CardTitle className="text-base">Brüt → Net</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isLoading && !stats ? (
-              <Skeleton className="h-56 w-full" />
-            ) : (
-              <FinanceFlow finance={stats!.finance} />
-            )}
-          </CardContent>
-        </Card>
-      </div>
+          <Card className="lg:col-span-3">
+            <CardHeader>
+              <CardTitle>Son Siparişler</CardTitle>
+              <CardDescription>
+                {stats?.recentOrders.length
+                  ? `${stats.recentOrders.length} sipariş gösteriliyor`
+                  : "Bu dönemde sipariş yok"}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {isLoading && !stats ? (
+                <Skeleton className="h-64 w-full" />
+              ) : stats?.recentOrders.length ? (
+                <RecentOrdersList orders={stats.recentOrders} />
+              ) : (
+                <EmptyState icon={ShoppingBag} text="Bu dönemde Trendyol siparişi yok" />
+              )}
+            </CardContent>
+          </Card>
+        </div>
 
-      {/* 3. Ödeme + Top Ürünler — 2-col, mobilde stack */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardDescription>Ödeme Yöntemleri</CardDescription>
-            <CardTitle className="text-base">Dağılım</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isLoading && !stats ? (
-              <Skeleton className="h-40 w-full" />
-            ) : (
-              <PaymentBreakdown
-                data={paymentRecord}
-                total={totalPayment}
-                emptyText="Bu dönemde Trendyol siparişi yok"
-                totalLabel="Toplam"
-                totalColor="text-emerald-700"
-                onMethodClick={(method) => {
-                  if (method === "meal_card") setMealCardModalOpen(true);
-                }}
-              />
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardDescription>En Çok Satan Ürünler</CardDescription>
-            <CardTitle className="text-base">{periodLabel}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isLoading && !stats ? (
-              <Skeleton className="h-48 w-full" />
-            ) : (
-              <TopProductsList products={stats?.topProducts ?? []} />
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* 4. Durum + Son Siparişler — 1/3 + 2/3 lg'de */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Card>
-          <CardHeader>
-            <CardDescription>Durum Dağılımı</CardDescription>
-            <CardTitle className="text-base">{periodLabel}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isLoading && !stats ? (
-              <Skeleton className="h-32 w-full" />
-            ) : (
-              <StatusList items={stats?.statusBreakdown ?? []} />
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardDescription>Son Trendyol Siparişleri</CardDescription>
-            <CardTitle className="text-base">
-              {isLoading && !stats ? "—" : `${stats?.recentOrders.length ?? 0} sipariş`}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="px-0 sm:px-2">
-            {isLoading && !stats ? (
-              <div className="px-4">
+        {/* ── Row 3: status + payment + top products + finance ─── */}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Sipariş Durumu</CardTitle>
+              <CardDescription>Statü dağılımı</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {isLoading && !stats ? (
                 <Skeleton className="h-48 w-full" />
-              </div>
-            ) : stats?.recentOrders.length ? (
-              <OrdersList orders={stats.recentOrders} />
-            ) : (
-              <EmptyState icon={XCircle} text="Bu dönemde Trendyol siparişi yok" />
-            )}
-          </CardContent>
-        </Card>
+              ) : (
+                <OrderStatsGauge
+                  items={stats?.statusBreakdown ?? []}
+                  total={stats?.orderCount ?? 0}
+                />
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Ödeme Yöntemleri</CardTitle>
+              <CardDescription>Tahsilat dağılımı</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {isLoading && !stats ? (
+                <Skeleton className="h-48 w-full" />
+              ) : (
+                <PaymentBreakdown
+                  data={paymentRecord}
+                  total={totalPayment}
+                  emptyText="Bu dönemde Trendyol siparişi yok"
+                  totalLabel="Toplam"
+                  onMethodClick={(method) => {
+                    if (method === "meal_card") setMealCardModalOpen(true);
+                  }}
+                />
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>En Çok Satanlar</CardTitle>
+              <CardDescription>Adet bazlı sıralama</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {isLoading && !stats ? (
+                <Skeleton className="h-48 w-full" />
+              ) : (
+                <TopProductsBlock products={stats?.topProducts ?? []} />
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Finansal Akış</CardTitle>
+              <CardDescription>Brüt → Net</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {isLoading && !stats ? (
+                <Skeleton className="h-48 w-full" />
+              ) : (
+                <FinanceFlow finance={stats!.finance} />
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {!isLoading && lastUpdated && (
+          <p
+            className="text-right text-xs text-muted-foreground"
+            suppressHydrationWarning
+          >
+            Son güncelleme{" "}
+            {lastUpdated.toLocaleTimeString("tr-TR", {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </p>
+        )}
       </div>
 
-      </div>{/* /softLoading wrapper */}
-
-      {/* Yemek kartı marka kırılımı modal */}
       <Dialog open={mealCardModalOpen} onOpenChange={setMealCardModalOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Yemek Kartı Kırılımı</DialogTitle>
             <DialogDescription>
-              {periodLabel} dönemindeki yemek kartı ödemelerinin marka bazlı dağılımı.
+              {periodLabel} dönemindeki yemek kartı ödemelerinin marka bazlı
+              dağılımı.
             </DialogDescription>
           </DialogHeader>
           <MealCardList items={stats?.mealCardBreakdown ?? []} />
@@ -346,154 +402,62 @@ export function OverviewTab() {
   );
 }
 
-// ─── Header ─────────────────────────────────────────────────────────
+// ─── KPI Card (shadcn dashboard-01 style) ──────────────────────────
 
-function Header({
-  isLoading,
-  onRefresh,
-  lastUpdated,
-  period,
-  onPeriodChange,
-  selectedDate,
-  onDateChange,
-  maxDate,
-  isToday,
-}: {
-  isLoading: boolean;
-  onRefresh: () => void;
-  lastUpdated: Date | null;
-  period: TrendyolPeriod;
-  onPeriodChange: (p: TrendyolPeriod) => void;
-  selectedDate: string;
-  onDateChange: (v: string) => void;
-  maxDate: string;
-  isToday: boolean;
-}) {
-  const dateLabel = selectedDate
-    ? parseDateInputValue(selectedDate).toLocaleDateString("tr-TR", {
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-      })
-    : "";
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <div
-        className="flex items-center gap-2 text-sm text-muted-foreground"
-        suppressHydrationWarning
-      >
-        <CalendarDays className="h-4 w-4" />
-        <span className="font-medium text-foreground">{dateLabel}</span>
-        {lastUpdated && (
-          <span className="hidden text-xs sm:inline" suppressHydrationWarning>
-            · {lastUpdated.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}
-          </span>
-        )}
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <label className="inline-flex h-8 items-center gap-2 rounded-md border bg-background px-2.5 text-xs font-medium shadow-xs">
-          <input
-            type="date"
-            value={selectedDate}
-            max={maxDate}
-            onChange={(e) => onDateChange(e.target.value)}
-            disabled={isLoading}
-            className="bg-transparent outline-none tabular-nums disabled:opacity-50"
-          />
-          {!isToday && (
-            <button
-              type="button"
-              onClick={() => onDateChange(maxDate)}
-              disabled={isLoading}
-              className="text-[10px] font-semibold uppercase tracking-wide text-orange-600 hover:text-orange-700"
-            >
-              bugün
-            </button>
-          )}
-        </label>
-
-        <Select
-          value={period}
-          onValueChange={(v) => onPeriodChange(v as TrendyolPeriod)}
-          disabled={isLoading}
-        >
-          <SelectTrigger size="sm" className="w-32">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="today">{isToday ? "Bugün" : "Seçili Gün"}</SelectItem>
-            <SelectItem value="week">{isToday ? "Son 7 Gün" : "7 Günlük"}</SelectItem>
-            <SelectItem value="month">{isToday ? "Son 30 Gün" : "30 Günlük"}</SelectItem>
-          </SelectContent>
-        </Select>
-
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onRefresh}
-          disabled={isLoading}
-          className="h-8 gap-1.5"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
-          <span className="hidden sm:inline">Yenile</span>
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-// ─── KPI card (minimum) ─────────────────────────────────────────────
-
-function Kpi({
+function KpiCard({
   label,
   value,
-  hint,
-  tone,
-  accent,
+  valueFormat,
+  isLoading,
+  icon: Icon,
+  footer,
 }: {
   label: string;
-  value: string | null;
-  hint: string;
-  tone?: "emerald";
-  accent?: boolean;
+  value: number | undefined;
+  valueFormat: "number" | "currency";
+  isLoading: boolean;
+  icon: React.ComponentType<{ className?: string }>;
+  footer: string;
 }) {
-  const valueClass =
-    tone === "emerald"
-      ? "text-emerald-700"
-      : accent
-        ? "text-orange-700"
-        : "text-foreground";
+  const display =
+    value === undefined
+      ? "—"
+      : valueFormat === "currency"
+        ? formatCurrency(value)
+        : value.toLocaleString("tr-TR");
+
   return (
-    <Card size="sm">
-      <CardHeader>
-        <CardDescription className="text-xs">{label}</CardDescription>
-        {value === null ? (
-          <Skeleton className="mt-1 h-7 w-24" />
-        ) : (
-          <CardTitle
-            className={`text-2xl font-semibold tabular-nums tracking-tight ${valueClass}`}
-          >
-            {value}
-          </CardTitle>
-        )}
+    <Card>
+      <CardHeader className="grid-cols-[1fr_auto]">
+        <CardDescription className="text-sm font-medium text-muted-foreground">
+          {label}
+        </CardDescription>
+        <Icon className="size-4 text-muted-foreground" />
       </CardHeader>
-      <CardContent>
-        {value === null ? (
-          <Skeleton className="h-3 w-20" />
+      <CardContent className="space-y-1">
+        {isLoading ? (
+          <Skeleton className="h-8 w-28" />
         ) : (
-          <p className="text-xs text-muted-foreground">{hint}</p>
+          <p className="text-2xl font-bold tabular-nums tracking-tight">
+            {display}
+          </p>
+        )}
+        {isLoading ? (
+          <Skeleton className="h-3 w-24" />
+        ) : (
+          <p className="text-xs text-muted-foreground">{footer}</p>
         )}
       </CardContent>
     </Card>
   );
 }
 
-// ─── Hourly chart (tek area, sade) ──────────────────────────────────
+// ─── Hourly bar chart ──────────────────────────────────────────────
 
 const hourlyChartConfig = {
   orders: {
     label: "Sipariş",
-    color: "rgb(249 115 22)",
+    color: "var(--chart-2)",
   },
 } satisfies ChartConfig;
 
@@ -506,8 +470,8 @@ function HourlyChart({
 
   if (total === 0) {
     return (
-      <div className="flex h-56 items-center justify-center">
-        <EmptyState icon={Flame} text="Bu dönemde sipariş yok" />
+      <div className="flex h-64 items-center justify-center">
+        <EmptyState icon={ShoppingBag} text="Bu dönemde sipariş yok" />
       </div>
     );
   }
@@ -519,34 +483,29 @@ function HourlyChart({
     revenue: Math.round(h.revenue),
   }));
 
-  const maxOrders = Math.max(1, ...data.map((d) => d.orders));
-
   return (
-    <ChartContainer config={hourlyChartConfig} className="aspect-auto h-56 w-full">
-      <AreaChart data={data} margin={{ left: 4, right: 12, top: 24, bottom: 0 }}>
-        <defs>
-          <linearGradient id="fillOrders" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor="rgb(249 115 22)" stopOpacity={0.5} />
-            <stop offset="95%" stopColor="rgb(249 115 22)" stopOpacity={0.05} />
-          </linearGradient>
-        </defs>
-        <CartesianGrid vertical={false} strokeDasharray="3 3" strokeOpacity={0.4} />
+    <ChartContainer config={hourlyChartConfig} className="aspect-auto h-64 w-full">
+      <BarChart data={data} margin={{ left: 4, right: 8, top: 8, bottom: 0 }}>
+        <CartesianGrid vertical={false} strokeDasharray="3 3" strokeOpacity={0.3} />
         <XAxis
           dataKey="hour"
-          ticks={[0, 6, 12, 18, 23]}
-          tickFormatter={(h) => `${String(h).padStart(2, "0")}:00`}
+          ticks={[0, 4, 8, 12, 16, 20, 23]}
+          tickFormatter={(h) => `${String(h).padStart(2, "0")}`}
           axisLine={false}
           tickLine={false}
           tickMargin={8}
           fontSize={11}
         />
-        <YAxis hide domain={[0, Math.ceil(maxOrders * 1.25)]} />
+        <YAxis
+          axisLine={false}
+          tickLine={false}
+          tickMargin={4}
+          fontSize={11}
+          width={28}
+          allowDecimals={false}
+        />
         <ChartTooltip
-          cursor={{
-            stroke: "rgb(249 115 22)",
-            strokeOpacity: 0.4,
-            strokeDasharray: "3 3",
-          }}
+          cursor={{ fill: "var(--muted)", opacity: 0.5 }}
           content={
             <ChartTooltipContent
               labelFormatter={(_, payload) => payload?.[0]?.payload?.label ?? ""}
@@ -557,88 +516,218 @@ function HourlyChart({
                   "Sipariş",
                 ];
               }}
-              indicator="line"
+              indicator="dot"
             />
           }
         />
-        <Area
+        <Bar
           dataKey="orders"
-          type="natural"
-          stroke="rgb(249 115 22)"
-          strokeWidth={2}
-          fill="url(#fillOrders)"
+          fill="var(--color-orders)"
+          radius={[4, 4, 0, 0]}
         />
-      </AreaChart>
+      </BarChart>
     </ChartContainer>
   );
 }
 
-// ─── Finance flow (sade liste) ──────────────────────────────────────
+// ─── Recent orders (avatar list, shadcn dashboard-01 Recent Sales) ─
 
-function FinanceFlow({ finance }: { finance: TrendyolDashboardStats["finance"] }) {
-  const rows: { label: string; value: number; negative?: boolean }[] = [
-    { label: "Brüt Satış", value: finance.grossSales },
-    { label: "İndirim", value: finance.totalDiscount, negative: true },
-    { label: "Kupon", value: finance.totalCoupon, negative: true },
-    { label: "İade", value: finance.totalRefund, negative: true },
-    { label: "Komisyon", value: finance.totalCommission, negative: true },
-  ];
+function RecentOrdersList({
+  orders,
+}: {
+  orders: TrendyolDashboardStats["recentOrders"];
+}) {
+  return (
+    <ul className="space-y-5">
+      {orders.slice(0, 6).map((o) => {
+        const status = STATUS_LABEL[o.status];
+        return (
+          <li key={o.id} className="flex items-center gap-3">
+            <div
+              className="flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-foreground/80"
+              style={{ background: "var(--muted)" }}
+            >
+              {initials(o.customerName)}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">{o.customerName}</p>
+              <p className="text-xs text-muted-foreground">
+                #{o.orderNumber} · {status?.label ?? o.status}
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-sm font-semibold tabular-nums">
+                {formatCurrency(o.total)}
+              </p>
+              {o.netRevenue !== undefined && (
+                <p className="text-[10px] tabular-nums text-muted-foreground">
+                  net {formatCurrency(o.netRevenue)}
+                </p>
+              )}
+            </div>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+// ─── Order status donut ────────────────────────────────────────────
+
+function OrderStatsGauge({
+  items,
+  total,
+}: {
+  items: { status: string; count: number }[];
+  total: number;
+}) {
+  if (items.length === 0 || total === 0) {
+    return (
+      <div className="flex h-48 items-center justify-center">
+        <EmptyState icon={ShoppingBag} text="Bu dönemde sipariş yok" />
+      </div>
+    );
+  }
+
+  const segments = items
+    .map((i) => ({
+      key: i.status,
+      name: STATUS_LABEL[i.status]?.label ?? i.status,
+      value: i.count,
+      cssVar: STATUS_LABEL[i.status]?.cssVar ?? "var(--muted-foreground)",
+      pct: (i.count / total) * 100,
+    }))
+    .sort((a, b) => b.value - a.value);
+
+  const deliveredPct =
+    ((items.find((i) => i.status === "Delivered")?.count ?? 0) / total) * 100;
 
   return (
-    <div className="space-y-1.5">
-      {rows.map((r) => (
-        <div
-          key={r.label}
-          className="flex items-center justify-between py-1.5 text-sm"
-        >
-          <span className="text-muted-foreground">{r.label}</span>
-          <span
-            className={`font-medium tabular-nums ${
-              r.negative && r.value > 0 ? "text-rose-600" : "text-foreground"
-            }`}
+    <div className="space-y-3">
+      {/* Donut chart (sabit yükseklikli wrapper → recharts collapse riski yok) */}
+      <ChartContainer
+        config={{}}
+        className="mx-auto aspect-square h-48 w-full max-w-50"
+      >
+        <PieChart>
+          <ChartTooltip
+            content={
+              <ChartTooltipContent
+                hideLabel
+                formatter={(value, name) => [`${value} sipariş`, String(name)]}
+              />
+            }
+          />
+          <Pie
+            data={segments}
+            dataKey="value"
+            nameKey="name"
+            innerRadius={55}
+            outerRadius={80}
+            paddingAngle={2}
+            strokeWidth={0}
           >
-            {r.negative && r.value > 0 ? "−" : ""}
-            {formatCurrency(r.value)}
-          </span>
-        </div>
-      ))}
-      <Separator className="my-2" />
-      <div className="flex items-center justify-between py-1">
-        <span className="text-sm font-semibold">Net Hakediş</span>
-        <span className="text-lg font-bold tabular-nums text-emerald-700">
-          {formatCurrency(finance.netRevenue)}
+            {segments.map((s) => (
+              <Cell key={s.key} fill={s.cssVar} />
+            ))}
+            <Label
+              content={({ viewBox }) => {
+                if (!viewBox || !("cx" in viewBox) || !("cy" in viewBox)) return null;
+                const cx = viewBox.cx ?? 0;
+                const cy = viewBox.cy ?? 0;
+                return (
+                  <text
+                    x={cx}
+                    y={cy}
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                  >
+                    <tspan
+                      x={cx}
+                      y={cy - 6}
+                      className="fill-foreground text-2xl font-bold tabular-nums"
+                    >
+                      {total.toLocaleString("tr-TR")}
+                    </tspan>
+                    <tspan
+                      x={cx}
+                      y={cy + 14}
+                      className="fill-muted-foreground text-[11px]"
+                    >
+                      sipariş
+                    </tspan>
+                  </text>
+                );
+              }}
+            />
+          </Pie>
+        </PieChart>
+      </ChartContainer>
+
+      <div className="flex items-center justify-center gap-1 text-xs">
+        <span className="text-muted-foreground">Teslim oranı</span>
+        <span className="inline-flex items-center gap-0.5 font-medium text-foreground">
+          <ArrowUpRight className="size-3" />
+          {deliveredPct.toFixed(1)}%
         </span>
       </div>
+
+      <ul className="space-y-1.5">
+        {segments.map((s) => (
+          <li key={s.key} className="flex items-center gap-2 text-xs">
+            <span
+              className="size-2 shrink-0 rounded-sm"
+              style={{ background: s.cssVar }}
+            />
+            <span className="min-w-0 flex-1 truncate text-muted-foreground">
+              {s.name}
+            </span>
+            <span className="tabular-nums text-muted-foreground">
+              {s.pct.toFixed(0)}%
+            </span>
+            <span className="w-6 text-right font-medium tabular-nums">
+              {s.value}
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
 
-// ─── Status list ────────────────────────────────────────────────────
+// ─── Top products ──────────────────────────────────────────────────
 
-function StatusList({ items }: { items: { status: string; count: number }[] }) {
-  if (items.length === 0) return <EmptyState icon={Flame} text="Henüz veri yok" />;
-  const total = items.reduce((s, i) => s + i.count, 0);
+function TopProductsBlock({
+  products,
+}: {
+  products: TrendyolDashboardStats["topProducts"];
+}) {
+  if (products.length === 0) {
+    return <EmptyState icon={ShoppingBag} text="Henüz veri yok" />;
+  }
+
+  const top5 = [...products].sort((a, b) => b.revenue - a.revenue).slice(0, 5);
+  const maxQty = Math.max(...top5.map((p) => p.quantity), 1);
+
   return (
     <ul className="space-y-3">
-      {items.map((i) => {
-        const cfg = STATUS_LABEL[i.status];
-        const pct = total > 0 ? (i.count / total) * 100 : 0;
+      {top5.map((p, i) => {
+        const pct = (p.quantity / maxQty) * 100;
         return (
-          <li key={i.status} className="space-y-1">
+          <li key={p.name} className="space-y-1.5">
             <div className="flex items-center justify-between gap-2 text-sm">
-              <div className="flex items-center gap-2">
-                <span className={`h-2 w-2 rounded-full ${cfg?.dot ?? "bg-muted-foreground"}`} />
-                <span className="font-medium">{cfg?.label ?? i.status}</span>
-              </div>
-              <div className="flex items-center gap-2 tabular-nums">
-                <span className="text-xs text-muted-foreground">%{pct.toFixed(0)}</span>
-                <span className="text-sm font-semibold">{i.count}</span>
-              </div>
+              <span className="min-w-0 truncate font-medium">{p.name}</span>
+              <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                ×{p.quantity}
+              </span>
             </div>
-            <div className="h-1 bg-muted rounded-full overflow-hidden">
+            <div className="h-1.5 overflow-hidden rounded-full bg-muted">
               <div
-                className="h-full rounded-full bg-orange-500 transition-all"
-                style={{ width: `${Math.max(pct, 2)}%` }}
+                className="h-full rounded-full transition-all"
+                style={{
+                  width: `${Math.max(pct, 4)}%`,
+                  background: `var(--chart-${(i % 5) + 1})`,
+                }}
               />
             </div>
           </li>
@@ -648,115 +737,72 @@ function StatusList({ items }: { items: { status: string; count: number }[] }) {
   );
 }
 
-// ─── Orders list (mobile-friendly: table on lg, cards on mobile) ───
+// ─── Finance flow ──────────────────────────────────────────────────
 
-function OrdersList({ orders }: { orders: TrendyolDashboardStats["recentOrders"] }) {
+function FinanceFlow({ finance }: { finance: TrendyolDashboardStats["finance"] }) {
+  const max = Math.max(
+    finance.grossSales,
+    finance.totalDiscount,
+    finance.totalCoupon,
+    finance.totalRefund,
+    finance.totalCommission,
+    finance.netRevenue,
+    1,
+  );
+  const rows: {
+    label: string;
+    value: number;
+    cssVar: string;
+    negative?: boolean;
+  }[] = [
+    { label: "Brüt Satış",     value: finance.grossSales,      cssVar: "var(--chart-1)" },
+    { label: "İndirim",        value: finance.totalDiscount,   cssVar: "var(--chart-3)", negative: true },
+    { label: "Kupon",          value: finance.totalCoupon,     cssVar: "var(--chart-4)", negative: true },
+    { label: "İade",           value: finance.totalRefund,     cssVar: "var(--destructive)", negative: true },
+    { label: "Komisyon",       value: finance.totalCommission, cssVar: "var(--chart-2)", negative: true },
+    { label: "Net Hakediş",    value: finance.netRevenue,      cssVar: "var(--chart-5)" },
+  ];
+
   return (
-    <>
-      {/* Mobile: card list */}
-      <div className="space-y-2 px-2 md:hidden">
-        {orders.map((o) => {
-          const cfg = STATUS_LABEL[o.status];
-          return (
-            <div
-              key={o.id}
-              className="rounded-md border bg-card p-3 text-sm"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-semibold tabular-nums">#{o.orderNumber}</span>
-                <Badge variant="outline" className="gap-1.5 font-medium">
-                  <span
-                    className={`h-1.5 w-1.5 rounded-full ${cfg?.dot ?? "bg-muted-foreground"}`}
-                  />
-                  {cfg?.label ?? o.status}
-                </Badge>
-              </div>
-              <p className="mt-1 text-foreground">{o.customerName}</p>
-              <div className="mt-2 flex items-center justify-between text-xs">
-                <Badge variant="secondary" className="font-medium">
-                  {o.paymentMethod}
-                </Badge>
-                <div className="tabular-nums">
-                  <span className="font-semibold">{formatCurrency(o.total)}</span>
-                  {o.netRevenue !== undefined && (
-                    <span className="ml-2 text-emerald-700">
-                      net {formatCurrency(o.netRevenue)}
-                    </span>
-                  )}
-                </div>
-              </div>
+    <ul className="space-y-3">
+      {rows.map((r, idx) => {
+        const pct = (r.value / max) * 100;
+        const isLast = idx === rows.length - 1;
+        return (
+          <li key={r.label} className="space-y-1.5">
+            <div className="flex items-center justify-between gap-2 text-sm">
+              <span className="text-xs font-medium text-muted-foreground">
+                {r.label}
+              </span>
+              <span
+                className={`text-sm font-semibold tabular-nums ${
+                  isLast ? "text-foreground" : ""
+                }`}
+              >
+                {r.negative && r.value > 0 ? "−" : ""}
+                {formatCurrency(r.value)}
+              </span>
             </div>
-          );
-        })}
-      </div>
-
-      {/* Desktop: table */}
-      <div className="hidden overflow-x-auto md:block">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b text-xs text-muted-foreground">
-              <th className="py-2.5 px-3 text-left font-medium">Sipariş</th>
-              <th className="py-2.5 px-3 text-left font-medium">Müşteri</th>
-              <th className="py-2.5 px-3 text-left font-medium">Durum</th>
-              <th className="py-2.5 px-3 text-right font-medium">Tutar</th>
-              <th className="py-2.5 px-3 text-right font-medium">Net</th>
-            </tr>
-          </thead>
-          <tbody>
-            {orders.map((o) => {
-              const cfg = STATUS_LABEL[o.status];
-              return (
-                <tr
-                  key={o.id}
-                  className="border-b last:border-b-0 hover:bg-muted/40 transition-colors"
-                >
-                  <td className="py-2.5 px-3 font-semibold tabular-nums">
-                    #{o.orderNumber}
-                  </td>
-                  <td className="py-2.5 px-3">
-                    <div>{o.customerName}</div>
-                    <div className="text-xs text-muted-foreground">{o.paymentMethod}</div>
-                  </td>
-                  <td className="py-2.5 px-3">
-                    <Badge variant="outline" className="gap-1.5 font-medium">
-                      <span
-                        className={`h-1.5 w-1.5 rounded-full ${cfg?.dot ?? "bg-muted-foreground"}`}
-                      />
-                      {cfg?.label ?? o.status}
-                    </Badge>
-                  </td>
-                  <td className="py-2.5 px-3 text-right font-semibold tabular-nums">
-                    {formatCurrency(o.total)}
-                  </td>
-                  <td className="py-2.5 px-3 text-right font-semibold tabular-nums text-emerald-700">
-                    {o.netRevenue !== undefined ? formatCurrency(o.netRevenue) : "—"}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </>
+            <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full transition-all"
+                style={{
+                  width: `${Math.max(pct, 2)}%`,
+                  background: r.cssVar,
+                }}
+              />
+            </div>
+            {idx === 4 && <Separator className="my-1" />}
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
-// ─── Meal cards ─────────────────────────────────────────────────────
+// ─── Meal card list ────────────────────────────────────────────────
 
 type MealCardItem = TrendyolDashboardStats["mealCardBreakdown"][number];
-
-const MEAL_CARD_COLORS: Record<string, string> = {
-  Multinet: "bg-yellow-400",
-  "Sodexo / Pluxee": "bg-blue-500",
-  Metropol: "bg-red-500",
-  Ticket: "bg-orange-500",
-  Setcard: "bg-emerald-500",
-  Edenred: "bg-rose-500",
-  TokenFlex: "bg-indigo-500",
-  Paye: "bg-cyan-500",
-  SmartPay: "bg-fuchsia-500",
-  Diğer: "bg-muted-foreground",
-};
 
 function MealCardList({ items }: { items: MealCardItem[] }) {
   if (items.length === 0) {
@@ -765,24 +811,23 @@ function MealCardList({ items }: { items: MealCardItem[] }) {
   const total = items.reduce((s, i) => s + i.revenue, 0);
   return (
     <ul className="space-y-3">
-      {items.map((i) => {
+      {items.map((i, idx) => {
         const pct = total > 0 ? (i.revenue / total) * 100 : 0;
-        const color = MEAL_CARD_COLORS[i.brand] ?? "bg-muted-foreground";
         return (
-          <li key={i.brand} className="space-y-1">
+          <li key={i.brand} className="space-y-1.5">
             <div className="flex items-center justify-between gap-2 text-sm">
-              <div className="flex min-w-0 items-center gap-2">
-                <span className={`h-2 w-2 rounded-full shrink-0 ${color}`} />
-                <span className="truncate font-medium">{i.brand}</span>
-              </div>
-              <span className="text-sm font-semibold tabular-nums">
+              <span className="font-medium">{i.brand}</span>
+              <span className="font-semibold tabular-nums">
                 {formatCurrency(i.revenue)}
               </span>
             </div>
-            <div className="h-1 bg-muted rounded-full overflow-hidden">
+            <div className="h-1.5 overflow-hidden rounded-full bg-muted">
               <div
-                className={`h-full rounded-full transition-all ${color}`}
-                style={{ width: `${Math.max(pct, 2)}%` }}
+                className="h-full rounded-full transition-all"
+                style={{
+                  width: `${Math.max(pct, 2)}%`,
+                  background: `var(--chart-${(idx % 5) + 1})`,
+                }}
               />
             </div>
           </li>
@@ -791,68 +836,3 @@ function MealCardList({ items }: { items: MealCardItem[] }) {
     </ul>
   );
 }
-
-// ─── Top products ──────────────────────────────────────────────────
-
-type TopProduct = TrendyolDashboardStats["topProducts"][number];
-type ProductSort = "quantity" | "revenue";
-
-function TopProductsList({ products }: { products: TopProduct[] }) {
-  const [sortBy, setSortBy] = useState<ProductSort>("quantity");
-
-  const sorted = useMemo(
-    () => [...products].sort((a, b) => b[sortBy] - a[sortBy]),
-    [products, sortBy],
-  );
-
-  if (products.length === 0) {
-    return <EmptyState icon={ShoppingBag} text="Henüz veri yok" />;
-  }
-
-  const maxValue = sorted[0]?.[sortBy] ?? 1;
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-end">
-        <Select value={sortBy} onValueChange={(v) => setSortBy(v as ProductSort)}>
-          <SelectTrigger size="sm" className="w-24 h-7 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="quantity">Adet</SelectItem>
-            <SelectItem value="revenue">Ciro</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <ul className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
-        {sorted.slice(0, 10).map((p, i) => {
-          const pct = maxValue > 0 ? (p[sortBy] / maxValue) * 100 : 0;
-          return (
-            <li
-              key={p.name}
-              className="grid grid-cols-[1.5rem_minmax(0,1fr)_auto] items-center gap-3 text-sm"
-            >
-              <span className="text-xs font-semibold tabular-nums text-muted-foreground">
-                {i + 1}.
-              </span>
-              <div className="min-w-0">
-                <div className="mb-1 truncate font-medium">{p.name}</div>
-                <div className="h-1 bg-muted rounded-full overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-orange-500 transition-all"
-                    style={{ width: `${Math.max(pct, 2)}%` }}
-                  />
-                </div>
-              </div>
-              <span className="text-sm font-semibold tabular-nums shrink-0">
-                {sortBy === "quantity" ? `×${p.quantity}` : formatCurrency(p.revenue)}
-              </span>
-            </li>
-          );
-        })}
-      </ul>
-    </div>
-  );
-}
-
