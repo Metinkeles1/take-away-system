@@ -1,5 +1,4 @@
 // Dashboard primitives için ortak formatlama yardımcıları.
-// MetricStrip, DataTable, ChartCard hepsi buradan okur.
 
 export type MetricFormat = "currency" | "int" | "pct" | "compact";
 
