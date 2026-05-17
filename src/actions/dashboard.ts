@@ -5,6 +5,7 @@ import OrderModel from "@/models/Order";
 import CustomerModel from "@/models/Customer";
 import ProductModel from "@/models/Product";
 import { type OrderSource } from "@/types";
+import { istanbulDayStart, istanbulDayStartDaysAgo } from "@/lib/datetime";
 
 // "all" = filtre yok; OrderSource = sadece o kaynak.
 // "manual" filtresi eski (source alanı olmayan) kayıtları da kapsar.
@@ -114,10 +115,13 @@ export async function getDashboardStats(
 ): Promise<DashboardStats> {
   await connectDB();
 
-  const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const sevenDaysAgo = new Date(todayStart);
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+  // Vercel UTC çalışır → Istanbul gününe göre normalize. Detay: @/lib/datetime
+  const todayStart = istanbulDayStart();
+  const sevenDaysAgo = istanbulDayStartDaysAgo(6);
+  // "Aktif" sayılan açık siparişler için yaş tavanı. 48 saatten eski hâlâ
+  // pending olan kayıtlar büyük ihtimalle stale; "aktif" göstermek panel'i
+  // şişiriyordu.
+  const activeMaxAgeStart = new Date(Date.now() - 48 * 60 * 60 * 1000);
 
   // Kaynak filtresine göre siparişleri çek
   const allOrders = await OrderModel.find(buildSourceFilter(source))
@@ -132,9 +136,14 @@ export async function getDashboardStats(
   // ─── Genel istatistikler ─────────────────────────────────────
   const todayOrderCount = todayOrders.length;
   const todayRevenue = todayOrders.reduce((s, o) => s + o.total, 0);
-  const activeOrderCount = allOrders.filter(
-    (o) => o.status === "pending" || o.status === "preparing" || o.status === "on-the-way",
-  ).length;
+  const isActiveStatus = (s: string) =>
+    s === "pending" || s === "preparing" || s === "on-the-way";
+  const activeOrderList = allOrders.filter(
+    (o) =>
+      isActiveStatus(o.status as string) &&
+      new Date((o as unknown as { createdAt: Date }).createdAt) >= activeMaxAgeStart,
+  );
+  const activeOrderCount = activeOrderList.length;
   const totalOrderCount = nonCancelled.length;
   const totalRevenue = nonCancelled.reduce((s, o) => s + o.total, 0);
 
@@ -223,10 +232,8 @@ export async function getDashboardStats(
   }
 
   // ─── Aktif siparişler ───────────────────────────────────────
-  const activeOrders = allOrders
-    .filter(
-      (o) => o.status === "pending" || o.status === "preparing" || o.status === "on-the-way",
-    )
+  // Yukarıdaki activeOrderList'i kullan — 48sa filtresi tutarlı kalsın.
+  const activeOrders = activeOrderList
     .slice(0, 10)
     .map((o) => ({
       id: o.id,
