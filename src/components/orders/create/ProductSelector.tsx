@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useOrderStore } from "@/store/orderStore";
 import { useMenuStore } from "@/store/menuStore";
 import { MENU_CATEGORIES } from "@/data/menu";
@@ -35,17 +35,24 @@ export default function ProductSelector() {
     void loadMenu();
   }, [loadMenu]);
 
-  const filteredItems = menuItems.filter((item) => {
-    const matchesCategory = activeCategory === "all" || item.category === activeCategory;
-    const matchesSearch =
-      search === "" || item.name.toLowerCase().includes(search.toLowerCase());
-    return matchesCategory && matchesSearch;
-  });
+  // Search'i normalize edip filter loop'u dışına çıkar — her item için lower oluşmasın
+  const filteredItems = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return menuItems.filter((item) => {
+      if (activeCategory !== "all" && item.category !== activeCategory) return false;
+      if (q && !item.name.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [menuItems, activeCategory, search]);
 
-  const getItemTotalQuantity = (productId: string) =>
-    draft.items
-      .filter((i) => i.product.id === productId)
-      .reduce((sum, i) => sum + i.quantity, 0);
+  // Sepetteki ürünlerin toplam adedi — kart başına filter+reduce yerine O(1) lookup
+  const cartQuantities = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const i of draft.items) {
+      m.set(i.product.id, (m.get(i.product.id) ?? 0) + i.quantity);
+    }
+    return m;
+  }, [draft.items]);
 
   const isPortionable = (product: Product) =>
     PORTIONABLE_CATEGORIES.includes(product.category);
@@ -131,7 +138,7 @@ export default function ProductSelector() {
         ) : (
           <div className={GRID_CLASS}>
             {filteredItems.map((product) => {
-              const qty = getItemTotalQuantity(product.id);
+              const qty = cartQuantities.get(product.id) ?? 0;
               const portionable = isPortionable(product);
               return (
                 <ProductSelectCard
@@ -258,6 +265,9 @@ function ProductSelectCard({
       }}
       className={cn(
         "group relative flex flex-col rounded-xl bg-card ring-1 overflow-hidden transition-all min-w-0",
+        // Off-screen kartları tarayıcı render etmiyor — uzun grid'lerde scroll çok rahat.
+        // contain-intrinsic-size: kart yokken yer ayrılacak yükseklik (yaklaşık).
+        "[content-visibility:auto] [contain-intrinsic-size:auto_220px]",
         qty > 0
           ? "ring-2 ring-primary shadow-sm"
           : "ring-foreground/8 hover:ring-foreground/25 hover:shadow-sm",
