@@ -10,10 +10,14 @@ interface Props {
 
 export default async function CorporateDetailPage({ params }: Props) {
   const { id } = await params;
-  const corporate = await getCorporateById(id);
+
+  // İki bağımsız sorgu paralel — toplam RTT ~%50 azalır
+  const [corporate, periods] = await Promise.all([
+    getCorporateById(id),
+    getAvailablePeriods(id),
+  ]);
   if (!corporate) notFound();
 
-  const periods = await getAvailablePeriods(id);
   const initialPeriod = currentPeriod();
   const periodList = periods.includes(initialPeriod)
     ? periods

@@ -40,6 +40,12 @@ const VoucherSchema = new Schema(
   { timestamps: true, versionKey: false },
 );
 
+// Compound indexler — sık kullanılan sorgu pattern'larını kapsar:
+// 1) getVouchersByCorporate + getPeriodStats: { corporateId, date in range } sıralı date desc
+// 2) getCorporatesWithBalance: { paid:false } grouped by corporateId — index'ten direkt çekebilir
+VoucherSchema.index({ corporateId: 1, date: -1 });
+VoucherSchema.index({ paid: 1, corporateId: 1 });
+
 if (process.env.NODE_ENV !== "production" && mongoose.models.Voucher) {
   mongoose.deleteModel("Voucher");
 }

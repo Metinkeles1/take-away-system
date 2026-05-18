@@ -85,19 +85,21 @@ export interface CorporateWithBalance extends Corporate {
 
 export async function getCorporatesWithBalance(): Promise<CorporateWithBalance[]> {
   await connectDB();
-  const corporates = await getCorporates();
-  if (corporates.length === 0) return [];
 
-  const agg = await VoucherModel.aggregate<{ _id: string; openBalance: number }>([
-    {
-      $match: {
-        paid: false,
-        corporateId: { $in: corporates.map((c) => c.id) },
-      },
-    },
-    { $group: { _id: "$corporateId", openBalance: { $sum: "$total" } } },
+  // Tüm açık bakiyeleri tek pass'te al — kurumsallarla paralel
+  // (corporateId IN [...] filtresi yapmak yerine tüm açık fişleri toplamak
+  // büyük corporates kümesinde daha hızlı; sonra Map ile join.)
+  const [corporates, agg] = await Promise.all([
+    CorporateModel.find().sort({ updatedAt: -1 }).lean(),
+    VoucherModel.aggregate<{ _id: string; openBalance: number }>([
+      { $match: { paid: false } },
+      { $group: { _id: "$corporateId", openBalance: { $sum: "$total" } } },
+    ]),
   ]);
 
   const balanceMap = new Map(agg.map((a) => [a._id, a.openBalance]));
-  return corporates.map((c) => ({ ...c, openBalance: balanceMap.get(c.id) ?? 0 }));
+  return corporates.map((d) => {
+    const c = docToCorporate(d as Record<string, unknown>);
+    return { ...c, openBalance: balanceMap.get(c.id) ?? 0 };
+  });
 }

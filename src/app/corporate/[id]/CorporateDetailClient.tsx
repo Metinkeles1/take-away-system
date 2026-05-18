@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
   getVouchersByCorporate,
@@ -64,7 +64,9 @@ export default function CorporateDetailClient({
   const [periods, setPeriods] = useState<string[]>(availablePeriods);
   const [vouchers, setVouchers] = useState<Voucher[]>([]);
   const [stats, setStats] = useState<PeriodStats>({ count: 0, total: 0, paid: 0, unpaid: 0 });
-  const [isLoading, setIsLoading] = useState(true);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const hasDataRef = useRef(false);
 
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editingPerPerson, setEditingPerPerson] = useState<Voucher | null>(null);
@@ -74,7 +76,9 @@ export default function CorporateDetailClient({
   const [showStatement, setShowStatement] = useState(false);
 
   const load = useCallback(async () => {
-    setIsLoading(true);
+    // İlk açılışta skeleton, sonraki refetch'lerde eski veri ekranda kalır.
+    if (hasDataRef.current) setIsRefreshing(true);
+    else setIsInitialLoading(true);
     try {
       const [vs, st] = await Promise.all([
         getVouchersByCorporate(corporate.id, { period }),
@@ -82,8 +86,10 @@ export default function CorporateDetailClient({
       ]);
       setVouchers(vs);
       setStats(st);
+      hasDataRef.current = true;
     } finally {
-      setIsLoading(false);
+      setIsInitialLoading(false);
+      setIsRefreshing(false);
     }
   }, [corporate.id, period]);
 
@@ -227,7 +233,12 @@ export default function CorporateDetailClient({
 
       {/* Action bar */}
       <div className="flex items-center justify-between gap-2 mb-3 shrink-0">
-        <p className="text-xs text-muted-foreground">{formatPeriodLabel(period)} dönemi</p>
+        <p className="text-xs text-muted-foreground inline-flex items-center gap-2">
+          {formatPeriodLabel(period)} dönemi
+          {isRefreshing && (
+            <span className="inline-block size-1.5 rounded-full bg-cyan-500 animate-pulse" />
+          )}
+        </p>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => setShowStatement(true)}>
             <Printer className="mr-2 h-4 w-4" />
@@ -249,7 +260,7 @@ export default function CorporateDetailClient({
       {/* Voucher list */}
       <div className="flex-1 min-h-0 overflow-y-auto scrollbar-hide pt-px px-px pb-2">
         <VoucherList
-          isLoading={isLoading}
+          isLoading={isInitialLoading}
           vouchers={vouchers}
           period={period}
           onTogglePaid={handleTogglePaid}
