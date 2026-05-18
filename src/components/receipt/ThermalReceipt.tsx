@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useId, useMemo } from "react";
+import React, { useEffect, useId, useState } from "react";
 import { type OrderDraft } from "@/types";
 import { formatCurrency, formatPhone } from "@/lib/utils";
 
@@ -109,12 +109,20 @@ const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptProps>(
     const uniqueId = useId();
     const receiptId = `thermal-receipt-${uniqueId.replace(/:/g, "")}`;
 
-    const printDate = useMemo(() => new Date(), []);
-    const dateStr = printDate.toLocaleDateString("tr-TR");
-    const timeStr = printDate.toLocaleTimeString("tr-TR", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+    // Tarih/saat sadece client'ta hesaplanır — SSR'da new Date() çağırırsak
+    // sunucu vs. istemci farklı saatte render edip hydration mismatch oluşur
+    // (özellikle gece yarısı sınırını geçince gün de farklı çıkar).
+    const [printDate, setPrintDate] = useState<Date | null>(null);
+    useEffect(() => {
+      setPrintDate(new Date());
+    }, []);
+    const dateStr = printDate ? printDate.toLocaleDateString("tr-TR") : "";
+    const timeStr = printDate
+      ? printDate.toLocaleTimeString("tr-TR", {
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : "";
 
     return (
       <>
