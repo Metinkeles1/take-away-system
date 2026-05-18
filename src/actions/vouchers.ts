@@ -110,7 +110,10 @@ export async function getAvailablePeriods(corporateId: string): Promise<string[]
 
 export async function createVoucher(
   input: VoucherInput,
-): Promise<{ ok: boolean; error?: string; voucherNumber?: number; voucherId?: string }> {
+): Promise<
+  | { ok: true; voucherNumber: number; voucherId: string; voucher: Voucher }
+  | { ok: false; error: string }
+> {
   try {
     await connectDB();
 
@@ -125,7 +128,9 @@ export async function createVoucher(
 
     const voucherNumber = await nextSequence("voucher");
     const id = crypto.randomUUID();
+    const now = new Date();
 
+    let voucher: Voucher;
     if (input.type === "per_person") {
       const pricePerPerson = input.pricePerPerson ?? corporate.pricePerPerson ?? 0;
       if (pricePerPerson <= 0) {
@@ -146,6 +151,22 @@ export async function createVoucher(
         note: input.note,
         paid: false,
       });
+
+      voucher = {
+        id,
+        voucherNumber,
+        corporateId: corporate.id,
+        corporateName: corporate.name,
+        billingType: "per_person",
+        date: input.date,
+        personCount: input.personCount,
+        pricePerPerson,
+        total,
+        note: input.note,
+        paid: false,
+        createdAt: now,
+        updatedAt: now,
+      };
     } else {
       if (!input.items.length) {
         return { ok: false, error: "En az bir ürün seçin." };
@@ -165,6 +186,21 @@ export async function createVoucher(
         note: input.note,
         paid: false,
       });
+
+      voucher = {
+        id,
+        voucherNumber,
+        corporateId: corporate.id,
+        corporateName: corporate.name,
+        billingType: "per_item",
+        date: input.date,
+        items: input.items,
+        total,
+        note: input.note,
+        paid: false,
+        createdAt: now,
+        updatedAt: now,
+      };
     }
 
     await CorporateModel.findOneAndUpdate(
@@ -175,7 +211,7 @@ export async function createVoucher(
     revalidatePath(`/corporate/${corporate.id}`);
     revalidatePath("/corporate");
 
-    return { ok: true, voucherNumber, voucherId: id };
+    return { ok: true, voucherNumber, voucherId: id, voucher };
   } catch (error) {
     console.error("[createVoucher]", error);
     return { ok: false, error: "Fiş oluşturulamadı." };

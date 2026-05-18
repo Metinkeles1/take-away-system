@@ -1,4 +1,7 @@
-import { memo, useEffect, useState } from "react";
+"use client";
+
+import { memo, useEffect, useRef, useState } from "react";
+import { useReactToPrint } from "react-to-print";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,6 +19,7 @@ import { type Corporate, type Voucher } from "@/types";
 import { createVoucher, updateVoucher } from "@/actions/vouchers";
 import { formatCurrency } from "@/lib/utils";
 import { toDateInputValue } from "@/lib/period";
+import VoucherReceipt from "@/components/receipt/VoucherReceipt";
 
 interface PerPersonInitial {
   personCount: number;
@@ -197,6 +201,26 @@ export const PerPersonVoucherDialog = memo(function PerPersonVoucherDialog({
   const isEdit = !!editing;
   const [date, setDate] = useState(toDateInputValue(new Date()));
   const [isSaving, setIsSaving] = useState(false);
+  const [printVoucher, setPrintVoucher] = useState<Voucher | null>(null);
+
+  const printRef = useRef<HTMLDivElement>(null);
+  const handlePrint = useReactToPrint({
+    contentRef: printRef,
+    documentTitle: printVoucher
+      ? `Fis-${printVoucher.voucherNumber}-${corporate.name}`
+      : "fis",
+    onAfterPrint: () => {
+      setPrintVoucher(null);
+      onOpenChange(false);
+      onSuccess();
+    },
+  });
+
+  useEffect(() => {
+    if (!printVoucher) return;
+    const t = setTimeout(() => handlePrint(), 50);
+    return () => clearTimeout(t);
+  }, [printVoucher, handlePrint]);
 
   useEffect(() => {
     if (!open) return;
@@ -247,7 +271,6 @@ export const PerPersonVoucherDialog = memo(function PerPersonVoucherDialog({
     pricePerPerson: number;
     note?: string;
   }) => {
-    const printWindow = window.open("about:blank", "_blank");
     setIsSaving(true);
     try {
       const result = await createVoucher({
@@ -256,20 +279,13 @@ export const PerPersonVoucherDialog = memo(function PerPersonVoucherDialog({
         date: new Date(date + "T12:00:00"),
         ...data,
       });
-      if (!result.ok || !result.voucherId) {
-        printWindow?.close();
+      if (!result.ok) {
         toast.error(result.error ?? "Fiş oluşturulamadı");
         return;
       }
       toast.success(`Fiş #${result.voucherNumber} oluşturuldu`);
-      const printUrl = `/corporate/${corporate.id}/voucher/${result.voucherId}/print`;
-      if (printWindow) {
-        printWindow.location.href = printUrl;
-      } else {
-        window.open(printUrl, "_blank");
-      }
-      onOpenChange(false);
-      onSuccess();
+      // Hidden receipt'i render et → effect print'i tetikleyecek → onAfterPrint kapatıp refresh edecek
+      setPrintVoucher(result.voucher);
     } finally {
       setIsSaving(false);
     }
@@ -306,6 +322,22 @@ export const PerPersonVoucherDialog = memo(function PerPersonVoucherDialog({
           submitLabel={isEdit ? "Kaydet" : "Fiş Oluştur"}
         />
       </DialogContent>
+
+      {/* Hidden print container — react-to-print iframe'e bu node'u kopyalar */}
+      <div
+        aria-hidden
+        style={{
+          position: "fixed",
+          left: -10000,
+          top: 0,
+          pointerEvents: "none",
+          opacity: 0,
+        }}
+      >
+        <div ref={printRef}>
+          {printVoucher && <VoucherReceipt voucher={printVoucher} />}
+        </div>
+      </div>
     </Dialog>
   );
 });

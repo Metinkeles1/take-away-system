@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useReactToPrint } from "react-to-print";
 import { useMenuStore } from "@/store/menuStore";
 import {
   type Corporate,
@@ -27,6 +28,7 @@ import {
 import { ArrowLeft, ShoppingCart, ChevronUp } from "lucide-react";
 import { toast } from "sonner";
 import { VisuallyHidden } from "radix-ui";
+import VoucherReceipt from "@/components/receipt/VoucherReceipt";
 import { ProductBrowser } from "../_components/ProductBrowser";
 import {
   VoucherCart,
@@ -61,6 +63,29 @@ export default function NewVoucherClient({
   const [isSaving, setIsSaving] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [hydratedFromVoucher, setHydratedFromVoucher] = useState(false);
+  const [printVoucher, setPrintVoucher] = useState<Voucher | null>(null);
+
+  const printRef = useRef<HTMLDivElement>(null);
+  const handlePrint = useReactToPrint({
+    contentRef: printRef,
+    documentTitle: printVoucher
+      ? `Fis-${printVoucher.voucherNumber}-${corporate.name}`
+      : "fis",
+    onAfterPrint: () => {
+      setPrintVoucher(null);
+      router.push(`/corporate/${corporate.id}`);
+    },
+  });
+
+  // Yeni fiş oluşturulup state'e set edildiğinde, receipt DOM'a yazılır,
+  // ardından bu effect print'i tetikler. setTimeout(0) iki nedenle gerekli:
+  // (1) recharts/portal gibi async render varsa garantiye almak,
+  // (2) ref'in current'ı kesin populate olduktan sonra çağırmak.
+  useEffect(() => {
+    if (!printVoucher) return;
+    const t = setTimeout(() => handlePrint(), 50);
+    return () => clearTimeout(t);
+  }, [printVoucher, handlePrint]);
 
   useEffect(() => {
     void loadMenu();
@@ -237,7 +262,6 @@ export default function NewVoucherClient({
       toast.error("En az bir ürün seçin");
       return;
     }
-    const printWindow = window.open("about:blank", "_blank");
     setIsSaving(true);
     try {
       const result = await createVoucher({
@@ -247,19 +271,13 @@ export default function NewVoucherClient({
         items: buildVoucherItems(),
         note: note.trim() || undefined,
       });
-      if (!result.ok || !result.voucherId) {
-        printWindow?.close();
+      if (!result.ok) {
         toast.error(result.error ?? "Fiş oluşturulamadı");
         return;
       }
       toast.success(`Fiş #${result.voucherNumber} oluşturuldu`);
-      const printUrl = `/corporate/${corporate.id}/voucher/${result.voucherId}/print`;
-      if (printWindow) {
-        printWindow.location.href = printUrl;
-      } else {
-        window.open(printUrl, "_blank");
-      }
-      router.push(`/corporate/${corporate.id}`);
+      // Hidden receipt'i render et → effect print'i tetikleyecek → onAfterPrint navigate edecek
+      setPrintVoucher(result.voucher);
     } finally {
       setIsSaving(false);
     }
@@ -362,6 +380,22 @@ export default function NewVoucherClient({
           {cart}
         </SheetContent>
       </Sheet>
+
+      {/* Hidden print container — react-to-print iframe'e bu node'u kopyalar */}
+      <div
+        aria-hidden
+        style={{
+          position: "fixed",
+          left: -10000,
+          top: 0,
+          pointerEvents: "none",
+          opacity: 0,
+        }}
+      >
+        <div ref={printRef}>
+          {printVoucher && <VoucherReceipt voucher={printVoucher} />}
+        </div>
+      </div>
     </main>
   );
 }
