@@ -21,7 +21,6 @@ function buildSourceFilter(source: DashboardSource): Record<string, unknown> {
 
 // ─── Dashboard veri tipleri ────────────────────────────────────────────────
 export interface DashboardStats {
-  // Genel
   todayOrderCount: number;
   todayRevenue: number;
   activeOrderCount: number;
@@ -30,7 +29,6 @@ export interface DashboardStats {
   totalCustomerCount: number;
   totalProductCount: number;
 
-  // Ödeme dağılımı (bugün)
   paymentBreakdown: {
     cash: number;
     card: number;
@@ -38,8 +36,6 @@ export interface DashboardStats {
     meal_card: number;
     iban: number;
   };
-
-  // Ödeme dağılımı (tüm zamanlar)
   paymentBreakdownAll: {
     cash: number;
     card: number;
@@ -48,19 +44,11 @@ export interface DashboardStats {
     iban: number;
   };
 
-  // En çok satan ürünler (tüm zamanlar, top 10)
   topProducts: { name: string; quantity: number; revenue: number }[];
-
-  // Kategori dağılımı
   categoryBreakdown: { category: string; label: string; quantity: number; revenue: number }[];
-
-  // Son 7 gün trend
   dailyTrend: { date: string; orders: number; revenue: number }[];
-
-  // Sipariş durum dağılımı
   statusBreakdown: Record<string, number>;
 
-  // Son siparişler (aktif olanlar)
   activeOrders: {
     id: string;
     orderNumber: number;
@@ -70,7 +58,6 @@ export interface DashboardStats {
     createdAt: Date;
   }[];
 
-  // Son 5 sipariş
   recentOrders: {
     id: string;
     orderNumber: number;
@@ -81,14 +68,12 @@ export interface DashboardStats {
     createdAt: Date;
   }[];
 
-  // En çok sipariş veren adresler
   topAddresses: {
     address: string;
     orderCount: number;
     revenue: number;
   }[];
 
-  // En çok tercih edilen menüler (detaylı)
   menuPreferences: {
     name: string;
     category: string;
@@ -96,6 +81,25 @@ export interface DashboardStats {
     quantity: number;
     revenue: number;
     orderCount: number;
+  }[];
+
+  hourlyDistribution: { hour: number; count: number; revenue: number }[];
+  revenueTrend: { date: string; orders: number; revenue: number }[];
+
+  monthlyTrend: {
+    month: string;
+    label: string;
+    orders: number;
+    revenue: number;
+    target: number;
+    customers: number;
+  }[];
+
+  regionBreakdown: {
+    district: string;
+    orderCount: number;
+    revenue: number;
+    avgBasket: number;
   }[];
 }
 
@@ -110,197 +114,353 @@ const CATEGORY_LABELS: Record<string, string> = {
   icecek: "İçecek",
 };
 
+const MONTH_LABELS = [
+  "Oca", "Şub", "Mar", "Nis", "May", "Haz",
+  "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara",
+];
+
+const PAYMENT_KEYS = ["cash", "card", "online", "meal_card", "iban"] as const;
+type PaymentKey = (typeof PAYMENT_KEYS)[number];
+
+const ISTANBUL_OFFSET_MS = 3 * 60 * 60 * 1000;
+
+// Tek seferlik string padding cache (en sık 1-12 ay/gün için)
+function pad2(n: number): string {
+  return n < 10 ? `0${n}` : `${n}`;
+}
+
 export async function getDashboardStats(
   source: DashboardSource = "all",
 ): Promise<DashboardStats> {
   await connectDB();
 
-  // Vercel UTC çalışır → Istanbul gününe göre normalize. Detay: @/lib/datetime
   const todayStart = istanbulDayStart();
-  const sevenDaysAgo = istanbulDayStartDaysAgo(6);
-  // "Aktif" sayılan açık siparişler için yaş tavanı. 48 saatten eski hâlâ
-  // pending olan kayıtlar büyük ihtimalle stale; "aktif" göstermek panel'i
-  // şişiriyordu.
-  const activeMaxAgeStart = new Date(Date.now() - 48 * 60 * 60 * 1000);
+  const todayStartMs = todayStart.getTime();
+  const sevenDaysAgoMs = istanbulDayStartDaysAgo(6).getTime();
+  const ninetyDaysAgoMs = istanbulDayStartDaysAgo(89).getTime();
+  const activeMaxAgeStartMs = Date.now() - 48 * 60 * 60 * 1000;
 
-  // Kaynak filtresine göre siparişleri çek
-  const allOrders = await OrderModel.find(buildSourceFilter(source))
-    .sort({ createdAt: -1 })
-    .lean();
-
-  const nonCancelled = allOrders.filter((o) => o.status !== "cancelled");
-  const todayOrders = nonCancelled.filter(
-    (o) => new Date((o as unknown as { createdAt: Date }).createdAt) >= todayStart,
-  );
-
-  // ─── Genel istatistikler ─────────────────────────────────────
-  const todayOrderCount = todayOrders.length;
-  const todayRevenue = todayOrders.reduce((s, o) => s + o.total, 0);
-  const isActiveStatus = (s: string) =>
-    s === "pending" || s === "preparing" || s === "on-the-way";
-  const activeOrderList = allOrders.filter(
-    (o) =>
-      isActiveStatus(o.status as string) &&
-      new Date((o as unknown as { createdAt: Date }).createdAt) >= activeMaxAgeStart,
-  );
-  const activeOrderCount = activeOrderList.length;
-  const totalOrderCount = nonCancelled.length;
-  const totalRevenue = nonCancelled.reduce((s, o) => s + o.total, 0);
-
-  const [totalCustomerCount, totalProductCount] = await Promise.all([
+  // Sadece ihtiyacımız olan alanları al (network + memory tasarrufu)
+  const [allOrders, totalCustomerCount, totalProductCount] = await Promise.all([
+    OrderModel.find(buildSourceFilter(source))
+      .select({
+        id: 1,
+        orderNumber: 1,
+        status: 1,
+        total: 1,
+        createdAt: 1,
+        "customer.name": 1,
+        "customer.phone": 1,
+        "customer.address": 1,
+        "customer.district": 1,
+        "payment.method": 1,
+        "items.quantity": 1,
+        "items.totalPrice": 1,
+        "items.product.name": 1,
+        "items.product.category": 1,
+      })
+      .sort({ createdAt: -1 })
+      .lean(),
     CustomerModel.countDocuments(),
     ProductModel.countDocuments(),
   ]);
 
-  // ─── Ödeme dağılımı (bugün) ──────────────────────────────────
-  const paymentBreakdown = { cash: 0, card: 0, online: 0, meal_card: 0, iban: 0 };
-  for (const o of todayOrders) {
-    const method = o.payment?.method as keyof typeof paymentBreakdown;
-    if (method && method in paymentBreakdown) {
-      paymentBreakdown[method] += o.total;
-    }
+  // ─── Önceden bucket'ları hazırla — O(1) lookup ───────────────
+  const dailyMap = new Map<string, { orders: number; revenue: number }>();
+  const dailyOrder: string[] = []; // sıralı 90 anahtar
+  for (let i = 89; i >= 0; i--) {
+    const date = new Date(todayStartMs - i * 24 * 60 * 60 * 1000);
+    // Istanbul "günü" zaten todayStart'tan üretildiği için ISO tarihini direkt al
+    const ist = new Date(date.getTime() + ISTANBUL_OFFSET_MS);
+    const key = `${ist.getUTCFullYear()}-${pad2(ist.getUTCMonth() + 1)}-${pad2(ist.getUTCDate())}`;
+    dailyMap.set(key, { orders: 0, revenue: 0 });
+    dailyOrder.push(key);
   }
 
-  // ─── Ödeme dağılımı (tüm zamanlar) ──────────────────────────
-  const paymentBreakdownAll = { cash: 0, card: 0, online: 0, meal_card: 0, iban: 0 };
-  for (const o of nonCancelled) {
-    const method = o.payment?.method as keyof typeof paymentBreakdownAll;
+  const monthlyMap = new Map<
+    string,
+    { label: string; orders: number; revenue: number; customers: Set<string> }
+  >();
+  const monthlyOrder: string[] = [];
+  const istNow = new Date(Date.now() + ISTANBUL_OFFSET_MS);
+  const currentY = istNow.getUTCFullYear();
+  const currentM = istNow.getUTCMonth();
+  for (let i = 11; i >= 0; i--) {
+    const y = currentY + Math.floor((currentM - i) / 12);
+    const m = ((currentM - i) % 12 + 12) % 12;
+    const key = `${y}-${pad2(m + 1)}`;
+    monthlyMap.set(key, {
+      label: MONTH_LABELS[m],
+      orders: 0,
+      revenue: 0,
+      customers: new Set<string>(),
+    });
+    monthlyOrder.push(key);
+  }
+
+  const hourBuckets = Array.from({ length: 24 }, (_, hour) => ({
+    hour,
+    count: 0,
+    revenue: 0,
+  }));
+
+  const paymentBreakdown: Record<PaymentKey, number> = {
+    cash: 0, card: 0, online: 0, meal_card: 0, iban: 0,
+  };
+  const paymentBreakdownAll: Record<PaymentKey, number> = {
+    cash: 0, card: 0, online: 0, meal_card: 0, iban: 0,
+  };
+
+  const productMap = new Map<string, { quantity: number; revenue: number }>();
+  const catMap = new Map<string, { quantity: number; revenue: number }>();
+  const menuPrefMap = new Map<
+    string,
+    { category: string; quantity: number; revenue: number; orderIds: Set<string> }
+  >();
+  const addressMap = new Map<string, { orderCount: number; revenue: number }>();
+  const regionMap = new Map<string, { orderCount: number; revenue: number }>();
+  const statusBreakdown: Record<string, number> = {};
+
+  let totalOrderCount = 0;
+  let totalRevenue = 0;
+  let todayOrderCount = 0;
+  let todayRevenue = 0;
+  let activeOrderCount = 0;
+
+  const activeOrders: DashboardStats["activeOrders"] = [];
+
+  // ─── Tek geçiş ───────────────────────────────────────────────
+  for (const o of allOrders) {
+    const status = o.status as string;
+    statusBreakdown[status] = (statusBreakdown[status] ?? 0) + 1;
+
+    if (status === "cancelled") continue;
+
+    const createdAt = (o as unknown as { createdAt: Date }).createdAt;
+    const dateMs =
+      createdAt instanceof Date ? createdAt.getTime() : new Date(createdAt).getTime();
+
+    totalOrderCount++;
+    totalRevenue += o.total;
+
+    const method = o.payment?.method as PaymentKey | undefined;
     if (method && method in paymentBreakdownAll) {
       paymentBreakdownAll[method] += o.total;
     }
-  }
 
-  // ─── En çok satan ürünler ────────────────────────────────────
-  const productMap = new Map<string, { quantity: number; revenue: number }>();
-  for (const o of nonCancelled) {
+    // Ürün / kategori / menü tercihleri — items üzerinden tek tarama
     for (const item of o.items) {
       const name = item.product.name;
-      const existing = productMap.get(name) ?? { quantity: 0, revenue: 0 };
-      existing.quantity += item.quantity;
-      existing.revenue += item.totalPrice;
-      productMap.set(name, existing);
-    }
-  }
-  const topProducts = [...productMap.entries()]
-    .map(([name, data]) => ({ name, ...data }))
-    .sort((a, b) => b.quantity - a.quantity)
-    .slice(0, 10);
-
-  // ─── Kategori dağılımı ──────────────────────────────────────
-  const catMap = new Map<string, { quantity: number; revenue: number }>();
-  for (const o of nonCancelled) {
-    for (const item of o.items) {
       const cat = item.product.category;
-      const existing = catMap.get(cat) ?? { quantity: 0, revenue: 0 };
-      existing.quantity += item.quantity;
-      existing.revenue += item.totalPrice;
-      catMap.set(cat, existing);
+      const qty = item.quantity;
+      const rev = item.totalPrice;
+
+      const p = productMap.get(name);
+      if (p) {
+        p.quantity += qty;
+        p.revenue += rev;
+      } else {
+        productMap.set(name, { quantity: qty, revenue: rev });
+      }
+
+      const c = catMap.get(cat);
+      if (c) {
+        c.quantity += qty;
+        c.revenue += rev;
+      } else {
+        catMap.set(cat, { quantity: qty, revenue: rev });
+      }
+
+      const mp = menuPrefMap.get(name);
+      if (mp) {
+        mp.quantity += qty;
+        mp.revenue += rev;
+        mp.orderIds.add(o.id);
+      } else {
+        menuPrefMap.set(name, {
+          category: cat,
+          quantity: qty,
+          revenue: rev,
+          orderIds: new Set([o.id]),
+        });
+      }
+    }
+
+    // Adres
+    const addr = (o.customer.address ?? "").trim();
+    if (addr) {
+      const a = addressMap.get(addr);
+      if (a) {
+        a.orderCount++;
+        a.revenue += o.total;
+      } else {
+        addressMap.set(addr, { orderCount: 1, revenue: o.total });
+      }
+    }
+
+    // Bölge
+    const district = (
+      (o.customer as unknown as { district?: string }).district ?? ""
+    ).trim();
+    if (district) {
+      const r = regionMap.get(district);
+      if (r) {
+        r.orderCount++;
+        r.revenue += o.total;
+      } else {
+        regionMap.set(district, { orderCount: 1, revenue: o.total });
+      }
+    }
+
+    // Bugün
+    if (dateMs >= todayStartMs) {
+      todayOrderCount++;
+      todayRevenue += o.total;
+      if (method && method in paymentBreakdown) {
+        paymentBreakdown[method] += o.total;
+      }
+    }
+
+    // Aktif (48s + open status)
+    if (
+      dateMs >= activeMaxAgeStartMs &&
+      (status === "pending" || status === "preparing" || status === "on-the-way")
+    ) {
+      activeOrderCount++;
+      if (activeOrders.length < 10) {
+        activeOrders.push({
+          id: o.id,
+          orderNumber: o.orderNumber,
+          customerName: o.customer.name,
+          total: o.total,
+          status,
+          createdAt,
+        });
+      }
+    }
+
+    // Istanbul saatine bir kere çevir
+    const istMs = dateMs + ISTANBUL_OFFSET_MS;
+    const istDate = new Date(istMs);
+
+    // Aylık bucket
+    const monthKey = `${istDate.getUTCFullYear()}-${pad2(istDate.getUTCMonth() + 1)}`;
+    const monthBucket = monthlyMap.get(monthKey);
+    if (monthBucket) {
+      monthBucket.orders++;
+      monthBucket.revenue += o.total;
+      if (o.customer.phone) monthBucket.customers.add(o.customer.phone);
+    }
+
+    // Günlük 90 bucket
+    if (dateMs >= ninetyDaysAgoMs) {
+      const dayKey = `${istDate.getUTCFullYear()}-${pad2(istDate.getUTCMonth() + 1)}-${pad2(istDate.getUTCDate())}`;
+      const dayBucket = dailyMap.get(dayKey);
+      if (dayBucket) {
+        dayBucket.orders++;
+        dayBucket.revenue += o.total;
+      }
+    }
+
+    // Saatlik 7 gün penceresi
+    if (dateMs >= sevenDaysAgoMs) {
+      const hour = istDate.getUTCHours();
+      hourBuckets[hour].count++;
+      hourBuckets[hour].revenue += o.total;
     }
   }
-  const categoryBreakdown = [...catMap.entries()]
-    .map(([category, data]) => ({
-      category,
-      label: CATEGORY_LABELS[category] ?? category,
-      ...data,
-    }))
-    .sort((a, b) => b.revenue - a.revenue);
 
-  // ─── Son 7 gün trend ────────────────────────────────────────
-  const dailyTrend: DashboardStats["dailyTrend"] = [];
-  for (let i = 6; i >= 0; i--) {
-    const date = new Date(todayStart);
-    date.setDate(date.getDate() - i);
-    const nextDate = new Date(date);
-    nextDate.setDate(nextDate.getDate() + 1);
-
-    const dayOrders = nonCancelled.filter((o) => {
-      const d = new Date((o as unknown as { createdAt: Date }).createdAt);
-      return d >= date && d < nextDate;
-    });
-
-    dailyTrend.push({
-      date: date.toLocaleDateString("tr-TR", { weekday: "short", day: "numeric", month: "short" }),
-      orders: dayOrders.length,
-      revenue: dayOrders.reduce((s, o) => s + o.total, 0),
-    });
-  }
-
-  // ─── Sipariş durum dağılımı ─────────────────────────────────
-  const statusBreakdown: Record<string, number> = {};
-  for (const o of allOrders) {
-    statusBreakdown[o.status as string] = (statusBreakdown[o.status as string] ?? 0) + 1;
-  }
-
-  // ─── Aktif siparişler ───────────────────────────────────────
-  // Yukarıdaki activeOrderList'i kullan — 48sa filtresi tutarlı kalsın.
-  const activeOrders = activeOrderList
-    .slice(0, 10)
-    .map((o) => ({
+  // ─── Top siparişler — allOrders zaten DESC sorted ────────────
+  const recentOrders: DashboardStats["recentOrders"] = [];
+  for (let i = 0; i < allOrders.length && recentOrders.length < 5; i++) {
+    const o = allOrders[i];
+    recentOrders.push({
       id: o.id,
       orderNumber: o.orderNumber,
       customerName: o.customer.name,
       total: o.total,
       status: o.status as string,
+      paymentMethod: o.payment?.method as string,
       createdAt: (o as unknown as { createdAt: Date }).createdAt,
-    }));
-
-  // ─── Son siparişler ─────────────────────────────────────────
-  const recentOrders = allOrders.slice(0, 5).map((o) => ({
-    id: o.id,
-    orderNumber: o.orderNumber,
-    customerName: o.customer.name,
-    total: o.total,
-    status: o.status as string,
-    paymentMethod: o.payment?.method as string,
-    createdAt: (o as unknown as { createdAt: Date }).createdAt,
-  }));
-
-  // ─── En çok sipariş veren adresler ─────────────────────────
-  const addressMap = new Map<string, { orderCount: number; revenue: number }>();
-  for (const o of nonCancelled) {
-    const addr = (o.customer.address ?? "").trim();
-    if (!addr) continue;
-    const existing = addressMap.get(addr) ?? { orderCount: 0, revenue: 0 };
-    existing.orderCount += 1;
-    existing.revenue += o.total;
-    addressMap.set(addr, existing);
+    });
   }
+
+  // ─── Top N derivative listeler ──────────────────────────────
+  const topProducts = [...productMap.entries()]
+    .map(([name, d]) => ({ name, ...d }))
+    .sort((a, b) => b.quantity - a.quantity)
+    .slice(0, 10);
+
+  const categoryBreakdown = [...catMap.entries()]
+    .map(([category, d]) => ({
+      category,
+      label: CATEGORY_LABELS[category] ?? category,
+      ...d,
+    }))
+    .sort((a, b) => b.revenue - a.revenue);
+
   const topAddresses = [...addressMap.entries()]
-    .map(([address, data]) => ({ address, ...data }))
+    .map(([address, d]) => ({ address, ...d }))
     .sort((a, b) => b.orderCount - a.orderCount)
     .slice(0, 10);
 
-  // ─── En çok tercih edilen menüler (detaylı) ─────────────────
-  const menuPrefMap = new Map<
-    string,
-    { category: string; quantity: number; revenue: number; orderIds: Set<string> }
-  >();
-  for (const o of nonCancelled) {
-    for (const item of o.items) {
-      const name = item.product.name;
-      const existing = menuPrefMap.get(name) ?? {
-        category: item.product.category,
-        quantity: 0,
-        revenue: 0,
-        orderIds: new Set<string>(),
-      };
-      existing.quantity += item.quantity;
-      existing.revenue += item.totalPrice;
-      existing.orderIds.add(o.id);
-      menuPrefMap.set(name, existing);
-    }
-  }
   const menuPreferences = [...menuPrefMap.entries()]
-    .map(([name, data]) => ({
+    .map(([name, d]) => ({
       name,
-      category: data.category,
-      categoryLabel: CATEGORY_LABELS[data.category] ?? data.category,
-      quantity: data.quantity,
-      revenue: data.revenue,
-      orderCount: data.orderIds.size,
+      category: d.category,
+      categoryLabel: CATEGORY_LABELS[d.category] ?? d.category,
+      quantity: d.quantity,
+      revenue: d.revenue,
+      orderCount: d.orderIds.size,
     }))
     .sort((a, b) => b.quantity - a.quantity)
     .slice(0, 15);
+
+  const regionBreakdown = [...regionMap.entries()]
+    .map(([district, d]) => ({
+      district,
+      orderCount: d.orderCount,
+      revenue: d.revenue,
+      avgBasket: d.orderCount > 0 ? d.revenue / d.orderCount : 0,
+    }))
+    .sort((a, b) => b.orderCount - a.orderCount)
+    .slice(0, 10);
+
+  // ─── 90 günlük trend (sorted keys'ten map'le) ───────────────
+  const revenueTrend = dailyOrder.map((key) => {
+    const b = dailyMap.get(key)!;
+    return { date: key, orders: b.orders, revenue: b.revenue };
+  });
+
+  // ─── Son 7 gün trendi (revenueTrend kuyruğundan, TR label ile)
+  const dailyTrend = revenueTrend.slice(-7).map((d) => {
+    const dt = new Date(d.date + "T00:00:00Z");
+    return {
+      date: dt.toLocaleDateString("tr-TR", {
+        weekday: "short",
+        day: "numeric",
+        month: "short",
+      }),
+      orders: d.orders,
+      revenue: d.revenue,
+    };
+  });
+
+  // ─── Aylık trend ────────────────────────────────────────────
+  let cumRevenue = 0;
+  const monthlyTrend = monthlyOrder.map((key, idx) => {
+    const b = monthlyMap.get(key)!;
+    cumRevenue += b.revenue;
+    const target = idx === 0 ? Math.round(b.revenue * 0.9) : Math.round(cumRevenue / (idx + 1));
+    return {
+      month: key,
+      label: b.label,
+      orders: b.orders,
+      revenue: b.revenue,
+      target,
+      customers: b.customers.size,
+    };
+  });
 
   return {
     todayOrderCount,
@@ -320,5 +480,9 @@ export async function getDashboardStats(
     recentOrders,
     topAddresses,
     menuPreferences,
+    hourlyDistribution: hourBuckets,
+    revenueTrend,
+    monthlyTrend,
+    regionBreakdown,
   };
 }

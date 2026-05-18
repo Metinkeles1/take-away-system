@@ -1,160 +1,142 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
+import { Plus, RefreshCw } from "lucide-react";
+
 import {
   getDashboardStats,
-  type DashboardStats,
   type DashboardSource,
+  type DashboardStats,
 } from "@/actions/dashboard";
-import { ShoppingBag, CircleDollarSign, Flame, TrendingUp, Users, UtensilsCrossed, Package } from "lucide-react";
-import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
-import { DashboardTabs } from "@/components/dashboard/DashboardTabs";
+import { Button } from "@/components/ui/button";
 import { SourceFilter } from "@/components/dashboard/SourceFilter";
+import { cn } from "@/lib/utils";
 
-const VALID_SOURCES: DashboardSource[] = ["all", "manual", "trendyol", "getir", "yemeksepeti"];
+import { CustomerInsights } from "./_components/CustomerInsights";
+import { RecentTransactions } from "./_components/RecentTransactions";
+import { RevenueBreakdown } from "./_components/RevenueBreakdown";
+import { SalesPerformance } from "./_components/SalesPerformance";
+import { SectionCards } from "./_components/SectionCards";
+import { TopProductsList } from "./_components/TopProductsList";
 
-function parseSource(value: string | null): DashboardSource {
-  if (value && (VALID_SOURCES as string[]).includes(value)) {
-    return value as DashboardSource;
-  }
-  return "all";
-}
+const VALID_SOURCES: DashboardSource[] = [
+  "all",
+  "manual",
+  "trendyol",
+  "getir",
+  "yemeksepeti",
+];
 
 const SOURCE_TITLE: Record<DashboardSource, string> = {
-  all: "Dashboard",
-  manual: "Dashboard · Manuel Siparişler",
-  trendyol: "Dashboard · Trendyol",
-  getir: "Dashboard · Getir",
-  yemeksepeti: "Dashboard · Yemeksepeti",
+  all: "İşletme Paneli",
+  manual: "İşletme Paneli · Manuel",
+  trendyol: "İşletme Paneli · Trendyol",
+  getir: "İşletme Paneli · Getir",
+  yemeksepeti: "İşletme Paneli · Yemeksepeti",
 };
-import { KPICard, KPICardSkeleton } from "@/components/dashboard/KPICard";
-import { MiniStat } from "@/components/dashboard/MiniStat";
-import { OverviewTab } from "@/components/dashboard/tabs/OverviewTab";
-import { OrdersTab } from "@/components/dashboard/tabs/OrdersTab";
-import { PaymentsTab } from "@/components/dashboard/tabs/PaymentsTab";
-import { ProductsTab } from "@/components/dashboard/tabs/ProductsTab";
-import { AddressesTab } from "@/components/dashboard/tabs/AddressesTab";
+
+function parseSource(value: string | null): DashboardSource {
+  return value && (VALID_SOURCES as string[]).includes(value)
+    ? (value as DashboardSource)
+    : "all";
+}
 
 export default function DashboardPage() {
   const searchParams = useSearchParams();
-  const activeTab = searchParams.get("tab") || "overview";
   const source = parseSource(searchParams.get("source"));
+
   const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const hasDataRef = useRef(false);
 
   const loadStats = useCallback(async () => {
-    setIsLoading(true);
+    // İlk yüklemede skeleton; sonraki refetch'lerde sadece spinner — eski veri ekranda kalır.
+    if (hasDataRef.current) setIsRefreshing(true);
+    else setIsInitialLoading(true);
     try {
       const data = await getDashboardStats(source);
       setStats(data);
+      hasDataRef.current = true;
     } finally {
-      setIsLoading(false);
+      setIsInitialLoading(false);
+      setIsRefreshing(false);
     }
   }, [source]);
 
   useEffect(() => {
+    // Source değişince veriyi sıfırlamak gerekmez; eski veri durur, yeni gelir.
     loadStats();
-    const handleFocus = () => loadStats();
-    window.addEventListener("focus", handleFocus);
-    return () => window.removeEventListener("focus", handleFocus);
+    const onFocus = () => loadStats();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
   }, [loadStats]);
 
-  const todayTrend = useMemo(() => {
-    if (!stats?.dailyTrend || stats.dailyTrend.length < 2) return null;
-    const today = stats.dailyTrend[stats.dailyTrend.length - 1];
-    const yesterday = stats.dailyTrend[stats.dailyTrend.length - 2];
-    if (!yesterday || yesterday.revenue === 0) return null;
-    const pct = ((today.revenue - yesterday.revenue) / yesterday.revenue) * 100;
-    return { pct: Math.round(pct), up: pct >= 0 };
-  }, [stats?.dailyTrend]);
+  const isLoading = isInitialLoading;
 
   return (
-    <div className="h-full flex flex-col overflow-hidden">
-      <DashboardHeader
-        isLoading={isLoading}
-        onRefresh={loadStats}
-        title={SOURCE_TITLE[source]}
-        source={source}
-      />
-      <DashboardTabs />
-
-      <div className="flex-1 min-h-0 overflow-y-auto bg-gray-50/60">
-        <div className="px-8 py-6 space-y-6">
-          {/* KPI Cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
-            {isLoading ? (
-              [...Array(4)].map((_, i) => <KPICardSkeleton key={i} />)
-            ) : (
-              <>
-                <KPICard
-                  label="Bugünkü Sipariş"
-                  value={String(stats?.todayOrderCount ?? 0)}
-                  icon={ShoppingBag}
-                  color="blue"
-                  trend={todayTrend}
-                  trendLabel="dünkü ciroya göre"
-                />
-                <KPICard
-                  label="Bugünkü Ciro"
-                  value={formatCurrency(stats?.todayRevenue ?? 0)}
-                  icon={CircleDollarSign}
-                  color="emerald"
-                />
-                <KPICard
-                  label="Aktif Sipariş"
-                  value={String(stats?.activeOrderCount ?? 0)}
-                  icon={Flame}
-                  color="amber"
-                />
-                <KPICard
-                  label="Toplam Ciro"
-                  value={formatCurrency(stats?.totalRevenue ?? 0)}
-                  icon={TrendingUp}
-                  color="violet"
-                />
-              </>
-            )}
+    <div className="h-full overflow-y-auto">
+      <div className="flex flex-1 flex-col gap-4 p-4 sm:gap-6 sm:p-6 lg:p-8">
+        {/* Header */}
+        <header className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+          <div className="min-w-0">
+            <h1 className="truncate text-xl font-semibold tracking-tight sm:text-2xl">
+              {SOURCE_TITLE[source]}
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              İşletme performansını ve anahtar metrikleri canlı izleyin
+            </p>
           </div>
-
-          {/* Mini Stats */}
-          <div className="grid grid-cols-3 gap-5">
-            {isLoading ? (
-              [...Array(3)].map((_, i) => (
-                <div key={i} className="bg-white rounded-2xl border p-4 flex items-center gap-4">
-                  <div className="h-10 w-10 rounded-xl bg-gray-200" />
-                  <div className="space-y-1.5">
-                    <div className="h-3 w-20 bg-gray-200 rounded" />
-                    <div className="h-6 w-12 bg-gray-200 rounded" />
-                  </div>
-                </div>
-              ))
-            ) : (
-              <>
-                <MiniStat icon={Package} label="Toplam Sipariş" value={String(stats?.totalOrderCount ?? 0)} color="indigo" />
-                <MiniStat icon={Users} label="Toplam Müşteri" value={String(stats?.totalCustomerCount ?? 0)} color="pink" />
-                <MiniStat icon={UtensilsCrossed} label="Toplam Ürün" value={String(stats?.totalProductCount ?? 0)} color="amber" />
-              </>
-            )}
+          <div className="flex flex-wrap items-center gap-2">
+            <SourceFilter source={source} />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={loadStats}
+              disabled={isInitialLoading || isRefreshing}
+              className="gap-1.5"
+            >
+              <RefreshCw
+                className={cn(
+                  "size-3.5",
+                  (isInitialLoading || isRefreshing) && "animate-spin",
+                )}
+              />
+              <span className="hidden sm:inline">Yenile</span>
+            </Button>
+            <Button size="sm" asChild className="gap-1.5">
+              <Link href="/orders/new">
+                <Plus className="size-3.5" />
+                Yeni Sipariş
+              </Link>
+            </Button>
           </div>
+        </header>
 
-          {/* Tabs */}
-          {activeTab === "overview" && <OverviewTab stats={stats} isLoading={isLoading} />}
-          {activeTab === "orders" && <OrdersTab stats={stats} isLoading={isLoading} />}
-          {activeTab === "payments" && <PaymentsTab stats={stats} isLoading={isLoading} />}
-          {activeTab === "products" && <ProductsTab stats={stats} isLoading={isLoading} />}
-          {activeTab === "addresses" && <AddressesTab stats={stats} isLoading={isLoading} />}
-        </div>
+        {/* Row 1 — 4 KPI cards */}
+        <SectionCards stats={stats} isLoading={isLoading} />
+
+        {/* Row 2 — Sales chart (2/3) + Revenue donut (1/3) */}
+        <section className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+          <div className="lg:col-span-8 flex">
+            <SalesPerformance stats={stats} isLoading={isLoading} />
+          </div>
+          <div className="lg:col-span-4 flex">
+            <RevenueBreakdown stats={stats} isLoading={isLoading} />
+          </div>
+        </section>
+
+        {/* Row 3 — Recent transactions + Top products */}
+        <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <RecentTransactions stats={stats} isLoading={isLoading} />
+          <TopProductsList stats={stats} isLoading={isLoading} />
+        </section>
+
+        {/* Row 4 — Customer insights tabs */}
+        <CustomerInsights stats={stats} isLoading={isLoading} />
       </div>
     </div>
   );
-}
-
-// Helper
-function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat("tr-TR", {
-    style: "currency",
-    currency: "TRY",
-    maximumFractionDigits: 0,
-  }).format(amount);
 }
