@@ -255,26 +255,41 @@ function GroupBlock({
 
   return (
     <div className="space-y-0.5">
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={expanded}
+      {/* Satır = Link (basePath'a gider, alt menü pathname üzerinden otomatik
+          açılır) + ayrı chevron butonu (manuel toggle). Böylece "Trendyol"a
+          tıklayan kullanıcı doğrudan Genel Bakış'a gider, alt menü kendiliğinden
+          açılır; yine de istediğinde chevron'a basıp daraltabilir. */}
+      <div
         className={cn(
-          "w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200",
+          "flex items-center rounded-lg pr-1 text-sm font-medium transition-all duration-200",
           anyActive
             ? `${group.activeBg} text-white shadow-sm shadow-black/10`
             : "text-slate-400 hover:bg-white/5 hover:text-slate-200",
         )}
       >
-        <Icon className={cn("h-4.5 w-4.5 shrink-0", anyActive && group.color)} />
-        <span className="truncate">{group.label}</span>
-        <ChevronDown
-          className={cn(
-            "ml-auto h-3.5 w-3.5 transition-transform duration-200 text-slate-500",
-            expanded && "rotate-180",
-          )}
-        />
-      </button>
+        <Link
+          href={group.basePath}
+          onClick={onNavigate}
+          className="flex-1 flex items-center gap-3 px-3 py-2.5 min-w-0"
+        >
+          <Icon className={cn("h-4.5 w-4.5 shrink-0", anyActive && group.color)} />
+          <span className="truncate">{group.label}</span>
+        </Link>
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={expanded}
+          aria-label={expanded ? "Alt menüyü gizle" : "Alt menüyü göster"}
+          className="shrink-0 rounded-md p-1.5 hover:bg-white/5 transition-colors"
+        >
+          <ChevronDown
+            className={cn(
+              "h-3.5 w-3.5 transition-transform duration-200 text-slate-500",
+              expanded && "rotate-180",
+            )}
+          />
+        </button>
+      </div>
 
       {expanded && (
         <ul className="ml-3 mt-0.5 space-y-0.5 border-l border-white/10 pl-3">

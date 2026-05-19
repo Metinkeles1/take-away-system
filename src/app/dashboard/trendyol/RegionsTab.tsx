@@ -229,22 +229,25 @@ export function RegionsTab() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {isLoading && !data ? (
-              <Skeleton className="h-120 w-full" />
-            ) : data && data.pins.length > 0 ? (
-              <RegionsMap pins={pinsToShow} bounds={data.bounds} height={480} />
-            ) : (
-              <div className="flex h-120 items-center justify-center">
-                <EmptyState
-                  icon={MapPin}
-                  text={
-                    data?.totalOrders === 0
-                      ? "Bu dönemde Trendyol siparişi yok"
-                      : "Sipariş adreslerinde koordinat yok"
-                  }
-                />
-              </div>
-            )}
+            {/* Sabit yükseklikli wrapper: harita yüklenirken altındaki content kaymasın (CLS fix) */}
+            <div className="relative w-full" style={{ minHeight: 480 }}>
+              {isLoading && !data ? (
+                <Skeleton className="h-120 w-full" />
+              ) : data && data.pins.length > 0 ? (
+                <RegionsMap pins={pinsToShow} bounds={data.bounds} height={480} />
+              ) : (
+                <div className="flex h-120 items-center justify-center">
+                  <EmptyState
+                    icon={MapPin}
+                    text={
+                      data?.totalOrders === 0
+                        ? "Bu dönemde Trendyol siparişi yok"
+                        : "Sipariş adreslerinde koordinat yok"
+                    }
+                  />
+                </div>
+              )}
+            </div>
             <div className="mt-3 flex flex-wrap items-center gap-3 text-[11px]">
               {LEGEND.map((s) => (
                 <div key={s.label} className="flex items-center gap-1.5">
@@ -273,15 +276,17 @@ export function RegionsTab() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {isLoading && !data ? (
-              <Skeleton className="h-96 w-full" />
-            ) : (
-              <DistrictList
-                districts={data?.districts ?? []}
-                selected={selectedDistrict}
-                onSelect={setSelectedDistrict}
-              />
-            )}
+            <div className="w-full" style={{ minHeight: 384 }}>
+              {isLoading && !data ? (
+                <Skeleton className="h-96 w-full" />
+              ) : (
+                <DistrictList
+                  districts={data?.districts ?? []}
+                  selected={selectedDistrict}
+                  onSelect={setSelectedDistrict}
+                />
+              )}
+            </div>
           </CardContent>
         </Card>
       </div>

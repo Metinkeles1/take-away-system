@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { Plus, RefreshCw } from "lucide-react";
 
 import {
@@ -12,14 +13,26 @@ import {
 } from "@/actions/dashboard";
 import { Button } from "@/components/ui/button";
 import { SourceFilter } from "@/components/dashboard/SourceFilter";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
-import { CustomerInsights } from "./_components/CustomerInsights";
 import { RecentTransactions } from "./_components/RecentTransactions";
 import { RevenueBreakdown } from "./_components/RevenueBreakdown";
 import { SalesPerformance } from "./_components/SalesPerformance";
 import { SectionCards } from "./_components/SectionCards";
 import { TopProductsList } from "./_components/TopProductsList";
+
+// Below-the-fold + Recharts içeren tab — bundle'ı düşürmek için lazy yükle.
+const CustomerInsights = dynamic(
+  () =>
+    import("./_components/CustomerInsights").then((m) => ({
+      default: m.CustomerInsights,
+    })),
+  {
+    ssr: false,
+    loading: () => <Skeleton className="h-80 w-full rounded-xl" />,
+  },
+);
 
 const VALID_SOURCES: DashboardSource[] = [
   "all",
@@ -74,6 +87,10 @@ export default function DashboardPage() {
     return () => window.removeEventListener("focus", onFocus);
   }, [loadStats]);
 
+  useEffect(() => {
+    document.title = `${SOURCE_TITLE[source]} · Paket Sipariş`;
+  }, [source]);
+
   const isLoading = isInitialLoading;
 
   return (
@@ -119,11 +136,13 @@ export default function DashboardPage() {
         <SectionCards stats={stats} isLoading={isLoading} />
 
         {/* Row 2 — Sales chart (2/3) + Revenue donut (1/3) */}
+        {/* min-w-0: grid item içinde Recharts ResponsiveContainer'a doğru width geçsin
+            (yoksa ilk render'da width(-1)/height(-1) warning'i basar). */}
         <section className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-          <div className="lg:col-span-8 flex">
+          <div className="lg:col-span-8 flex min-w-0">
             <SalesPerformance stats={stats} isLoading={isLoading} />
           </div>
-          <div className="lg:col-span-4 flex">
+          <div className="lg:col-span-4 flex min-w-0">
             <RevenueBreakdown stats={stats} isLoading={isLoading} />
           </div>
         </section>

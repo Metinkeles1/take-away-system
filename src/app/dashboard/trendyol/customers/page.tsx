@@ -94,13 +94,13 @@ export default function TrendyolCustomersPage() {
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="space-y-0.5">
+        <div className="min-w-0 space-y-0.5">
           <h2 className="text-2xl font-semibold tracking-tight">Müşteri Analizi</h2>
           <p className="text-sm text-muted-foreground">
             {PERIOD_LABEL[period]} · Tekrar oranı, frekans ve top müşteriler
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Tabs value={period} onValueChange={(v) => setPeriod(v as AnalyticsPeriod)}>
             <TabsList>
               <TabsTrigger value="week" disabled={isLoading}>7 Gün</TabsTrigger>
@@ -198,7 +198,7 @@ export default function TrendyolCustomersPage() {
                 onSelect={setSelected}
               />
             ) : (
-              <EmptyState icon={Users} text="Veri yok" />
+              <EmptyState icon={Users} text="Bu dönemde veri yok" />
             )}
           </CardContent>
         </Card>

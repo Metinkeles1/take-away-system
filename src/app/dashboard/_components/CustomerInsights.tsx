@@ -119,8 +119,12 @@ function GrowthView({ stats, isLoading }: Props) {
         {isLoading ? (
           <Skeleton className="h-64 w-full" />
         ) : (
-          <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
+          <div className="h-64 w-full min-w-0">
+            <ResponsiveContainer
+              width="100%"
+              height="100%"
+              initialDimension={{ width: 320, height: 256 }}
+            >
               <BarChart
                 data={data}
                 margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
@@ -256,8 +260,12 @@ function PaymentsView({ stats, isLoading }: Props) {
             Henüz ödeme verisi yok.
           </p>
         ) : (
-          <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
+          <div className="h-64 w-full min-w-0">
+            <ResponsiveContainer
+              width="100%"
+              height="100%"
+              initialDimension={{ width: 320, height: 256 }}
+            >
               <BarChart
                 data={data}
                 margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
@@ -382,8 +390,12 @@ function RegionsView({ stats, isLoading }: Props) {
             Bölge verisi yok. (Siparişlerde district alanı dolmamış.)
           </p>
         ) : (
-          <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
+          <div className="h-64 w-full min-w-0">
+            <ResponsiveContainer
+              width="100%"
+              height="100%"
+              initialDimension={{ width: 320, height: 256 }}
+            >
               <BarChart
                 data={data}
                 layout="vertical"

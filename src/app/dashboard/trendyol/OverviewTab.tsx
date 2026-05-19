@@ -154,9 +154,13 @@ export function OverviewTab() {
 
   return (
     <div className="relative space-y-4">
-      {/* ── Top bar: title + tabs + date + refresh ─────────────────── */}
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="space-y-0.5">
+      {/* ── Top bar: title + controls ──────────────────────────────
+         Mobil: başlık üstte tam genişlik, kontroller altta sarılır.
+         lg+: tek satır, başlık solda kontroller sağda.
+         Tab label'ları kısa tutuldu ("Son" prefix kaldırıldı) ki TabsList
+         dar viewport'larda yatay scroll oluşturmasın. */}
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0 space-y-0.5">
           <h2 className="text-2xl font-semibold tracking-tight">Genel Bakış</h2>
           <p className="text-sm text-muted-foreground">
             {periodLabel} · Trendyol GO Yemek satış özeti
@@ -170,13 +174,13 @@ export function OverviewTab() {
           >
             <TabsList>
               <TabsTrigger value="today" disabled={isLoading}>
-                {isToday ? "Bugün" : "Gün"}
+                Bugün
               </TabsTrigger>
               <TabsTrigger value="week" disabled={isLoading}>
-                {isToday ? "Son 7 Gün" : "7 Gün"}
+                7 Gün
               </TabsTrigger>
               <TabsTrigger value="month" disabled={isLoading}>
-                {isToday ? "Son 30 Gün" : "30 Gün"}
+                30 Gün
               </TabsTrigger>
             </TabsList>
           </Tabs>
@@ -188,7 +192,7 @@ export function OverviewTab() {
             onChange={(e) => setSelectedDate(e.target.value)}
             disabled={isLoading}
             suppressHydrationWarning
-            className="h-8 rounded-md border bg-background px-2.5 text-sm tabular-nums outline-none transition focus:ring-2 focus:ring-ring/40 disabled:opacity-50"
+            className="h-8 w-38 rounded-md border bg-background px-2.5 text-sm tabular-nums outline-none transition focus:ring-2 focus:ring-ring/40 disabled:opacity-50"
           />
 
           <Button
@@ -199,12 +203,17 @@ export function OverviewTab() {
             className="h-8 gap-1.5"
           >
             <RefreshCw className={`size-3.5 ${isLoading ? "animate-spin" : ""}`} />
-            Yenile
+            <span className="hidden sm:inline">Yenile</span>
           </Button>
 
-          <Button size="sm" variant="outline" disabled className="h-8 gap-1.5">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled
+            className="hidden sm:inline-flex h-8 gap-1.5"
+          >
             <Download className="size-3.5" />
-            <span className="hidden sm:inline">Dışa Aktar</span>
+            <span className="hidden md:inline">Dışa Aktar</span>
           </Button>
         </div>
       </div>
@@ -296,7 +305,7 @@ export function OverviewTab() {
               ) : stats?.recentOrders.length ? (
                 <RecentOrdersList orders={stats.recentOrders} />
               ) : (
-                <EmptyState icon={ShoppingBag} text="Bu dönemde Trendyol siparişi yok" />
+                <EmptyState icon={ShoppingBag} text="Bu dönemde sipariş yok" />
               )}
             </CardContent>
           </Card>
@@ -703,7 +712,7 @@ function TopProductsBlock({
   products: TrendyolDashboardStats["topProducts"];
 }) {
   if (products.length === 0) {
-    return <EmptyState icon={ShoppingBag} text="Henüz veri yok" />;
+    return <EmptyState icon={ShoppingBag} text="Bu dönemde sipariş yok" />;
   }
 
   const top5 = [...products].sort((a, b) => b.revenue - a.revenue).slice(0, 5);

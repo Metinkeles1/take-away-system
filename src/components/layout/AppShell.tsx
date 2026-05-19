@@ -46,7 +46,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </span>
         </header>
 
-        <main className="flex-1 min-h-0 overflow-hidden">{children}</main>
+        {/* Mobile'da pb-16: Next.js dev indicator (sol alt "N") + olası floating
+            element içeriği kapatmasın diye altta nefes payı bırak. */}
+        <main className="flex-1 min-h-0 overflow-hidden pb-16 lg:pb-0">
+          {children}
+        </main>
       </div>
     </div>
   );
