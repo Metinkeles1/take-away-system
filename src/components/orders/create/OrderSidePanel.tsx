@@ -38,6 +38,7 @@ export default function OrderSidePanel({ variant = "desktop" }: OrderSidePanelPr
     setPayment,
     setNotes,
     completeOrder,
+    resetDraft,
     savedCustomers,
     loadSavedCustomers,
   } = useOrderStore();
@@ -105,15 +106,29 @@ export default function OrderSidePanel({ variant = "desktop" }: OrderSidePanelPr
         }
         toast.success(`#${order.orderNumber} numaralı sipariş alındı!`);
         if (alsoPrint) {
-          handlePrint();
+          // Print bitsin (veya iptal edilsin), receiptRef unmount olmadan önce
+          try {
+            await handlePrint();
+          } catch {
+            // print iptal edilmiş olabilir — sipariş yine de tamamlandı
+          }
         }
+        resetDraft();
         router.push(`/orders/${order.id}`);
       } catch {
         toast.error("Sipariş kaydedilirken bir hata oluştu.");
         setIsSubmitting(false);
       }
     },
-    [completeOrder, draft.payment.method, handlePrint, isSubmitting, router, setPayment],
+    [
+      completeOrder,
+      draft.payment.method,
+      handlePrint,
+      isSubmitting,
+      resetDraft,
+      router,
+      setPayment,
+    ],
   );
 
   // Sepet aksiyonları

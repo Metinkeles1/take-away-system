@@ -297,6 +297,9 @@ export function listTrendyolSettlements(params: {
 // Doküman: GET /integrator/product/meal/suppliers/{supplierId}/stores/{storeId}/products
 // storeId ZORUNLU. Response { products, sections, ingredients, modifierGroups }.
 // sections[].products[] üzerinden ürün → kategori eşlemesi yapılır.
+// NOT: Trendyol Menu API response'unda field isimleri tutarsız;
+// price nested object olabilir (price.sellingPrice gibi), name bazen variant
+// adı oluyor. Bilinmeyen alanlar için index signature açık.
 export interface TrendyolMenuProduct {
   id: number;
   name: string;
@@ -307,6 +310,9 @@ export interface TrendyolMenuProduct {
   ingredients?: number[];
   extraIngredients?: number[];
   modifierGroups?: Array<{ id: number; position?: number }>;
+  productGroup?: { id?: number; name?: string };
+  productName?: string;
+  price?: unknown;
 }
 
 export interface TrendyolMenuSection {

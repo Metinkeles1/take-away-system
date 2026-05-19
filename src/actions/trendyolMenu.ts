@@ -53,25 +53,91 @@ function buildProductCategoryMap(
   return map;
 }
 
+// Trendyol Menu API response'unda field isimleri varyant gösteriyor olabilir:
+// p.name bazen "1 Porsiyon" gibi variant adı oluyor; gerçek ürün adı productGroup
+// ya da productName altında olabilir. Price da nested object dönebiliyor.
+// Bu yüzden bilinen tüm alternatifleri sırayla dene.
+function pickProductName(p: unknown, fallbackId: number): string {
+  if (!p || typeof p !== "object") return `Ürün ${fallbackId}`;
+  const o = p as Record<string, unknown>;
+  const candidates: unknown[] = [
+    (o.productGroup as Record<string, unknown> | undefined)?.name,
+    o.productName,
+    o.fullName,
+    o.displayName,
+    o.title,
+  ];
+  for (const c of candidates) {
+    if (typeof c === "string" && c.trim().length > 0) return c.trim();
+  }
+  // En son fallback: p.name ama "1 Porsiyon" gibi generic varyantsa Ürün #id
+  const fallback = typeof o.name === "string" ? o.name.trim() : "";
+  const generic = /^\d+\s*porsiyon$/i.test(fallback) || fallback.length === 0;
+  return generic ? `Ürün ${fallbackId}` : fallback;
+}
+
+function pickPrice(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (value && typeof value === "object") {
+    const o = value as Record<string, unknown>;
+    for (const key of ["value", "amount", "sellingPrice", "price"]) {
+      const v = o[key];
+      if (typeof v === "number" && Number.isFinite(v)) return v;
+    }
+  }
+  return 0;
+}
+
+function extractPrices(p: unknown): { selling: number; original: number } {
+  if (!p || typeof p !== "object") return { selling: 0, original: 0 };
+  const o = p as Record<string, unknown>;
+  const sellingCandidates = [
+    o.sellingPrice,
+    (o.price as Record<string, unknown> | undefined)?.sellingPrice,
+    (o.price as Record<string, unknown> | undefined)?.selling,
+    (o.prices as Record<string, unknown> | undefined)?.selling,
+  ];
+  const originalCandidates = [
+    o.originalPrice,
+    (o.price as Record<string, unknown> | undefined)?.originalPrice,
+    (o.price as Record<string, unknown> | undefined)?.original,
+    (o.prices as Record<string, unknown> | undefined)?.original,
+  ];
+  let selling = 0;
+  for (const c of sellingCandidates) {
+    selling = pickPrice(c);
+    if (selling > 0) break;
+  }
+  let original = 0;
+  for (const c of originalCandidates) {
+    original = pickPrice(c);
+    if (original > 0) break;
+  }
+  // Hiçbir spesifik field yoksa düz p.price'ı dene (number ya da object)
+  if (selling === 0 && original === 0) {
+    selling = pickPrice(o.price);
+  }
+  return { selling, original };
+}
+
 function normalize(
   p: TrendyolMenuProduct,
   storeId: number,
   categoryMap: Map<number, string>,
 ): TrendyolMenuItem {
-  const sellingPrice = p.sellingPrice ?? 0;
-  const originalPrice = p.originalPrice ?? 0;
-  const price = sellingPrice > 0 ? sellingPrice : originalPrice;
+  const { selling, original } = extractPrices(p);
+  const price = selling > 0 ? selling : original;
   return {
     productId: p.id,
     storeId,
-    name: p.name,
+    name: pickProductName(p, p.id),
     description: p.description ?? undefined,
     price,
-    originalPrice: originalPrice > 0 && originalPrice !== sellingPrice ? originalPrice : undefined,
+    originalPrice: original > 0 && original !== selling ? original : undefined,
     isActive: (p.status ?? "ACTIVE").toUpperCase() === "ACTIVE",
     inStock: true, // bu endpoint stok bilgisi vermiyor; varsayılan in-stock
     category: categoryMap.get(p.id),
-    hasDiscount: sellingPrice > 0 && originalPrice > sellingPrice,
+    hasDiscount: selling > 0 && original > selling,
   };
 }
 
