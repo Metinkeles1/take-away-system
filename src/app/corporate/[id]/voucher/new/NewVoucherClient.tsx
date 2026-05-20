@@ -29,12 +29,12 @@ import { ArrowLeft, ShoppingCart, ChevronUp } from "lucide-react";
 import { toast } from "sonner";
 import { VisuallyHidden } from "radix-ui";
 import VoucherReceipt from "@/components/receipt/VoucherReceipt";
-import { ProductBrowser } from "../_components/ProductBrowser";
+import { ProductBrowser } from "@/components/corporate/voucher/ProductBrowser";
 import {
   VoucherCart,
   calcUnitPrice,
   type VoucherDraftItem,
-} from "../_components/VoucherCart";
+} from "@/components/corporate/voucher/VoucherCart";
 
 function makeKey(productId: string, portion?: PortionOption): string {
   return portion ? `${productId}__${portion.size}` : productId;

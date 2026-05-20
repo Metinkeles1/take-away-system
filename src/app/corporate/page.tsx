@@ -11,9 +11,9 @@ import { formatCurrency } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Search, Plus } from "lucide-react";
-import { CorporateList } from "./_components/CorporateList";
-import { CorporateFormDialog } from "./_components/CorporateFormDialog";
-import { DeleteCorporateDialog } from "./_components/DeleteCorporateDialog";
+import { CorporateList } from "@/components/corporate/CorporateList";
+import { CorporateFormDialog } from "@/components/corporate/CorporateFormDialog";
+import { DeleteCorporateDialog } from "@/components/corporate/DeleteCorporateDialog";
 
 export default function CorporatePage() {
   const [corporates, setCorporates] = useState<CorporateWithBalance[]>([]);

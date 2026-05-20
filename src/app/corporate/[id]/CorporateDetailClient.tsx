@@ -45,10 +45,10 @@ import {
   Receipt,
 } from "lucide-react";
 import { toast } from "sonner";
-import { StatCard } from "./_components/StatCard";
-import { VoucherList } from "./_components/VoucherList";
-import { PerPersonVoucherDialog } from "./_components/PerPersonVoucherDialog";
-import { PrintReceiptDialog } from "./_components/PrintReceiptDialog";
+import { StatCard } from "@/components/corporate/detail/StatCard";
+import { VoucherList } from "@/components/corporate/detail/VoucherList";
+import { PerPersonVoucherDialog } from "@/components/corporate/detail/PerPersonVoucherDialog";
+import { PrintReceiptDialog } from "@/components/corporate/detail/PrintReceiptDialog";
 
 export default function CorporateDetailClient({
   corporate,
