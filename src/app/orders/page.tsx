@@ -11,8 +11,8 @@ const LIST_REFRESH_MS = 15_000;
 import {
   OrderStatusFilters,
   type OrderFilter,
-} from "./_components/OrderStatusFilters";
-import { OrdersList } from "./_components/OrdersList";
+} from "@/components/orders/OrderStatusFilters";
+import { OrdersList } from "@/components/orders/OrdersList";
 
 export default function OrdersPage() {
   const { orders, updateOrderStatus, loadOrders, isLoading } = useOrderStore();
