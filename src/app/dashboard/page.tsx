@@ -16,16 +16,16 @@ import { SourceFilter } from "@/components/dashboard/SourceFilter";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
-import { RecentTransactions } from "./_components/RecentTransactions";
-import { RevenueBreakdown } from "./_components/RevenueBreakdown";
-import { SalesPerformance } from "./_components/SalesPerformance";
-import { SectionCards } from "./_components/SectionCards";
-import { TopProductsList } from "./_components/TopProductsList";
+import { RecentTransactions } from "@/components/dashboard/RecentTransactions";
+import { RevenueBreakdown } from "@/components/dashboard/RevenueBreakdown";
+import { SalesPerformance } from "@/components/dashboard/SalesPerformance";
+import { SectionCards } from "@/components/dashboard/SectionCards";
+import { TopProductsList } from "@/components/dashboard/TopProductsList";
 
 // Below-the-fold + Recharts içeren tab — bundle'ı düşürmek için lazy yükle.
 const CustomerInsights = dynamic(
   () =>
-    import("./_components/CustomerInsights").then((m) => ({
+    import("@/components/dashboard/CustomerInsights").then((m) => ({
       default: m.CustomerInsights,
     })),
   {

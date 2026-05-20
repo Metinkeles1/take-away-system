@@ -1,6 +1,6 @@
 "use client";
 
-import { OverviewTab } from "./OverviewTab";
+import { OverviewTab } from "@/components/dashboard/trendyol/OverviewTab";
 
 export default function TrendyolOverviewPage() {
   return <OverviewTab />;

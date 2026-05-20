@@ -38,12 +38,16 @@ export function RegionsMap({
   // map'in animasyon callback'i "_leaflet_pos undefined" patlatıyordu.
   useEffect(() => {
     let cancelled = false;
+    // Effect mount sırasındaki container referansı. Cleanup'ta `containerRef.current`
+    // değişmiş olabileceği için (react-hooks/exhaustive-deps uyarısı) burada sabitliyoruz.
+    const el = containerRef.current as
+      | (HTMLDivElement & { _leaflet_id?: number })
+      | null;
     (async () => {
       const L = (await import("leaflet")).default;
-      if (cancelled || !containerRef.current) return;
+      if (cancelled || !el) return;
 
       // StrictMode/HMR remount: aynı DOM'a 2 kere L.map() çağrılmasını engelle.
-      const el = containerRef.current as HTMLDivElement & { _leaflet_id?: number };
       if (el._leaflet_id) {
         // Önceki mount'tan kalmış olabilir — leaflet'in container check'i geçsin.
         delete el._leaflet_id;
@@ -84,9 +88,6 @@ export function RegionsMap({
       }
       // Container DOM'undan leaflet izini sil ki yeniden mount'ta L.map()
       // "Map container is already initialized" demesin.
-      const el = containerRef.current as
-        | (HTMLDivElement & { _leaflet_id?: number })
-        | null;
       if (el && el._leaflet_id) {
         delete el._leaflet_id;
       }

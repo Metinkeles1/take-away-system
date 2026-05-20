@@ -14,10 +14,10 @@ import {
   PlusCircle,
 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
-import { StatCard, computeDelta } from "./_components/dashboard/StatCard";
-import { HourlyTraffic } from "./_components/dashboard/HourlyTraffic";
-import { ActiveOrdersCard } from "./_components/dashboard/ActiveOrdersCard";
-import { QuickActionsCard } from "./_components/dashboard/QuickActionsCard";
+import { StatCard, computeDelta } from "@/components/dashboard/StatCard";
+import { HourlyTraffic } from "@/components/dashboard/HourlyTraffic";
+import { ActiveOrdersCard } from "@/components/dashboard/ActiveOrdersCard";
+import { QuickActionsCard } from "@/components/dashboard/QuickActionsCard";
 
 export default function DashboardPage() {
   const router = useRouter();
