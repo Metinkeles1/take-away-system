@@ -7,10 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Search, Plus, Download } from "lucide-react";
 import { toast } from "sonner";
-import { CustomerList } from "./_components/CustomerList";
-import { CustomerFormDialog } from "./_components/CustomerFormDialog";
-import { DeleteCustomerDialog } from "./_components/DeleteCustomerDialog";
-import { exportCustomersToCsv } from "./_components/customerCsv";
+import { CustomerList } from "@/components/customers/CustomerList";
+import { CustomerFormDialog } from "@/components/customers/CustomerFormDialog";
+import { DeleteCustomerDialog } from "@/components/customers/DeleteCustomerDialog";
+import { exportCustomersToCsv } from "@/components/customers/customerCsv";
 
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<SavedCustomer[]>([]);
