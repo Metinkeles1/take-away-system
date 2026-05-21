@@ -1,9 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
-import { useReactToPrint } from "react-to-print";
-import { useOrderStore, selectSubtotal, selectTotal } from "@/store/orderStore";
+import { useEffect } from "react";
+import {
+  useOrderStore,
+  selectSubtotal,
+  selectTotal,
+  selectCanComplete,
+} from "@/store/orderStore";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import {
@@ -14,12 +17,12 @@ import {
 } from "@/types";
 import { DEFAULT_IBAN_NAME, DEFAULT_IBAN_NUMBER } from "@/lib/constants";
 import ThermalReceipt from "@/components/receipt/ThermalReceipt";
-import { toast } from "sonner";
 import { CustomerSearch } from "./sidepanel/CustomerSearch";
 import { CartList } from "./sidepanel/CartList";
 import { PaymentPicker } from "./sidepanel/PaymentPicker";
 import { NotesSection } from "./sidepanel/NotesSection";
 import { CheckoutFooter } from "./sidepanel/CheckoutFooter";
+import { useOrderSubmit } from "@/hooks/useOrderSubmit";
 
 interface OrderSidePanelProps {
   /** Sticky alt bar ile çalışma modu (mobil Sheet için) */
@@ -27,23 +30,27 @@ interface OrderSidePanelProps {
 }
 
 export default function OrderSidePanel({ variant = "desktop" }: OrderSidePanelProps) {
-  const router = useRouter();
-  const {
-    draft,
-    addItem,
-    addItemWithPortion,
-    removeItem,
-    updateQuantity,
-    setCustomer,
-    setPayment,
-    setNotes,
-    completeOrder,
-    resetDraft,
-    savedCustomers,
-    loadSavedCustomers,
-  } = useOrderStore();
+  // Per-field selector'lar — bileşen sadece kullandığı alanlara abone.
+  const draft = useOrderStore((s) => s.draft);
+  const editingOrderId = useOrderStore((s) => s.editingOrderId);
+  const savedCustomers = useOrderStore((s) => s.savedCustomers);
+  const addItem = useOrderStore((s) => s.addItem);
+  const addItemWithPortion = useOrderStore((s) => s.addItemWithPortion);
+  const removeItem = useOrderStore((s) => s.removeItem);
+  const updateQuantity = useOrderStore((s) => s.updateQuantity);
+  const setCustomer = useOrderStore((s) => s.setCustomer);
+  const setPayment = useOrderStore((s) => s.setPayment);
+  const setNotes = useOrderStore((s) => s.setNotes);
+  const loadSavedCustomers = useOrderStore((s) => s.loadSavedCustomers);
+
   const subtotal = useOrderStore(selectSubtotal);
   const total = useOrderStore(selectTotal);
+  const canComplete = useOrderStore(selectCanComplete);
+  const isEditMode = Boolean(editingOrderId);
+
+  // Submit/print/cancel orkestrasyonu hook'ta.
+  const { isSubmitting, receiptRef, onComplete, onSaveEdit, onCancel } =
+    useOrderSubmit();
 
   // Müşteri listesini bir kez yükle (client-side filtre için)
   useEffect(() => {
@@ -74,62 +81,6 @@ export default function OrderSidePanel({ variant = "desktop" }: OrderSidePanelPr
       ibanNumber: method === "iban" ? DEFAULT_IBAN_NUMBER : undefined,
     });
   };
-
-  // Yazdırma
-  const receiptRef = useRef<HTMLDivElement>(null);
-  const handlePrint = useReactToPrint({
-    contentRef: receiptRef,
-    documentTitle: "Siparis-Fis",
-  });
-
-  const canComplete =
-    draft.items.length > 0 &&
-    Boolean(draft.customer.phone) &&
-    Boolean(draft.customer.address) &&
-    Boolean(draft.payment.method);
-
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const handleComplete = useCallback(
-    async (alsoPrint: boolean) => {
-      if (isSubmitting) return;
-      setIsSubmitting(true);
-      if (!draft.payment.method) {
-        setPayment({ method: "cash" });
-      }
-      try {
-        const order = await completeOrder();
-        if (!order) {
-          toast.error("Lütfen müşteri ve ödeme bilgilerini doldurun.");
-          setIsSubmitting(false);
-          return;
-        }
-        toast.success(`#${order.orderNumber} numaralı sipariş alındı!`);
-        if (alsoPrint) {
-          // Print bitsin (veya iptal edilsin), receiptRef unmount olmadan önce
-          try {
-            await handlePrint();
-          } catch {
-            // print iptal edilmiş olabilir — sipariş yine de tamamlandı
-          }
-        }
-        resetDraft();
-        router.push(`/orders/${order.id}`);
-      } catch {
-        toast.error("Sipariş kaydedilirken bir hata oluştu.");
-        setIsSubmitting(false);
-      }
-    },
-    [
-      completeOrder,
-      draft.payment.method,
-      handlePrint,
-      isSubmitting,
-      resetDraft,
-      router,
-      setPayment,
-    ],
-  );
 
   // Sepet aksiyonları
   const handleCartIncrement = (item: OrderDraft["items"][number]) => {
@@ -194,8 +145,10 @@ export default function OrderSidePanel({ variant = "desktop" }: OrderSidePanelPr
         total={total}
         canComplete={canComplete}
         isSubmitting={isSubmitting}
-        onComplete={() => handleComplete(false)}
-        onCompleteAndPrint={() => handleComplete(true)}
+        mode={isEditMode ? "edit" : "create"}
+        onComplete={isEditMode ? onSaveEdit : () => onComplete(false)}
+        onCompleteAndPrint={() => onComplete(true)}
+        onCancel={onCancel}
       />
 
       {/* Gizli yazdırma fişi */}

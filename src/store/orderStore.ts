@@ -16,22 +16,17 @@ import {
   updateOrderPayment as dbUpdatePayment,
   getOrders,
 } from "@/actions/orders";
+import { updateOrderDetails } from "@/actions/orderEdit";
 import { getSavedCustomers, upsertCustomer } from "@/actions/customers";
-import { DEFAULT_IBAN_NAME, DEFAULT_IBAN_NUMBER } from "@/lib/constants";
-
-// ─── Yardımcı: Sipariş numarası üret ─────────────────────────────────────────
-function generateOrderNumber(): number {
-  return Math.floor(1000 + Math.random() * 9000);
-}
-
-function generateId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-}
+import { buildOrderFromDraft, calcSubtotal } from "@/lib/orders/factory";
 
 // ─── Store State ──────────────────────────────────────────────────────────────
 interface OrderStore {
   // Aktif sipariş taslağı
   draft: OrderDraft;
+
+  // Düzenleme modu — null ise yeni sipariş, dolu ise mevcut siparişin id'si
+  editingOrderId: string | null;
 
   // Tamamlanmış siparişler (geçmiş)
   orders: Order[];
@@ -61,6 +56,10 @@ interface OrderStore {
   completeOrder: () => Promise<Order | null>;
   resetDraft: () => void;
 
+  // ── Düzenleme modu ────────────────────────────────────────────────────────
+  loadOrderForEdit: (order: Order) => void;
+  saveEdit: () => Promise<{ ok: boolean; id?: string; error?: string }>;
+
   // ── Geçmiş ───────────────────────────────────────────────────────────────
   loadOrders: () => Promise<void>;
   loadSavedCustomers: () => Promise<void>;
@@ -80,6 +79,7 @@ const initialDraft: OrderDraft = {
 // ─── Store ────────────────────────────────────────────────────────────────────
 export const useOrderStore = create<OrderStore>()((set, get) => ({
   draft: initialDraft,
+  editingOrderId: null,
   orders: [],
   savedCustomers: [],
   isLoading: false,
@@ -254,7 +254,7 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
 
   // ── Siparişi tamamla ───────────────────────────────────────────────────
   completeOrder: async () => {
-    const { draft, getSubtotal, getDeliveryFee, getTotal } = get();
+    const { draft } = get();
 
     if (
       draft.items.length === 0 ||
@@ -265,34 +265,7 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
       return null;
     }
 
-    const cashGiven = draft.payment.cashGiven ?? 0;
-    const total = getTotal();
-
-    const order: Order = {
-      id: generateId(),
-      orderNumber: generateOrderNumber(),
-      items: draft.items,
-      customer: draft.customer as CustomerInfo,
-      payment: {
-        method: draft.payment.method!,
-        cashGiven: draft.payment.method === "cash" ? cashGiven : undefined,
-        change:
-          draft.payment.method === "cash" ? Math.max(0, cashGiven - total) : undefined,
-        mealCardBrand:
-          draft.payment.method === "meal_card" ? draft.payment.mealCardBrand : undefined,
-        // ibanName ve ibanNumber DB'ye gitmez, sadece draft'ta (fiş önizleme) kullanılır
-        ibanName: draft.payment.method === "iban" ? DEFAULT_IBAN_NAME : undefined,
-        ibanNumber: draft.payment.method === "iban" ? DEFAULT_IBAN_NUMBER : undefined,
-      },
-      status: "pending",
-      notes: draft.notes,
-      subtotal: getSubtotal(),
-      deliveryFee: getDeliveryFee(),
-      total,
-      source: "manual",
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
+    const order = buildOrderFromDraft(draft);
 
     // DB'ye kaydet
     const result = await createOrder(order);
@@ -323,7 +296,63 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
 
   // ── Taslağı sıfırla ────────────────────────────────────────────────────
   resetDraft: () => {
-    set({ draft: initialDraft });
+    set({ draft: initialDraft, editingOrderId: null });
+  },
+
+  // ── Düzenleme için mevcut siparişi draft'a yükle ───────────────────────
+  loadOrderForEdit: (order) => {
+    set({
+      editingOrderId: order.id,
+      draft: {
+        items: order.items,
+        customer: order.customer,
+        payment: order.payment,
+        notes: order.notes ?? "",
+      },
+    });
+  },
+
+  // ── Düzenleme modunda kaydet ───────────────────────────────────────────
+  saveEdit: async () => {
+    const { draft, editingOrderId } = get();
+    if (!editingOrderId) {
+      return { ok: false, error: "Düzenleme modunda değil" };
+    }
+    if (
+      draft.items.length === 0 ||
+      !draft.customer.phone ||
+      !draft.customer.address
+    ) {
+      return { ok: false, error: "Telefon, adres ve en az bir ürün gerekli" };
+    }
+
+    const result = await updateOrderDetails(editingOrderId, {
+      items: draft.items,
+      customer: draft.customer as CustomerInfo,
+      notes: draft.notes,
+    });
+
+    if (!result.ok) return { ok: false, error: result.error };
+
+    // Optimistic: lokal listede de güncelle
+    const subtotal = calcSubtotal(draft.items);
+    set((state) => ({
+      orders: state.orders.map((o) =>
+        o.id === editingOrderId
+          ? {
+              ...o,
+              items: draft.items,
+              customer: draft.customer as CustomerInfo,
+              notes: draft.notes,
+              subtotal,
+              total: subtotal + (o.deliveryFee ?? 0),
+              updatedAt: new Date(),
+            }
+          : o,
+      ),
+    }));
+
+    return { ok: true, id: editingOrderId };
   },
 
   // ── DB'den siparişleri yükle ───────────────────────────────────────────
@@ -372,11 +401,25 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
 }));
 
 // ─── Türetilmiş Selector'lar (bileşenlerde doğrudan kullanın) ─────────────────
-// Zustand'da getter fonksiyonları store içinde tanımlamak yerine
-// dışarıda pure selector olarak tutmak daha performanslıdır.
-export const selectSubtotal = (state: { draft: OrderDraft }) =>
-  state.draft.items.reduce((sum, i) => sum + i.totalPrice, 0);
+// Tek doğruluk kaynağı — UI'da reduce/validation tekrarlamayın.
+type DraftState = { draft: OrderDraft; editingOrderId: string | null };
 
-export const selectTotal = (state: { draft: OrderDraft }) => {
-  return state.draft.items.reduce((sum, i) => sum + i.totalPrice, 0);
+export const selectSubtotal = (s: DraftState) =>
+  s.draft.items.reduce((sum, i) => sum + i.totalPrice, 0);
+
+export const selectTotal = (s: DraftState) => selectSubtotal(s);
+
+export const selectTotalItems = (s: DraftState) =>
+  s.draft.items.reduce((sum, i) => sum + i.quantity, 0);
+
+export const selectCanComplete = (s: DraftState) => {
+  const { draft, editingOrderId } = s;
+  const baseValid =
+    draft.items.length > 0 &&
+    Boolean(draft.customer.phone) &&
+    Boolean(draft.customer.address);
+  if (!baseValid) return false;
+  // Düzenleme modunda ödeme yöntemi zorunlu değil — mevcut siparişin payment'ı korunur.
+  if (editingOrderId) return true;
+  return Boolean(draft.payment.method);
 };

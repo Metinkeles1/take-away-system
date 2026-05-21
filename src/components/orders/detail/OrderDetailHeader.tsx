@@ -4,12 +4,14 @@ import { Button } from "@/components/ui/button";
 import {
   ArrowLeft,
   Printer,
+  Pencil,
   Clock,
   ClipboardList,
   CheckCircle2,
   Bike,
   XCircle,
 } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { formatDate } from "@/lib/utils";
 import type { Order, OrderStatus } from "@/types";
@@ -82,6 +84,14 @@ const OrderDetailHeader = memo(function OrderDetailHeader({
           {formatDate(order.createdAt)}
         </p>
       </div>
+      {(!order.source || order.source === "manual") && (
+        <Button variant="outline" asChild>
+          <Link href={`/orders/${order.id}/edit`}>
+            <Pencil className="mr-2 h-4 w-4" />
+            Düzenle
+          </Link>
+        </Button>
+      )}
       <Button variant="outline" onClick={onPrint}>
         <Printer className="mr-2 h-4 w-4" />
         Fişi Yazdır

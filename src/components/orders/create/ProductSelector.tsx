@@ -20,10 +20,13 @@ import {
 } from "@/lib/images";
 
 const GRID_CLASS =
-  "grid gap-2 sm:gap-2.5 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5";
+  "grid gap-2 sm:gap-2.5 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-4 2xl:grid-cols-5";
 
 export default function ProductSelector() {
-  const { draft, addItem, addItemWithPortion, updateQuantity } = useOrderStore();
+  const draft = useOrderStore((s) => s.draft);
+  const addItem = useOrderStore((s) => s.addItem);
+  const addItemWithPortion = useOrderStore((s) => s.addItemWithPortion);
+  const updateQuantity = useOrderStore((s) => s.updateQuantity);
   const [activeCategory, setActiveCategory] = useState<ProductCategory | "all">("all");
   const [search, setSearch] = useState("");
   const menuItems = useMenuStore((s) => s.items);
@@ -80,10 +83,10 @@ export default function ProductSelector() {
         )}
       </div>
 
-      {/* Kategori şeridi — mobilde yatay scroll (sağ fade cue), lg+ wrap */}
+      {/* Kategori şeridi — mobilde yatay scroll, sm+ wrap (tüm chip'ler tek/iki satıra ferah dağılır) */}
       <div className="relative shrink-0">
-        <div className="-mx-px overflow-x-auto lg:overflow-visible scrollbar-hide">
-          <div className="flex gap-2 sm:gap-3 pb-1 w-max lg:w-auto lg:flex-wrap px-px">
+        <div className="-mx-px overflow-x-auto sm:overflow-visible scrollbar-hide">
+          <div className="flex gap-2 pb-1 w-max sm:w-auto sm:flex-wrap px-px">
           <CategoryChip
             label="Tümü"
             emoji="🍽️"
@@ -109,8 +112,8 @@ export default function ProductSelector() {
           })}
           </div>
         </div>
-        {/* Sağ kenar fade — mobilde scroll cue, lg+ kapalı */}
-        <div className="lg:hidden pointer-events-none absolute right-0 top-0 bottom-1 w-8 bg-linear-to-l from-background to-transparent" />
+        {/* Sağ kenar fade — sadece mobilde scroll cue, sm+ wrap olduğu için kapalı */}
+        <div className="sm:hidden pointer-events-none absolute right-0 top-0 bottom-1 w-8 bg-linear-to-l from-background to-transparent" />
       </div>
 
       {/* Ürün grid */}
