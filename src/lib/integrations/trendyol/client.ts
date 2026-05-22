@@ -489,3 +489,114 @@ export function createTestMealOrder(input: CreateTestMealOrderInput) {
     body,
   });
 }
+
+// ─── Reviews — Stats ────────────────────────────────────────────────────
+// GET /integrator/review/meal/suppliers/{supplierId}/stores/{storeId}/reviews/stats
+// 404 + "Değerlendirme sayısı 3dan az." → yeterli veri yok demek; trendyolRequest
+// bu durumda { ok:false, status:404, error:"..." } döner, caller decide eder.
+export interface TrendyolReviewStats {
+  averageScores: {
+    overall: number;
+    flavor: number;
+    service: number;
+    delivery: number;
+  };
+  commentCount: number;
+  ratingCount: number;
+}
+
+export function listTrendyolReviewStats(params: { storeId: string | number }) {
+  const supplierId = process.env.TRENDYOL_SUPPLIER_ID!;
+  return trendyolRequest<TrendyolReviewStats>({
+    method: "GET",
+    path: `/integrator/review/meal/suppliers/${supplierId}/stores/${params.storeId}/reviews/stats`,
+  });
+}
+
+// ─── Reviews — Filter (list) ────────────────────────────────────────────
+// GET /integrator/review/meal/suppliers/{supplierId}/stores/{storeId}/reviews/filter
+export type TrendyolReviewAnswerStatus =
+  | "WAITING_FOR_APPROVE"
+  | "APPROVED"
+  | "REJECTED";
+
+export interface TrendyolReviewProduct {
+  productId: string;
+  name: string;
+  modifierProducts?: Array<{ productId: string; name: string }>;
+}
+
+export interface TrendyolReviewRejectedReason {
+  reason: string;
+  reasonId: number;
+}
+
+export interface TrendyolReviewRestaurantAnswer {
+  text: string;
+  status: TrendyolReviewAnswerStatus;
+  rejectedReason?: TrendyolReviewRejectedReason;
+}
+
+export interface TrendyolReviewComment {
+  text?: string;
+  restaurantAnswer?: TrendyolReviewRestaurantAnswer;
+}
+
+export interface TrendyolReview {
+  reviewId: string;
+  restaurantId: number;
+  orderCreatedDate: number;
+  createdDate: number;
+  orderParentId: number;
+  rating: {
+    flavorScore: number;
+    serviceScore: number;
+    deliveryScore: number;
+    average: number;
+  };
+  deliveryType: "STORE" | "GO";
+  products?: TrendyolReviewProduct[];
+  comment?: TrendyolReviewComment;
+}
+
+export interface TrendyolReviewsResponse {
+  page?: number;
+  size?: number;
+  totalPages?: number;
+  totalElements?: number;
+  totalCount?: number;
+  content?: TrendyolReview[];
+}
+
+export function listTrendyolReviews(params: {
+  storeId: string | number;
+  page?: number;
+  size?: number;
+  deliveryType?: "STORE" | "GO";
+  startDate?: number;
+  endDate?: number;
+  orderParentId?: number;
+  hasComment?: boolean;
+  hasRestaurantAnswer?: boolean;
+  restaurantAnswerStatus?: TrendyolReviewAnswerStatus;
+}) {
+  const supplierId = process.env.TRENDYOL_SUPPLIER_ID!;
+  const qs = new URLSearchParams();
+  if (params.page !== undefined) qs.set("page", String(params.page));
+  if (params.size !== undefined) qs.set("size", String(params.size));
+  if (params.deliveryType) qs.set("deliveryType", params.deliveryType);
+  if (params.startDate !== undefined) qs.set("startDate", String(params.startDate));
+  if (params.endDate !== undefined) qs.set("endDate", String(params.endDate));
+  if (params.orderParentId !== undefined) qs.set("orderParentId", String(params.orderParentId));
+  if (params.hasComment !== undefined) qs.set("hasComment", String(params.hasComment));
+  if (params.hasRestaurantAnswer !== undefined)
+    qs.set("hasRestaurantAnswer", String(params.hasRestaurantAnswer));
+  if (params.restaurantAnswerStatus)
+    qs.set("restaurantAnswerStatus", params.restaurantAnswerStatus);
+
+  const query = qs.toString();
+  return trendyolRequest<TrendyolReviewsResponse>({
+    method: "GET",
+    path: `/integrator/review/meal/suppliers/${supplierId}/stores/${params.storeId}/reviews/filter${query ? `?${query}` : ""}`,
+  });
+}
