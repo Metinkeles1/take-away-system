@@ -13,6 +13,10 @@ interface VoucherListProps {
   onDelete: (v: Voucher) => void;
   onPrint: (v: Voucher) => void;
   onEdit: (v: Voucher) => void;
+  onEditPayment: (v: Voucher) => void;
+  bulkMode?: boolean;
+  selectedIds?: Set<string>;
+  onToggleSelect?: (v: Voucher) => void;
 }
 
 export function VoucherList({
@@ -23,6 +27,10 @@ export function VoucherList({
   onDelete,
   onPrint,
   onEdit,
+  onEditPayment,
+  bulkMode,
+  selectedIds,
+  onToggleSelect,
 }: VoucherListProps) {
   if (isLoading) {
     return (
@@ -65,6 +73,10 @@ export function VoucherList({
           onDelete={onDelete}
           onPrint={onPrint}
           onEdit={onEdit}
+          onEditPayment={onEditPayment}
+          bulkMode={bulkMode}
+          selected={selectedIds?.has(v.id) ?? false}
+          onToggleSelect={onToggleSelect}
         />
       ))}
     </div>

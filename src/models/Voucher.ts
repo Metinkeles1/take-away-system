@@ -36,6 +36,7 @@ const VoucherSchema = new Schema(
     note: String,
     paid: { type: Boolean, default: false, index: true },
     paidAt: Date,
+    paidAmount: { type: Number, default: 0, min: 0 },
   },
   { timestamps: true, versionKey: false },
 );

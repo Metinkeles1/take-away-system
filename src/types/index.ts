@@ -188,6 +188,7 @@ export interface Voucher {
   note?: string;
   paid: boolean;
   paidAt?: Date;
+  paidAmount: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -208,6 +209,26 @@ export type VoucherInput =
       items: VoucherItem[];
       note?: string;
     };
+
+// ─── Tahsilat Hareketi (Payment) ─────────────────────────────────────────────
+// Bir fiş üzerinde yapılan her tahsilat/iptal hareketi. delta pozitifse ödeme
+// alındı, negatifse iptal/düzeltme. Toplamı fiş.paidAmount'a eşittir.
+export type PaymentSource =
+  | "manual_toggle" // tek tık ile tam tahsil/geri al
+  | "manual_edit" // tahsilatı düzenle dialog'undan
+  | "collect" // FIFO tutar tahsilatı
+  | "period_paid"; // tüm ayı tahsil et
+
+export interface Payment {
+  id: string;
+  voucherId: string;
+  corporateId: string;
+  delta: number;
+  source: PaymentSource;
+  note?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
 
 // ─── Dönemsel İstatistik ─────────────────────────────────────────────────────
 export interface PeriodStats {

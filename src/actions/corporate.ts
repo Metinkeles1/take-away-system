@@ -93,7 +93,14 @@ export async function getCorporatesWithBalance(): Promise<CorporateWithBalance[]
     CorporateModel.find().sort({ updatedAt: -1 }).lean(),
     VoucherModel.aggregate<{ _id: string; openBalance: number }>([
       { $match: { paid: false } },
-      { $group: { _id: "$corporateId", openBalance: { $sum: "$total" } } },
+      {
+        $group: {
+          _id: "$corporateId",
+          openBalance: {
+            $sum: { $subtract: ["$total", { $ifNull: ["$paidAmount", 0] }] },
+          },
+        },
+      },
     ]),
   ]);
 

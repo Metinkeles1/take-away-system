@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { useReactToPrint } from "react-to-print";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -217,12 +218,6 @@ export const PerPersonVoucherDialog = memo(function PerPersonVoucherDialog({
   });
 
   useEffect(() => {
-    if (!printVoucher) return;
-    const t = setTimeout(() => handlePrint(), 50);
-    return () => clearTimeout(t);
-  }, [printVoucher, handlePrint]);
-
-  useEffect(() => {
     if (!open) return;
     setDate(toDateInputValue(editing ? new Date(editing.date) : new Date()));
   }, [open, editing]);
@@ -284,8 +279,13 @@ export const PerPersonVoucherDialog = memo(function PerPersonVoucherDialog({
         return;
       }
       toast.success(`Fiş #${result.voucherNumber} oluşturuldu`);
-      // Hidden receipt'i render et → effect print'i tetikleyecek → onAfterPrint kapatıp refresh edecek
-      setPrintVoucher(result.voucher);
+      // flushSync ile setState'i sync render et — sonraki satırda print ref
+      // hazır olur. Eskiden useEffect + setTimeout(50) ile bekliyorduk; bu
+      // koreografi gereksizdi ve race condition'a açıktı.
+      flushSync(() => {
+        setPrintVoucher(result.voucher);
+      });
+      handlePrint();
     } finally {
       setIsSaving(false);
     }

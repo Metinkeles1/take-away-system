@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { useReactToPrint } from "react-to-print";
 import { useMenuStore } from "@/store/menuStore";
 import {
@@ -76,16 +77,6 @@ export default function NewVoucherClient({
       router.push(`/corporate/${corporate.id}`);
     },
   });
-
-  // Yeni fiş oluşturulup state'e set edildiğinde, receipt DOM'a yazılır,
-  // ardından bu effect print'i tetikler. setTimeout(0) iki nedenle gerekli:
-  // (1) recharts/portal gibi async render varsa garantiye almak,
-  // (2) ref'in current'ı kesin populate olduktan sonra çağırmak.
-  useEffect(() => {
-    if (!printVoucher) return;
-    const t = setTimeout(() => handlePrint(), 50);
-    return () => clearTimeout(t);
-  }, [printVoucher, handlePrint]);
 
   useEffect(() => {
     void loadMenu();
@@ -276,8 +267,11 @@ export default function NewVoucherClient({
         return;
       }
       toast.success(`Fiş #${result.voucherNumber} oluşturuldu`);
-      // Hidden receipt'i render et → effect print'i tetikleyecek → onAfterPrint navigate edecek
-      setPrintVoucher(result.voucher);
+      // flushSync ile DOM güncellemesini sync hale getir, sonra print et.
+      flushSync(() => {
+        setPrintVoucher(result.voucher);
+      });
+      handlePrint();
     } finally {
       setIsSaving(false);
     }
