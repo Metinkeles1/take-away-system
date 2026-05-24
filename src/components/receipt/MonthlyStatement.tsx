@@ -103,25 +103,26 @@ export default function MonthlyStatement({
   }, []);
 
   // Eski → yeni sırala (ekstre tarih sırasına göre okunsun)
-  const sortedVouchers = [...vouchers].sort(
-    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+  const sortedVouchers = useMemo(
+    () =>
+      [...vouchers].sort(
+        (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+      ),
+    [vouchers],
   );
 
   return (
     <>
+      {/* Print stili iframe içinde uygulanır; global body hiding gerekmez. */}
       <style>{`
         @media print {
           html, body {
             margin: 0 !important;
             padding: 0 !important;
             width: ${PAPER_WIDTH} !important;
+            background: #fff !important;
           }
-          body * { visibility: hidden !important; }
-          #${receiptId}, #${receiptId} * { visibility: visible !important; }
           #${receiptId} {
-            position: fixed !important;
-            top: 0 !important;
-            left: 0 !important;
             width: ${PAPER_WIDTH} !important;
             max-width: ${PAPER_WIDTH} !important;
             margin: 0 !important;
@@ -130,10 +131,9 @@ export default function MonthlyStatement({
             border-radius: 0 !important;
             box-shadow: none !important;
             background: #fff !important;
-            overflow: hidden !important;
             box-sizing: border-box !important;
           }
-          @page { size: 72mm auto; margin: 0; }
+          @page { size: ${PAPER_WIDTH} auto; margin: 0; }
         }
       `}</style>
 

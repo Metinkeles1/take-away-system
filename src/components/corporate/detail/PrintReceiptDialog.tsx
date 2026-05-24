@@ -36,8 +36,11 @@ export function PrintReceiptDialog({
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
+        {/* Lazy mount: children'ı sadece dialog açıkken render et.
+            Aksi halde MonthlyStatement / VoucherReceipt her parent render'ında
+            tekrar inşa edilip gereksiz hesaplama yapar. */}
         <div ref={contentRef} className="flex justify-center py-2">
-          {children}
+          {open ? children : null}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
