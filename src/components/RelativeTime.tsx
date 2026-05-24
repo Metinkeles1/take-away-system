@@ -4,11 +4,14 @@
 //
 // `formatRelativeTime` render içinde `Date.now()` çağırdığı için SSR sırasında
 // server vs client değerleri farklı olur ve React #418 (hydration mismatch)
-// atar. Bu component server'da BOŞ string render eder; mount sonrası gerçek
-// değeri set eder. Böylece hidrasyon güvenli.
+// atar. useSyncExternalStore ile SSR snapshot'ı boş string sabit tutuyoruz;
+// hidrasyon tamamlanınca client snapshot devreye girer ve interval ile
+// canlı kalır. setState-in-effect anti-pattern'i olmadan çalışır.
 
-import { useEffect, useState } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import { formatRelativeTime } from "@/lib/utils";
+
+const NOOP_UNSUBSCRIBE = () => {};
 
 export function RelativeTime({
   date,
@@ -17,14 +20,20 @@ export function RelativeTime({
   date: Date | string;
   refreshMs?: number;
 }) {
-  const [label, setLabel] = useState<string>("");
+  const subscribe = useMemo(
+    () => (callback: () => void) => {
+      if (refreshMs <= 0) return NOOP_UNSUBSCRIBE;
+      const id = setInterval(callback, refreshMs);
+      return () => clearInterval(id);
+    },
+    [refreshMs],
+  );
 
-  useEffect(() => {
-    setLabel(formatRelativeTime(date));
-    if (refreshMs <= 0) return;
-    const id = setInterval(() => setLabel(formatRelativeTime(date)), refreshMs);
-    return () => clearInterval(id);
-  }, [date, refreshMs]);
+  const label = useSyncExternalStore(
+    subscribe,
+    () => formatRelativeTime(date),
+    () => "",
+  );
 
   return <>{label}</>;
 }

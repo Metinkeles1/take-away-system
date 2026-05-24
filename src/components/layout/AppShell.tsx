@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { usePathname } from "next/navigation";
 import { Menu } from "lucide-react";
 import AppSidebar from "./AppSidebar";
@@ -11,10 +11,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
 
-  // Sayfa değişince Sheet'i kapat
-  useEffect(() => {
+  // Sayfa değişince Sheet'i kapat — derived state pattern.
+  // useEffect + setState yerine render sırasında pathname değişimini yakalıyoruz
+  // (React'in "reset state when prop changes" önerisi). Bu sayede cascading
+  // render olmuyor ve set-state-in-effect lint kuralı tetiklenmiyor.
+  const [lastPath, setLastPath] = useState(pathname);
+  if (pathname !== lastPath) {
+    setLastPath(pathname);
     setOpen(false);
-  }, [pathname]);
+  }
 
   return (
     <div className="h-full flex">

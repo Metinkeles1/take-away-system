@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Area, AreaChart, CartesianGrid, Line, XAxis, YAxis } from "recharts";
 import { Download } from "lucide-react";
 
@@ -51,11 +51,10 @@ const chartConfig = {
 export function SalesPerformance({ stats, isLoading }: Props) {
   const [range, setRange] = useState<Range>("12m");
 
-  const data = useMemo(() => {
-    if (!stats?.monthlyTrend) return [];
-    const take = range === "3m" ? 3 : range === "6m" ? 6 : 12;
-    return stats.monthlyTrend.slice(-take);
-  }, [stats?.monthlyTrend, range]);
+  // React Compiler otomatik memoize ediyor; manuel useMemo'nun optional-chain
+  // dep'i compiler'ın çıkardığıyla uyuşmadığı için memoization bozuluyordu.
+  const take = range === "3m" ? 3 : range === "6m" ? 6 : 12;
+  const data = stats?.monthlyTrend ? stats.monthlyTrend.slice(-take) : [];
 
   return (
     <Card className="@container/card w-full">

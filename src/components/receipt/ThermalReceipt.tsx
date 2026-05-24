@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useId, useState } from "react";
+import React, { useId, useMemo, useSyncExternalStore } from "react";
 import { type OrderDraft } from "@/types";
 import { formatCurrency, formatPhone } from "@/lib/utils";
 
@@ -112,10 +112,18 @@ const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptProps>(
     // Tarih/saat sadece client'ta hesaplanır — SSR'da new Date() çağırırsak
     // sunucu vs. istemci farklı saatte render edip hydration mismatch oluşur
     // (özellikle gece yarısı sınırını geçince gün de farklı çıkar).
-    const [printDate, setPrintDate] = useState<Date | null>(null);
-    useEffect(() => {
-      setPrintDate(new Date());
+    // useSyncExternalStore: SSR snapshot null, client snapshot ilk çağrıda
+    // cache'lenen Date. Re-render'larda aynı instance döner; setState-in-effect
+    // gerekmiyor.
+    const getDateSnapshot = useMemo(() => {
+      let cached: Date | null = null;
+      return () => (cached ??= new Date());
     }, []);
+    const printDate = useSyncExternalStore(
+      () => () => {},
+      getDateSnapshot,
+      () => null,
+    );
     const dateStr = printDate ? printDate.toLocaleDateString("tr-TR") : "";
     const timeStr = printDate
       ? printDate.toLocaleTimeString("tr-TR", {

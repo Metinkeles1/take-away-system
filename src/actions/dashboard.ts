@@ -119,8 +119,7 @@ const MONTH_LABELS = [
   "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara",
 ];
 
-const PAYMENT_KEYS = ["cash", "card", "online", "meal_card", "iban"] as const;
-type PaymentKey = (typeof PAYMENT_KEYS)[number];
+type PaymentKey = "cash" | "card" | "online" | "meal_card" | "iban";
 
 const ISTANBUL_OFFSET_MS = 3 * 60 * 60 * 1000;
 
