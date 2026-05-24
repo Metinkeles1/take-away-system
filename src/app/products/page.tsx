@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   getProducts,
   toggleProductAvailability,
@@ -18,72 +18,107 @@ import { DeleteProductDialog } from "@/components/products/DeleteProductDialog";
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState<ProductCategory | "all">("all");
+
+  // Yazarken her keystroke filter/group/render tetiklemesin — React deferred
+  // value, input'u öncelikli render eder, ağır listeyi arkada günceller.
+  const deferredSearch = useDeferredValue(searchQuery);
 
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [deletingProduct, setDeletingProduct] = useState<Product | null>(null);
 
-  const loadProducts = useCallback(async () => {
-    setIsLoading(true);
+  // İlk yüklemede skeleton göster; sonraki revalidation'larda sessiz refresh.
+  const initialLoadDoneRef = useRef(false);
+
+  const loadProducts = useCallback(async (showSkeleton = false) => {
+    if (showSkeleton) setIsInitialLoad(true);
     try {
       const data = await getProducts();
       setProducts(data);
     } finally {
-      setIsLoading(false);
+      setIsInitialLoad(false);
+      initialLoadDoneRef.current = true;
     }
   }, []);
 
   useEffect(() => {
-    loadProducts();
+    void loadProducts(true);
   }, [loadProducts]);
 
-  // İlk açılışta DB boşsa seed et
+  // İlk açılışta DB boşsa menüyü seed et (yalnızca bir kez)
+  const seedAttemptedRef = useRef(false);
   useEffect(() => {
-    if (!isLoading && products.length === 0) {
-      seedProducts().then((count) => {
-        if (count > 0) {
-          toast.success(`${count} ürün menüden aktarıldı`);
-          loadProducts();
-        }
-      });
+    if (!initialLoadDoneRef.current || seedAttemptedRef.current) return;
+    if (products.length > 0) return;
+    seedAttemptedRef.current = true;
+    seedProducts().then((count) => {
+      if (count > 0) {
+        toast.success(`${count} ürün menüden aktarıldı`);
+        void loadProducts();
+      }
+    });
+  }, [products.length, loadProducts]);
+
+  // Filtreler — tek geçiş, memoized. searchQuery'nin deferred sürümünü kullan.
+  const filteredProducts = useMemo(() => {
+    const q = deferredSearch.trim().toLowerCase();
+    return products.filter((p) => {
+      if (activeCategory !== "all" && p.category !== activeCategory) return false;
+      if (q && !p.name.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [products, activeCategory, deferredSearch]);
+
+  // Kategori başlıklı görünüm yalnızca "Tümü + arama yok" durumunda gösteriliyor.
+  // O yüzden sadece o durumda group hesapla.
+  const groupedProducts = useMemo(() => {
+    if (activeCategory !== "all" || deferredSearch) return [];
+    const byCategory = new Map<ProductCategory, Product[]>();
+    for (const p of filteredProducts) {
+      const arr = byCategory.get(p.category);
+      if (arr) arr.push(p);
+      else byCategory.set(p.category, [p]);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoading]);
+    return MENU_CATEGORIES.flatMap((cat) => {
+      const items = byCategory.get(cat.value);
+      return items && items.length > 0 ? [{ ...cat, items }] : [];
+    });
+  }, [filteredProducts, activeCategory, deferredSearch]);
 
-  const filteredProducts = products.filter((p) => {
-    const matchCategory = activeCategory === "all" || p.category === activeCategory;
-    const matchSearch =
-      !searchQuery ||
-      p.name.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchCategory && matchSearch;
-  });
-
-  // Group by category for display
-  const groupedProducts = MENU_CATEGORIES.reduce(
-    (acc, cat) => {
-      const items = filteredProducts.filter((p) => p.category === cat.value);
-      if (items.length > 0) acc.push({ ...cat, items });
-      return acc;
-    },
-    [] as ((typeof MENU_CATEGORIES)[number] & { items: Product[] })[],
+  const activeProductsCount = useMemo(
+    () => products.filter((p) => p.available).length,
+    [products],
   );
 
   const handleOpenEdit = useCallback((product: Product) => setEditingProduct(product), []);
   const handleOpenDelete = useCallback((product: Product) => setDeletingProduct(product), []);
   const handleCloseEdit = useCallback(() => setEditingProduct(null), []);
   const handleCloseDelete = useCallback(() => setDeletingProduct(null), []);
+  const handleOpenAdd = useCallback(() => setShowAddDialog(true), []);
 
-  const handleToggle = useCallback(
-    async (product: Product) => {
-      await toggleProductAvailability(product.id);
-      toast.success(`${product.name} ${product.available ? "pasif" : "aktif"} yapıldı`);
-      loadProducts();
-    },
-    [loadProducts],
-  );
+  // Optimistic toggle: anında UI patch, hata olursa geri al.
+  const handleToggle = useCallback(async (product: Product) => {
+    const id = product.id;
+    setProducts((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, available: !p.available } : p)),
+    );
+    toast.success(`${product.name} ${product.available ? "pasif" : "aktif"} yapıldı`);
+    try {
+      await toggleProductAvailability(id);
+    } catch {
+      // Sunucu reddetti — geri al
+      setProducts((prev) =>
+        prev.map((p) => (p.id === id ? { ...p, available: product.available } : p)),
+      );
+      toast.error("Durum değiştirilemedi");
+    }
+  }, []);
+
+  // Add/edit/delete sonrası silent revalidation (skeleton göstermeden refetch).
+  const handleSilentReload = useCallback(() => void loadProducts(false), [loadProducts]);
 
   const handleExportCSV = useCallback(() => {
     if (products.length === 0) {
@@ -117,9 +152,9 @@ export default function ProductsPage() {
     <main className="h-full flex flex-col px-3 pt-3 pb-6 sm:px-4 sm:pt-4 md:px-6 md:pt-5 lg:px-8 lg:pt-6 lg:pb-8 overflow-y-auto lg:overflow-hidden">
       <ProductsHeader
         totalProducts={products.length}
-        activeProducts={products.filter((p) => p.available).length}
+        activeProducts={activeProductsCount}
         onExportCSV={handleExportCSV}
-        onAddProduct={() => setShowAddDialog(true)}
+        onAddProduct={handleOpenAdd}
       />
 
       <ProductsFilters
@@ -132,32 +167,32 @@ export default function ProductsPage() {
 
       <div className="flex-1 lg:min-h-0 lg:overflow-y-auto scrollbar-hide pt-px px-px pb-2">
         <ProductsList
-          isLoading={isLoading}
+          isLoading={isInitialLoad}
           filteredProducts={filteredProducts}
           activeCategory={activeCategory}
-          searchQuery={searchQuery}
+          searchQuery={deferredSearch}
           groupedProducts={groupedProducts}
           onEdit={handleOpenEdit}
           onDelete={handleOpenDelete}
           onToggle={handleToggle}
-          onAddProduct={() => setShowAddDialog(true)}
+          onAddProduct={handleOpenAdd}
         />
       </div>
 
       <AddProductDialog
         open={showAddDialog}
         onOpenChange={setShowAddDialog}
-        onSuccess={loadProducts}
+        onSuccess={handleSilentReload}
       />
       <EditProductDialog
         product={editingProduct}
         onClose={handleCloseEdit}
-        onSuccess={loadProducts}
+        onSuccess={handleSilentReload}
       />
       <DeleteProductDialog
         product={deletingProduct}
         onClose={handleCloseDelete}
-        onSuccess={loadProducts}
+        onSuccess={handleSilentReload}
       />
     </main>
   );

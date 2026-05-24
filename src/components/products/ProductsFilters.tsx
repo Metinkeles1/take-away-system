@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { type ProductCategory } from "@/types";
 import { MENU_CATEGORIES } from "@/data/menu";
 import { Input } from "@/components/ui/input";
@@ -24,6 +25,15 @@ export function ProductsFilters({
   onCategoryChange,
   products,
 }: ProductsFiltersProps) {
+  // Her CategoryChip ayrı ayrı filter() çağırmasın — tek geçişte sayıları topla.
+  const categoryCounts = useMemo(() => {
+    const map = new Map<ProductCategory, number>();
+    for (const p of products) {
+      map.set(p.category, (map.get(p.category) ?? 0) + 1);
+    }
+    return map;
+  }, [products]);
+
   return (
     <div className="mb-4 flex flex-col gap-3 shrink-0">
       {/* Arama */}
@@ -59,7 +69,7 @@ export function ProductsFilters({
             onClick={() => onCategoryChange("all")}
           />
           {MENU_CATEGORIES.map((cat) => {
-            const count = products.filter((p) => p.category === cat.value).length;
+            const count = categoryCounts.get(cat.value) ?? 0;
             return (
               <CategoryChip
                 key={cat.value}
