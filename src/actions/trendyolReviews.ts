@@ -180,19 +180,81 @@ export async function getTrendyolReviewStats(): Promise<TrendyolReviewStatsResul
 }
 
 // ─── Reviews list ──────────────────────────────────────────────────
-// Tek mağaza varsa endpoint'in kendi paginasyonu kullanılır. Birden fazla
-// mağaza varsa her birinden aynı sayfa çekilip birleştirilir; pagination
-// approximate (totalCount toplanır, ama sayfa numarası best-effort).
+//
+// Trendyol /reviews/filter endpoint'i sıralama parametresi belgelemiyor ve
+// default sıralama yönü API'den API'ye değişebiliyor — pratikte page 0 en
+// ESKİ yorumları döndürebilir ve kullanıcı "son kötü yorum" gibi en yeni
+// kayıtları kaçırır. Bu yüzden:
+//   1. Mağaza başına TÜM sayfaları çekiyoruz (max 50/sayfa).
+//   2. Birleştirip createdDate DESC sıralıyoruz (gerçek "son yorum" üstte).
+//   3. Pagination'ı client-side yapıyoruz.
+// Cache: page hariç filtreler bazında — aynı filtre kombinasyonu sayfalar
+// arası tek API turundan yararlanır.
+
+// Bir mağaza için tüm sayfaları çeker (paginated loop, 50/sayfa).
+//
+// Trendyol response'unda `totalPages` her zaman güvenilir dönmüyor; ona göre
+// "ilk sayfadan sonra dur" gibi vakalarda yorumların büyük kısmını kaçırdık.
+// Bu yüzden döngünün durma koşulu birden fazla sinyale göre çalışır:
+//   - content.length < SIZE  → son sayfa (kesin)
+//   - totalPages varsa ve aşıldıysa → dur
+//   - aksi halde MAX_PAGES güvenlik tavanına kadar devam et
+async function fetchAllReviewsForStore(
+  storeId: number,
+  filters: Omit<TrendyolReviewsListFilters, "page" | "size">,
+): Promise<{ ok: true; reviews: TrendyolReview[] } | { ok: false; status: number; error: string }> {
+  const SIZE = 50;
+  const MAX_PAGES = 50; // 50 × 50 = 2500 yorum (safety cap)
+  const all: TrendyolReview[] = [];
+
+  let page = 0;
+  while (page < MAX_PAGES) {
+    const res = await listTrendyolReviews({
+      storeId,
+      page,
+      size: SIZE,
+      deliveryType: filters.deliveryType,
+      startDate: filters.startDate,
+      endDate: filters.endDate,
+      hasComment: filters.hasComment,
+      hasRestaurantAnswer: filters.hasRestaurantAnswer,
+      restaurantAnswerStatus: filters.restaurantAnswerStatus,
+    });
+    if (!res.ok) {
+      // İlk sayfa başarısızsa hata; sonraki sayfalar başarısızsa o ana kadar
+      // toplanmış yorumlarla yetin (kısmi veri > hiç veri).
+      if (page === 0) {
+        return { ok: false, status: res.status, error: res.error };
+      }
+      break;
+    }
+    const content = res.data.content ?? [];
+    all.push(...content);
+
+    // Birincil durma sinyali: dönen kayıt SIZE'dan az → son sayfa
+    if (content.length < SIZE) break;
+
+    // İkincil: totalPages mevcut ve aşıldıysa dur
+    const totalPages = res.data.totalPages;
+    if (typeof totalPages === "number" && page + 1 >= totalPages) break;
+
+    page++;
+  }
+  return { ok: true, reviews: all };
+}
 
 async function computeReviewsList(
   filters: TrendyolReviewsListFilters,
 ): Promise<TrendyolReviewsListResult> {
   const storeIds = await resolveStoreIds();
+  const size = filters.size ?? 20;
+  const page = filters.page ?? 0;
+
   if (storeIds.length === 0) {
     return {
       reviews: [],
-      page: 0,
-      size: filters.size ?? 20,
+      page,
+      size,
       totalPages: 0,
       totalCount: 0,
       storeIds: [],
@@ -201,45 +263,42 @@ async function computeReviewsList(
     };
   }
 
-  const page = filters.page ?? 0;
-  const size = filters.size ?? 20;
-
   const results = await Promise.all(
-    storeIds.map((id) =>
-      listTrendyolReviews({
-        storeId: id,
-        page,
-        size,
-        deliveryType: filters.deliveryType,
-        startDate: filters.startDate,
-        endDate: filters.endDate,
-        hasComment: filters.hasComment,
-        hasRestaurantAnswer: filters.hasRestaurantAnswer,
-        restaurantAnswerStatus: filters.restaurantAnswerStatus,
-      }),
-    ),
+    storeIds.map((id) => fetchAllReviewsForStore(id, filters)),
   );
 
-  const reviews: TrendyolReviewWithCustomer[] = [];
-  let totalCount = 0;
-  let totalPages = 0;
+  // reviewId bazlı dedup — multi-store fetch ya da pagination overlap
+  // durumunda Trendyol aynı review'ı birden fazla kez döndürebiliyor;
+  // React aynı key'i iki kere görürse warning veriyor.
+  const seen = new Set<string>();
+  const allReviews: TrendyolReview[] = [];
   const errors: string[] = [];
-
   for (let i = 0; i < results.length; i++) {
     const r = results[i];
     if (!r.ok) {
-      if (r.status !== 404) errors.push(`Mağaza ${storeIds[i]}: ${r.status} ${r.error}`);
+      if (r.status !== 404)
+        errors.push(`Mağaza ${storeIds[i]}: ${r.status} ${r.error}`);
       continue;
     }
-    reviews.push(...(r.data.content ?? []));
-    totalCount += r.data.totalElements ?? r.data.totalCount ?? r.data.content?.length ?? 0;
-    totalPages = Math.max(totalPages, r.data.totalPages ?? 0);
+    for (const rev of r.reviews) {
+      if (seen.has(rev.reviewId)) continue;
+      seen.add(rev.reviewId);
+      allReviews.push(rev);
+    }
   }
 
-  reviews.sort((a, b) => b.createdDate - a.createdDate);
+  // Gerçek "en yeniden eskiye" sıralama — Trendyol'un default'una güvenmiyoruz.
+  allReviews.sort((a, b) => b.createdDate - a.createdDate);
+
+  const totalCount = allReviews.length;
+  const totalPages = Math.ceil(totalCount / size);
+
+  // Client-side dilim
+  const start = page * size;
+  const slice = allReviews.slice(start, start + size);
 
   return {
-    reviews,
+    reviews: slice,
     page,
     size,
     totalPages,
@@ -250,11 +309,9 @@ async function computeReviewsList(
   };
 }
 
-// Filter parametrelerini stable key'e çevir (cache discrimination için).
+// Filter parametrelerini stable key'e çevir (page HARİÇ — pagination client-side).
 function filterKey(f: TrendyolReviewsListFilters): string {
   return [
-    f.page ?? 0,
-    f.size ?? 20,
     f.deliveryType ?? "",
     f.startDate ?? "",
     f.endDate ?? "",
@@ -264,17 +321,44 @@ function filterKey(f: TrendyolReviewsListFilters): string {
   ].join("|");
 }
 
-const cachedList = unstable_cache(
-  async (_key: string, filters: TrendyolReviewsListFilters) => computeReviewsList(filters),
-  ["trendyol-reviews-list"],
+// Cache, page-bağımsız tüm yorumları tutar. getTrendyolReviews içinde
+// page+size'a göre dilimleme yapılır (kachable scope dışında).
+// NOT: key'e "v2" eklendi — dedup öncesi eski cache invalidate edilsin.
+const cachedAllReviews = unstable_cache(
+  async (_key: string, filters: TrendyolReviewsListFilters) => {
+    // page/size'ı sıfırla — cache her zaman tüm listeyi içersin
+    return computeReviewsList({ ...filters, page: 0, size: 100000 });
+  },
+  ["trendyol-reviews-all-v3"],
   { revalidate: 300 },
 );
 
 export async function getTrendyolReviews(
   filters: TrendyolReviewsListFilters = {},
 ): Promise<TrendyolReviewsListResult> {
-  // 1) Trendyol API'sinden cache'lenmiş listeyi al
-  const base = await cachedList(filterKey(filters), filters);
+  const page = filters.page ?? 0;
+  const size = filters.size ?? 20;
+
+  // 1) Tüm yorumları cache'ten al (page-bağımsız)
+  const full = await cachedAllReviews(filterKey(filters), filters);
+
+  // 2) İstenen sayfayı dilimle
+  const all = full.reviews;
+  const totalCount = all.length;
+  const totalPages = Math.ceil(totalCount / size);
+  const start = page * size;
+  const slice = all.slice(start, start + size);
+
+  const base: TrendyolReviewsListResult = {
+    reviews: slice,
+    page,
+    size,
+    totalPages,
+    totalCount,
+    storeIds: full.storeIds,
+    enrichedCount: 0,
+    error: full.error,
+  };
 
   // 2) Müşteri snapshot DB'sini güncelle (rate-gated, 1 saat'te bir).
   //    DB write unstable_cache içinde yapılamaz → burada, cache dışında.
