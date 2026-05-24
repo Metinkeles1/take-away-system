@@ -39,6 +39,11 @@ export function useOrderSubmit(): UseOrderSubmitResult {
   const onComplete = useCallback(
     async (alsoPrint: boolean) => {
       if (isSubmitting) return;
+      // Defansif: edit modunda yeni sipariş oluşturulmasın (duplicate'i önler)
+      if (editingOrderId) {
+        console.warn("[useOrderSubmit] onComplete edit modunda çağrıldı");
+        return;
+      }
       setIsSubmitting(true);
       if (!draftPaymentMethod) {
         setPayment({ method: "cash" });
@@ -69,6 +74,7 @@ export function useOrderSubmit(): UseOrderSubmitResult {
     [
       completeOrder,
       draftPaymentMethod,
+      editingOrderId,
       handlePrint,
       isSubmitting,
       resetDraft,

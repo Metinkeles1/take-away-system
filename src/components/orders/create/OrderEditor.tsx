@@ -88,7 +88,7 @@ export default function OrderEditor({ mode, initialOrder }: OrderEditorProps) {
         </div>
 
         <div className="hidden xl:block min-w-0 min-h-0 pb-3">
-          <OrderSidePanel variant="desktop" />
+          <OrderSidePanel variant="desktop" mode={mode} />
         </div>
       </div>
 
@@ -129,7 +129,7 @@ export default function OrderEditor({ mode, initialOrder }: OrderEditorProps) {
             <SheetTitle>{sheetTitle}</SheetTitle>
             <SheetDescription>{sheetDescription}</SheetDescription>
           </VisuallyHidden.Root>
-          <OrderSidePanel variant="sheet" />
+          <OrderSidePanel variant="sheet" mode={mode} />
         </SheetContent>
       </Sheet>
     </main>

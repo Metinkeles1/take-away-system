@@ -102,6 +102,24 @@ export async function toggleProductAvailability(id: string): Promise<void> {
   }
 }
 
+// ─── Porsiyon bayrağı backfill ─────────────────────────────────────────────
+// Geçmişte hardcoded PORTIONABLE_CATEGORIES (kebap/pide/dürüm) ile çalışıyordu;
+// schema'ya portionable alanı eklenince bu ürünlerin bazıları flag'siz kaldı.
+// Sadece flag'i true olmayanları (false veya undefined) etkiler — kullanıcının
+// elle pasifleştirdikleri de geri açılır; bu trade-off bilinçli (talep edildi).
+// Idempotent: her ürün düzeldikten sonra count 0 döner, sessizce no-op olur.
+export async function backfillProductPortions(): Promise<number> {
+  await connectDB();
+  const result = await ProductModel.updateMany(
+    {
+      category: { $in: PORTIONABLE_CATEGORIES },
+      portionable: { $ne: true },
+    },
+    { $set: { portionable: true } },
+  );
+  return result.modifiedCount;
+}
+
 // ─── Menüdeki sabit verileri DB'ye aktar (ilk kurulum) ─────────────────────
 // Portionable bayrağı kategori bazlı default'la dolar; image alanı boş gelir,
 // kullanıcı UI'dan teker teker yükler.

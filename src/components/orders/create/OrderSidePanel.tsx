@@ -27,12 +27,17 @@ import { useOrderSubmit } from "@/hooks/useOrderSubmit";
 interface OrderSidePanelProps {
   /** Sticky alt bar ile çalışma modu (mobil Sheet için) */
   variant?: "desktop" | "sheet";
+  /** Sipariş modu — store yerine prop'tan gelir ki ilk render'da
+   *  bile doğru olsun (useEffect race window kapanır). */
+  mode: "create" | "edit";
 }
 
-export default function OrderSidePanel({ variant = "desktop" }: OrderSidePanelProps) {
+export default function OrderSidePanel({
+  variant = "desktop",
+  mode,
+}: OrderSidePanelProps) {
   // Per-field selector'lar — bileşen sadece kullandığı alanlara abone.
   const draft = useOrderStore((s) => s.draft);
-  const editingOrderId = useOrderStore((s) => s.editingOrderId);
   const savedCustomers = useOrderStore((s) => s.savedCustomers);
   const addItem = useOrderStore((s) => s.addItem);
   const addItemWithPortion = useOrderStore((s) => s.addItemWithPortion);
@@ -46,7 +51,7 @@ export default function OrderSidePanel({ variant = "desktop" }: OrderSidePanelPr
   const subtotal = useOrderStore(selectSubtotal);
   const total = useOrderStore(selectTotal);
   const canComplete = useOrderStore(selectCanComplete);
-  const isEditMode = Boolean(editingOrderId);
+  const isEditMode = mode === "edit";
 
   // Submit/print/cancel orkestrasyonu hook'ta.
   const { isSubmitting, receiptRef, onComplete, onSaveEdit, onCancel } =

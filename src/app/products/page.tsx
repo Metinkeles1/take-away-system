@@ -5,6 +5,7 @@ import {
   getProducts,
   toggleProductAvailability,
   seedProducts,
+  backfillProductPortions,
 } from "@/actions/products";
 import { type Product, type ProductCategory } from "@/types";
 import { MENU_CATEGORIES } from "@/data/menu";
@@ -57,6 +58,21 @@ export default function ProductsPage() {
     seedProducts().then((count) => {
       if (count > 0) {
         toast.success(`${count} ürün menüden aktarıldı`);
+        void loadProducts();
+      }
+    });
+  }, [products.length, loadProducts]);
+
+  // Tek seferlik porsiyon backfill: kebap/pide/dürüm ürünlerine portionable=true
+  // atar. Tüm ürünler güncel olunca sessizce 0 döner, bir daha hiçbir şey yapmaz.
+  const portionBackfillDoneRef = useRef(false);
+  useEffect(() => {
+    if (!initialLoadDoneRef.current || portionBackfillDoneRef.current) return;
+    if (products.length === 0) return;
+    portionBackfillDoneRef.current = true;
+    backfillProductPortions().then((count) => {
+      if (count > 0) {
+        toast.success(`${count} ürünün porsiyon seçeneği geri yüklendi`);
         void loadProducts();
       }
     });

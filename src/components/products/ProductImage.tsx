@@ -39,8 +39,12 @@ export function ProductImage({
   sizes = "(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 240px",
   priority = false,
 }: ProductImageProps) {
-  const [currentSrc, setCurrentSrc] = useState(src);
-  const [errored, setErrored] = useState(false);
+  // Errored state'i URL'i ile sakla — src değişince doğal olarak invalidate olur,
+  // useEffect/setState patterns'a gerek yok. Bu sayede ürün resmi güncellendiğinde
+  // parent yeni src geçirir, component anında yeni resmi gösterir.
+  const [erroredSrc, setErroredSrc] = useState<string | null>(null);
+  const isErrored = erroredSrc === src;
+  const currentSrc = isErrored ? fallbackSrc : src;
 
   return (
     <div className={cn("relative overflow-hidden bg-muted", placeholderClassName)}>
@@ -52,10 +56,7 @@ export function ProductImage({
         priority={priority}
         unoptimized={isDataUri(currentSrc) || isVercelBlob(currentSrc)}
         onError={() => {
-          if (!errored) {
-            setErrored(true);
-            setCurrentSrc(fallbackSrc);
-          }
+          if (!isErrored) setErroredSrc(src);
         }}
         className={cn("object-cover", className)}
       />

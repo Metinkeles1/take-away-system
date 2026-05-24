@@ -254,7 +254,16 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
 
   // ── Siparişi tamamla ───────────────────────────────────────────────────
   completeOrder: async () => {
-    const { draft } = get();
+    const { draft, editingOrderId } = get();
+
+    // Defansif: edit modunda completeOrder asla çağrılmamalı. Yanlış wire
+    // edildiyse DB'ye yeni kayıt yazıp duplicate üretirdi — sessizce dur.
+    if (editingOrderId) {
+      console.warn(
+        "[orderStore] completeOrder edit modunda çağrıldı; saveEdit kullanılmalı",
+      );
+      return null;
+    }
 
     if (
       draft.items.length === 0 ||
