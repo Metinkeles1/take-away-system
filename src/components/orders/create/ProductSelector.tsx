@@ -8,9 +8,20 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Plus, Minus, Search, X } from "lucide-react";
 import { formatCurrency, cn } from "@/lib/utils";
-import { type ProductCategory, type Product, PORTIONABLE_CATEGORIES } from "@/types";
-import type { PortionOption } from "@/types";
+import {
+  type ProductCategory,
+  type Product,
+  type PortionOption,
+  PORTIONABLE_CATEGORIES,
+  PORTION_OPTIONS,
+} from "@/types";
 import PortionSelector from "./PortionSelector";
+
+const FULL_PORTION =
+  PORTION_OPTIONS.find((p) => p.size === "full") ?? PORTION_OPTIONS[0];
+
+const MIN_PORTION_MULT = Math.min(...PORTION_OPTIONS.map((p) => p.multiplier));
+const MAX_PORTION_MULT = Math.max(...PORTION_OPTIONS.map((p) => p.multiplier));
 import { ProductImage } from "@/components/products/ProductImage";
 import {
   productImage,
@@ -152,7 +163,7 @@ export default function ProductSelector() {
                   onAdd={() => addItem(product)}
                   onIncrement={() => addItem(product)}
                   onDecrement={() => updateQuantity(product.id, qty - 1)}
-                  onPortion={(portion) => addItemWithPortion(product, portion)}
+                  onAddPortion={(portion) => addItemWithPortion(product, portion)}
                 />
               );
             })}
@@ -238,7 +249,7 @@ interface ProductSelectCardProps {
   onAdd: () => void;
   onIncrement: () => void;
   onDecrement: () => void;
-  onPortion: (portion: PortionOption) => void;
+  onAddPortion: (portion: PortionOption) => void;
 }
 
 function ProductSelectCard({
@@ -248,33 +259,37 @@ function ProductSelectCard({
   onAdd,
   onIncrement,
   onDecrement,
-  onPortion,
+  onAddPortion,
 }: ProductSelectCardProps) {
+  // Tek tık akışı: porsiyonlu ürünlerde de karta tıklamak doğrudan 1 porsiyon ekler.
+  // Pill'ler (½ / 1 / 1½) yarım veya bir buçuk seçmek isteyene tek tıkla alternatif sunar.
   const handleCardClick = () => {
-    if (portionable) return;
-    onAdd();
+    if (portionable) {
+      onAddPortion(FULL_PORTION);
+    } else {
+      onAdd();
+    }
   };
 
   return (
     <div
-      role={portionable ? undefined : "button"}
-      tabIndex={portionable ? -1 : 0}
+      role="button"
+      tabIndex={0}
+      aria-label={`${product.name} ekle`}
       onClick={handleCardClick}
       onKeyDown={(e) => {
-        if (!portionable && (e.key === "Enter" || e.key === " ")) {
+        if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          onAdd();
+          handleCardClick();
         }
       }}
       className={cn(
-        "group relative flex flex-col rounded-xl bg-card ring-1 overflow-hidden transition-all min-w-0",
+        "group relative flex flex-col rounded-xl ring-1 overflow-hidden transition-all min-w-0 cursor-pointer active:scale-[0.98]",
         // Off-screen kartları tarayıcı render etmiyor — uzun grid'lerde scroll çok rahat.
-        // contain-intrinsic-size: kart yokken yer ayrılacak yükseklik (yaklaşık).
-        "[content-visibility:auto] [contain-intrinsic-size:auto_220px]",
+        "[content-visibility:auto] [contain-intrinsic-size:auto_240px]",
         qty > 0
-          ? "ring-2 ring-primary shadow-sm"
-          : "ring-foreground/8 hover:ring-foreground/25 hover:shadow-sm",
-        !portionable && "cursor-pointer active:scale-[0.98]",
+          ? "ring-2 ring-primary shadow-sm bg-primary/5"
+          : "bg-card ring-foreground/8 hover:ring-foreground/25 hover:shadow-sm",
       )}
     >
       <div className="relative aspect-5/4 w-full">
@@ -285,58 +300,75 @@ function ProductSelectCard({
           placeholderClassName="absolute inset-0"
         />
         {qty > 0 && (
-          <div className="absolute right-1.5 top-1.5 flex items-center justify-center min-w-6 h-6 rounded-full bg-primary text-primary-foreground text-[11px] font-bold px-1.5 shadow-md ring-2 ring-background">
+          <div
+            key={qty}
+            className="absolute right-1.5 top-1.5 flex items-center justify-center min-w-6 h-6 rounded-full bg-primary text-primary-foreground text-[11px] font-bold px-1.5 shadow-md ring-2 ring-background tabular-nums animate-in zoom-in-75 duration-200"
+          >
             {qty}
           </div>
         )}
       </div>
 
-      <div className="flex flex-col gap-0.5 px-2 py-1.5 min-w-0">
+      <div className="flex flex-col gap-1 px-2 py-1.5 min-w-0">
         <p className="font-medium text-[12px] leading-tight line-clamp-2 min-h-[2em] wrap-break-word">
           {product.name}
         </p>
-        <div className="flex items-center justify-between gap-1 min-w-0">
-          <span className="font-bold text-[13px] text-foreground tabular-nums truncate min-w-0">
-            {formatCurrency(product.price)}
-          </span>
 
-          <div onClick={(e) => e.stopPropagation()} className="shrink-0">
-            {portionable ? (
-              <PortionSelector
-                product={product}
-                onSelect={(_p, portion) => onPortion(portion)}
-              />
-            ) : qty === 0 ? (
-              <Button
-                size="sm"
-                variant="default"
-                className="h-7 w-7 p-0 rounded-full"
-                onClick={onAdd}
-              >
-                <Plus className="h-3.5 w-3.5" />
-              </Button>
-            ) : (
-              <div className="flex items-center gap-0.5">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-6 w-6 p-0 rounded-full"
-                  onClick={onDecrement}
-                >
-                  <Minus className="h-3 w-3" />
-                </Button>
+        {portionable ? (
+          <>
+            <span className="font-bold text-[13px] text-foreground tabular-nums truncate">
+              {formatCurrency(Math.round(product.price * MIN_PORTION_MULT))}
+              <span className="text-muted-foreground font-medium mx-0.5">–</span>
+              {formatCurrency(Math.round(product.price * MAX_PORTION_MULT))}
+            </span>
+            <PortionSelector
+              product={product}
+              onSelect={onAddPortion}
+              className="mt-0.5"
+            />
+          </>
+        ) : (
+          <div className="flex items-center justify-between gap-1 min-w-0">
+            <span className="font-bold text-[13px] text-foreground tabular-nums truncate min-w-0">
+              {formatCurrency(product.price)}
+            </span>
+
+            <div onClick={(e) => e.stopPropagation()} className="shrink-0">
+              {qty === 0 ? (
                 <Button
                   size="sm"
                   variant="default"
-                  className="h-6 w-6 p-0 rounded-full"
-                  onClick={onIncrement}
+                  className="h-7 w-7 p-0 rounded-full"
+                  onClick={onAdd}
+                  aria-label={`${product.name} ekle`}
                 >
-                  <Plus className="h-3 w-3" />
+                  <Plus className="h-3.5 w-3.5" />
                 </Button>
-              </div>
-            )}
+              ) : (
+                <div className="flex items-center gap-0.5">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 w-6 p-0 rounded-full"
+                    onClick={onDecrement}
+                    aria-label={`${product.name} azalt`}
+                  >
+                    <Minus className="h-3 w-3" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="default"
+                    className="h-6 w-6 p-0 rounded-full"
+                    onClick={onIncrement}
+                    aria-label={`${product.name} arttır`}
+                  >
+                    <Plus className="h-3 w-3" />
+                  </Button>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
