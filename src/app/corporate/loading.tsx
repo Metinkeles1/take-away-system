@@ -3,12 +3,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 export default function CorporateLoading() {
   return (
     <main className="h-full flex flex-col px-4 pt-4 pb-4 md:px-6 md:pt-5 lg:px-8 lg:pt-6 overflow-hidden">
-      <div className="mb-4 flex items-center justify-between shrink-0">
-        <div className="space-y-2">
-          <Skeleton className="h-7 w-56" />
+      <div className="mb-4 flex items-center justify-between gap-3 shrink-0">
+        <div className="min-w-0 space-y-2">
+          <Skeleton className="h-7 w-44 sm:w-56" />
           <Skeleton className="h-4 w-32" />
         </div>
-        <Skeleton className="h-9 w-32" />
+        <Skeleton className="h-9 w-9 sm:w-32 shrink-0" />
       </div>
 
       <Skeleton className="mb-4 h-10 w-full shrink-0" />
