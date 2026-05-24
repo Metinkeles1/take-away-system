@@ -1,19 +1,17 @@
 import { useEffect, useState, memo } from "react";
 import { createProduct } from "@/actions/products";
-import { type ProductCategory } from "@/types";
+import { uploadProductImage } from "@/actions/productImages";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { ProductFormFields } from "./ProductFormFields";
-
-interface ProductFormState {
-  name: string;
-  price: string;
-  category: ProductCategory;
-  description: string;
-  available: boolean;
-}
+import { ProductFormFields, type ProductFormState } from "./ProductFormFields";
 
 const emptyForm: ProductFormState = {
   name: "",
@@ -21,6 +19,9 @@ const emptyForm: ProductFormState = {
   category: "kebap",
   description: "",
   available: true,
+  portionable: false,
+  imageUrl: "",
+  imageFile: null,
 };
 
 interface AddProductDialogProps {
@@ -53,17 +54,33 @@ export const AddProductDialog = memo(function AddProductDialog({
     }
     setIsSaving(true);
     try {
+      const id = crypto.randomUUID();
+
+      let imageUrl: string | undefined = formData.imageUrl || undefined;
+      if (formData.imageFile) {
+        const fd = new FormData();
+        fd.append("file", formData.imageFile);
+        fd.append("productId", id);
+        fd.append("productName", formData.name.trim());
+        const { url } = await uploadProductImage(fd);
+        imageUrl = url;
+      }
+
       await createProduct({
+        id,
         name: formData.name.trim(),
         price,
         category: formData.category,
         description: formData.description.trim() || undefined,
         available: true,
+        portionable: formData.portionable,
+        image: imageUrl,
       });
       toast.success("Ürün eklendi");
       onOpenChange(false);
       onSuccess();
-    } catch {
+    } catch (e) {
+      console.error(e);
       toast.error("Ürün eklenirken hata oluştu");
     } finally {
       setIsSaving(false);
@@ -72,7 +89,10 @@ export const AddProductDialog = memo(function AddProductDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md" aria-describedby={undefined}>
+      <DialogContent
+        className="sm:max-w-md max-h-[90vh] overflow-y-auto"
+        aria-describedby={undefined}
+      >
         <DialogHeader>
           <DialogTitle>Yeni Ürün Ekle</DialogTitle>
         </DialogHeader>

@@ -14,7 +14,6 @@ import {
   type Voucher,
   type VoucherItem,
   PORTION_OPTIONS,
-  PORTIONABLE_CATEGORIES,
 } from "@/types";
 import { createVoucher, updateVoucher } from "@/actions/vouchers";
 import { formatCurrency } from "@/lib/utils";
@@ -181,7 +180,7 @@ export default function NewVoucherClient({
 
   // Kart üzerindeki ±: portionable ürünlerde son eklenenden azaltılır
   const decrementProduct = (product: Product) => {
-    const portionable = PORTIONABLE_CATEGORIES.includes(product.category);
+    const portionable = Boolean(product.portionable);
     if (!portionable) {
       decrementByKey(makeKey(product.id));
       return;

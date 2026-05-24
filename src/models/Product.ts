@@ -13,6 +13,8 @@ const ProductSchema = new Schema(
     description: { type: String },
     available: { type: Boolean, default: true },
     sortOrder: { type: Number, default: 0 },
+    image: { type: String }, // Blob URL veya /images/products/x.jpg yolu
+    portionable: { type: Boolean, default: false }, // Porsiyon (½/1/1½) seçeneği sunulsun mu
   },
   { timestamps: true },
 );

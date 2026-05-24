@@ -2,8 +2,13 @@
 
 import { connectDB } from "@/lib/mongodb";
 import ProductModel from "@/models/Product";
-import { type Product, type ProductCategory } from "@/types";
+import {
+  type Product,
+  type ProductCategory,
+  PORTIONABLE_CATEGORIES,
+} from "@/types";
 import { MENU_ITEMS } from "@/data/menu";
+import { deleteProductImage } from "./productImages";
 
 function docToProduct(doc: Record<string, unknown>): Product {
   return {
@@ -13,6 +18,8 @@ function docToProduct(doc: Record<string, unknown>): Product {
     category: doc.category as ProductCategory,
     description: doc.description as string | undefined,
     available: doc.available as boolean,
+    image: doc.image as string | undefined,
+    portionable: (doc.portionable as boolean | undefined) ?? false,
   };
 }
 
@@ -35,16 +42,20 @@ export async function getAvailableProducts(): Promise<Product[]> {
 // ─── Yeni ürün ekle ────────────────────────────────────────────────────────
 export async function createProduct(
   product: Omit<Product, "id"> & { id?: string },
-): Promise<void> {
+): Promise<string> {
   await connectDB();
+  const id = product.id ?? crypto.randomUUID();
   await ProductModel.create({
-    id: product.id ?? crypto.randomUUID(),
+    id,
     name: product.name,
     price: product.price,
     category: product.category,
     description: product.description,
     available: product.available,
+    image: product.image,
+    portionable: product.portionable ?? false,
   });
+  return id;
 }
 
 // ─── Ürün güncelle ─────────────────────────────────────────────────────────
@@ -53,12 +64,31 @@ export async function updateProduct(
   data: Partial<Omit<Product, "id">>,
 ): Promise<void> {
   await connectDB();
+
+  // Resim değiştiyse veya kaldırıldıysa eski Blob'u sil
+  if ("image" in data) {
+    const existing = await ProductModel.findOne({ id }).lean();
+    const oldImage = (existing as Record<string, unknown> | null)?.image as
+      | string
+      | undefined;
+    if (oldImage && oldImage !== data.image) {
+      await deleteProductImage(oldImage);
+    }
+  }
+
   await ProductModel.findOneAndUpdate({ id }, { $set: data });
 }
 
 // ─── Ürün sil ──────────────────────────────────────────────────────────────
 export async function deleteProduct(id: string): Promise<void> {
   await connectDB();
+  const existing = await ProductModel.findOne({ id }).lean();
+  const image = (existing as Record<string, unknown> | null)?.image as
+    | string
+    | undefined;
+  if (image) {
+    await deleteProductImage(image);
+  }
   await ProductModel.deleteOne({ id });
 }
 
@@ -73,6 +103,8 @@ export async function toggleProductAvailability(id: string): Promise<void> {
 }
 
 // ─── Menüdeki sabit verileri DB'ye aktar (ilk kurulum) ─────────────────────
+// Portionable bayrağı kategori bazlı default'la dolar; image alanı boş gelir,
+// kullanıcı UI'dan teker teker yükler.
 export async function seedProducts(): Promise<number> {
   await connectDB();
   const existing = await ProductModel.countDocuments();
@@ -81,6 +113,7 @@ export async function seedProducts(): Promise<number> {
   const docs = MENU_ITEMS.map((item, i) => ({
     ...item,
     sortOrder: i,
+    portionable: PORTIONABLE_CATEGORIES.includes(item.category),
   }));
   await ProductModel.insertMany(docs);
   return docs.length;

@@ -6,7 +6,6 @@ import {
   type Product,
   type ProductCategory,
   type PortionOption,
-  PORTIONABLE_CATEGORIES,
 } from "@/types";
 import { categoryImage, fallbackCategoryUrl } from "@/lib/images";
 import { Search, X } from "lucide-react";
@@ -131,7 +130,7 @@ export function ProductBrowser({
           <div className={GRID_CLASS}>
             {filteredItems.map((product) => {
               const qty = getProductTotalQty(product.id);
-              const portionable = PORTIONABLE_CATEGORIES.includes(product.category);
+              const portionable = Boolean(product.portionable);
               return (
                 <ProductSelectCard
                   key={product.id}

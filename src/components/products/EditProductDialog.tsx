@@ -1,19 +1,18 @@
 import { useEffect, useState, memo } from "react";
 import { updateProduct } from "@/actions/products";
-import { type Product, type ProductCategory } from "@/types";
+import { uploadProductImage } from "@/actions/productImages";
+import { type Product } from "@/types";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { ProductFormFields } from "./ProductFormFields";
-
-interface ProductFormState {
-  name: string;
-  price: string;
-  category: ProductCategory;
-  description: string;
-  available: boolean;
-}
+import { ProductFormFields, type ProductFormState } from "./ProductFormFields";
 
 interface EditProductDialogProps {
   product: Product | null;
@@ -32,6 +31,9 @@ export const EditProductDialog = memo(function EditProductDialog({
     category: "kebap",
     description: "",
     available: true,
+    portionable: false,
+    imageUrl: "",
+    imageFile: null,
   });
   const [isSaving, setIsSaving] = useState(false);
 
@@ -43,6 +45,9 @@ export const EditProductDialog = memo(function EditProductDialog({
         category: product.category,
         description: product.description ?? "",
         available: product.available,
+        portionable: Boolean(product.portionable),
+        imageUrl: product.image ?? "",
+        imageFile: null,
       });
     }
   }, [product]);
@@ -60,17 +65,30 @@ export const EditProductDialog = memo(function EditProductDialog({
     }
     setIsSaving(true);
     try {
+      let imageUrl: string | undefined = formData.imageUrl || undefined;
+      if (formData.imageFile) {
+        const fd = new FormData();
+        fd.append("file", formData.imageFile);
+        fd.append("productId", product.id);
+        fd.append("productName", formData.name.trim());
+        const { url } = await uploadProductImage(fd);
+        imageUrl = url;
+      }
+
       await updateProduct(product.id, {
         name: formData.name.trim(),
         price,
         category: formData.category,
         description: formData.description.trim() || undefined,
         available: formData.available,
+        portionable: formData.portionable,
+        image: imageUrl,
       });
       toast.success("Ürün güncellendi");
       onClose();
       onSuccess();
-    } catch {
+    } catch (e) {
+      console.error(e);
       toast.error("Ürün güncellenirken hata oluştu");
     } finally {
       setIsSaving(false);
@@ -79,7 +97,10 @@ export const EditProductDialog = memo(function EditProductDialog({
 
   return (
     <Dialog open={!!product} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-md" aria-describedby={undefined}>
+      <DialogContent
+        className="sm:max-w-md max-h-[90vh] overflow-y-auto"
+        aria-describedby={undefined}
+      >
         <DialogHeader>
           <DialogTitle>Ürün Düzenle</DialogTitle>
         </DialogHeader>

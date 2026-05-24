@@ -2,14 +2,25 @@ import { type ProductCategory } from "@/types";
 import { MENU_CATEGORIES } from "@/data/menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { ProductImageField } from "./ProductImageField";
 
-interface ProductFormState {
+export interface ProductFormState {
   name: string;
   price: string;
   category: ProductCategory;
   description: string;
   available: boolean;
+  portionable: boolean;
+  imageUrl: string;
+  imageFile: File | null;
 }
 
 interface ProductFormFieldsProps {
@@ -23,6 +34,14 @@ export function ProductFormFields({
 }: ProductFormFieldsProps) {
   return (
     <div className="grid gap-4 py-2">
+      <ProductImageField
+        imageUrl={formData.imageUrl}
+        imageFile={formData.imageFile}
+        onChange={({ imageUrl, imageFile }) =>
+          setFormData((p) => ({ ...p, imageUrl, imageFile }))
+        }
+      />
+
       <div className="grid gap-2">
         <Label htmlFor="product-name">Ürün Adı *</Label>
         <Input
@@ -32,6 +51,7 @@ export function ProductFormFields({
           onChange={(e) => setFormData((p) => ({ ...p, name: e.target.value }))}
         />
       </div>
+
       <div className="grid grid-cols-2 gap-4">
         <div className="grid gap-2">
           <Label htmlFor="product-price">Fiyat (₺) *</Label>
@@ -66,6 +86,7 @@ export function ProductFormFields({
           </Select>
         </div>
       </div>
+
       <div className="grid gap-2">
         <Label htmlFor="product-desc">Açıklama</Label>
         <Input
@@ -75,6 +96,27 @@ export function ProductFormFields({
           onChange={(e) => setFormData((p) => ({ ...p, description: e.target.value }))}
         />
       </div>
+
+      <label
+        htmlFor="product-portionable"
+        className="flex items-start gap-3 rounded-lg ring-1 ring-foreground/10 bg-card/40 p-3 cursor-pointer hover:bg-card/60 transition-colors"
+      >
+        <Checkbox
+          id="product-portionable"
+          checked={formData.portionable}
+          onCheckedChange={(v) =>
+            setFormData((p) => ({ ...p, portionable: v === true }))
+          }
+          className="mt-0.5"
+        />
+        <div className="flex flex-col gap-0.5 min-w-0">
+          <span className="text-sm font-medium">Porsiyon seçeneği sun</span>
+          <span className="text-[12px] text-muted-foreground leading-tight">
+            Sipariş ekranında ½ / 1 / 1½ porsiyon seçenekleri gösterilir
+            (yarım fiyat = ½, bir buçuk = 1.5×).
+          </span>
+        </div>
+      </label>
     </div>
   );
 }

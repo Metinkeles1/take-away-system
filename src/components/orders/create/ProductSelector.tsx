@@ -12,7 +12,6 @@ import {
   type ProductCategory,
   type Product,
   type PortionOption,
-  PORTIONABLE_CATEGORIES,
   PORTION_OPTIONS,
 } from "@/types";
 import PortionSelector from "./PortionSelector";
@@ -68,8 +67,7 @@ export default function ProductSelector() {
     return m;
   }, [draft.items]);
 
-  const isPortionable = (product: Product) =>
-    PORTIONABLE_CATEGORIES.includes(product.category);
+  const isPortionable = (product: Product) => Boolean(product.portionable);
 
   return (
     <div className="h-full flex flex-col gap-3 min-h-0">

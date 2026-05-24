@@ -24,7 +24,9 @@ export const PORTION_OPTIONS: PortionOption[] = [
   { size: "one_and_half", label: "1.5 Porsiyon", multiplier: 1.5 },
 ];
 
-// Porsiyon destekleyen kategoriler
+// Porsiyon destekleyen kategoriler — geçmiş kayıtlar için fallback.
+// Yeni ürünlerde Product.portionable alanı kullanılır; bu liste sadece
+// migration/seed sırasında varsayılan değer hesaplamak için var.
 export const PORTIONABLE_CATEGORIES: ProductCategory[] = ["kebap", "pide", "durum"];
 
 // ─── Ürün ────────────────────────────────────────────────────────────────────
@@ -35,7 +37,8 @@ export interface Product {
   category: ProductCategory;
   description?: string;
   available: boolean;
-  image?: string; // /images/products/{slug}.jpg yolu otomatik üretilir (slug = ürün adı, ör. "adana-kebap.jpg"); bu alan elle override içindir
+  image?: string; // Blob URL veya /images/products/{slug}.jpg yolu; yoksa kategori-temalı fallback SVG üretilir
+  portionable?: boolean; // Porsiyon (½/1/1½) seçeneği sunulsun mu
 }
 
 // ─── Sipariş Kalemi ───────────────────────────────────────────────────────────
