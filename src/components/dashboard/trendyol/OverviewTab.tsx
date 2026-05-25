@@ -16,7 +16,9 @@ import {
   getTrendyolDashboardStats,
   type TrendyolDashboardStats,
   type TrendyolPeriod,
+  type TrendyolRecentOrder,
 } from "@/actions/trendyolDashboard";
+import { TrendyolOrderDetailDialog } from "./TrendyolOrderDetailDialog";
 import {
   AlertTriangle,
   CreditCard,
@@ -102,6 +104,9 @@ export function OverviewTab() {
   const [isLoading, setIsLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [mealCardModalOpen, setMealCardModalOpen] = useState(false);
+  const [selectedOrder, setSelectedOrder] = useState<TrendyolRecentOrder | null>(
+    null,
+  );
 
   useEffect(() => {
     const t = toDateInputValue(new Date());
@@ -303,7 +308,10 @@ export function OverviewTab() {
               {isLoading && !stats ? (
                 <Skeleton className="h-64 w-full" />
               ) : stats?.recentOrders.length ? (
-                <RecentOrdersList orders={stats.recentOrders} />
+                <RecentOrdersList
+                  orders={stats.recentOrders}
+                  onSelect={setSelectedOrder}
+                />
               ) : (
                 <EmptyState icon={ShoppingBag} text="Bu dönemde sipariş yok" />
               )}
@@ -394,6 +402,11 @@ export function OverviewTab() {
           </p>
         )}
       </div>
+
+      <TrendyolOrderDetailDialog
+        order={selectedOrder}
+        onClose={() => setSelectedOrder(null)}
+      />
 
       <Dialog open={mealCardModalOpen} onOpenChange={setMealCardModalOpen}>
         <DialogContent className="sm:max-w-md">
@@ -543,37 +556,46 @@ function HourlyChart({
 
 function RecentOrdersList({
   orders,
+  onSelect,
 }: {
-  orders: TrendyolDashboardStats["recentOrders"];
+  orders: TrendyolRecentOrder[];
+  onSelect: (order: TrendyolRecentOrder) => void;
 }) {
   return (
-    <ul className="space-y-5">
+    <ul className="space-y-2">
       {orders.slice(0, 6).map((o) => {
         const status = STATUS_LABEL[o.status];
         return (
-          <li key={o.id} className="flex items-center gap-3">
-            <div
-              className="flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-foreground/80"
-              style={{ background: "var(--muted)" }}
+          <li key={o.id}>
+            <button
+              type="button"
+              onClick={() => onSelect(o)}
+              className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring/40 cursor-pointer"
+              aria-label={`#${o.orderNumber} detayını gör`}
             >
-              {initials(o.customerName)}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">{o.customerName}</p>
-              <p className="text-xs text-muted-foreground">
-                #{o.orderNumber} · {status?.label ?? o.status}
-              </p>
-            </div>
-            <div className="text-right">
-              <p className="text-sm font-semibold tabular-nums">
-                {formatCurrency(o.total)}
-              </p>
-              {o.netRevenue !== undefined && (
-                <p className="text-[10px] tabular-nums text-muted-foreground">
-                  net {formatCurrency(o.netRevenue)}
+              <div
+                className="flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-foreground/80"
+                style={{ background: "var(--muted)" }}
+              >
+                {initials(o.customerName)}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">{o.customerName}</p>
+                <p className="text-xs text-muted-foreground">
+                  #{o.orderNumber} · {status?.label ?? o.status}
                 </p>
-              )}
-            </div>
+              </div>
+              <div className="text-right">
+                <p className="text-sm font-semibold tabular-nums">
+                  {formatCurrency(o.total)}
+                </p>
+                {o.netRevenue !== undefined && (
+                  <p className="text-[10px] tabular-nums text-muted-foreground">
+                    net {formatCurrency(o.netRevenue)}
+                  </p>
+                )}
+              </div>
+            </button>
           </li>
         );
       })}

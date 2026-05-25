@@ -25,6 +25,39 @@ export interface PaymentBreakdownItem {
   revenue: number;
 }
 
+// Detay modal'da gösterilen tüm alanları kapsar. Trendyol API'sından
+// listTrendyolPackages ile gelen bilgi yeterli — ekstra çağrı yapmıyoruz.
+export interface TrendyolRecentOrder {
+  id: string;
+  orderNumber: string;
+  customerName: string;
+  total: number;
+  status: string;
+  paymentMethod: string;
+  createdAt: number;
+  netRevenue?: number;
+  // ── Detay alanları ──
+  customerPhone?: string;
+  address?: {
+    addressLine: string;
+    city?: string;
+    district?: string;
+    neighborhood?: string;
+    description?: string;
+  };
+  customerNote?: string;
+  deliveryType: "STORE" | "GO";
+  lines: {
+    name: string;
+    quantity: number;
+    unitPrice: number;
+    totalPrice: number;
+    modifiers: { name: string; price: number }[];
+    description?: string;
+    cancelledCount: number;
+  }[];
+}
+
 export interface MealCardBreakdownItem {
   brand: string;       // Multinet, Sodexo, Metropol, Ticket, Setcard, Edenred, Pluxee, Diğer
   count: number;
@@ -52,16 +85,7 @@ export interface TrendyolDashboardStats {
   hourly: { hour: number; orders: number; revenue: number }[];
   topProducts: { name: string; quantity: number; revenue: number }[];
 
-  recentOrders: {
-    id: string;
-    orderNumber: string;
-    customerName: string;
-    total: number;
-    status: string;
-    paymentMethod: string;
-    createdAt: number;
-    netRevenue?: number; // settlement'tan eşleşen sellerRevenue toplamı
-  }[];
+  recentOrders: TrendyolRecentOrder[];
 
   // ─── Finansal özet (settlements API'sından) ───────────────────────────
   // settlementsAvailable=false ise endpoint çağrısı başarısız olmuş demektir;
@@ -466,17 +490,19 @@ function isReferenceToday(referenceDate?: number): boolean {
 }
 
 // Cache key argümanları: [period, key]. Aynı period+gün → aynı cache.
+// Key sonundaki v2: recentOrders schema'sı lines/address vb. detay alanlarıyla
+// genişledikten sonra eski cache'i invalide etmek için bumped.
 const cachedComputeToday = unstable_cache(
   async (period: TrendyolPeriod, _key: string, refTs: number) =>
     computeTrendyolDashboardStats(period, refTs),
-  ["trendyol-dashboard-today"],
+  ["trendyol-dashboard-today-v2"],
   { revalidate: 60 },
 );
 
 const cachedComputePast = unstable_cache(
   async (period: TrendyolPeriod, _key: string, refTs: number) =>
     computeTrendyolDashboardStats(period, refTs),
-  ["trendyol-dashboard-past"],
+  ["trendyol-dashboard-past-v2"],
   { revalidate: 600 },
 );
 
@@ -619,21 +645,59 @@ async function computeTrendyolDashboardStats(
     .sort((a, b) => b.quantity - a.quantity)
     .slice(0, 20);
 
-  // Son 8 sipariş — settlement'tan eşleşen net hakediş varsa ekle
-  const recentOrders = [...packages]
+  // Son 8 sipariş — detay modal'ı için lines/address/customer alanları da dahil.
+  // Trendyol API tek-paket endpoint'i sunmuyor; listeden çekilen veriyi modal
+  // doğrudan kullanır, ekstra istek atılmaz.
+  const recentOrders: TrendyolRecentOrder[] = [...packages]
     .sort((a, b) => b.packageCreationDate - a.packageCreationDate)
     .slice(0, 8)
-    .map((p) => ({
-      id: p.id,
-      orderNumber: p.orderNumber,
-      customerName:
-        [p.customer?.firstName, p.customer?.lastName].filter(Boolean).join(" ") || "—",
-      total: p.totalPrice ?? 0,
-      status: p.packageStatus,
-      paymentMethod: PAYMENT_LABEL[paymentKey(p)] ?? "—",
-      createdAt: p.packageCreationDate,
-      netRevenue: financeResult.netByOrder.get(p.orderNumber),
-    }));
+    .map((p) => {
+      const addr = p.address;
+      const lines = (p.lines ?? []).map((line) => {
+        const totalQty = line.items?.length ?? 1;
+        const cancelledCount = (line.items ?? []).filter((i) => i.isCancelled).length;
+        const unit = line.unitSellingPrice ?? line.price ?? 0;
+        return {
+          name: line.name,
+          quantity: totalQty,
+          unitPrice: unit,
+          totalPrice: unit * totalQty,
+          modifiers: (line.modifierProducts ?? []).map((m) => ({
+            name: m.name,
+            price: m.price,
+          })),
+          description: line.description,
+          cancelledCount,
+        };
+      });
+
+      return {
+        id: p.id,
+        orderNumber: p.orderNumber,
+        customerName:
+          [p.customer?.firstName, p.customer?.lastName].filter(Boolean).join(" ") ||
+          "—",
+        total: p.totalPrice ?? 0,
+        status: p.packageStatus,
+        paymentMethod: PAYMENT_LABEL[paymentKey(p)] ?? "—",
+        createdAt: p.packageCreationDate,
+        netRevenue: financeResult.netByOrder.get(p.orderNumber),
+        customerPhone: addr?.phone,
+        address: addr
+          ? {
+              addressLine:
+                [addr.address1, addr.address2].filter(Boolean).join(" ") || "—",
+              city: addr.city,
+              district: addr.district,
+              neighborhood: addr.neighborhood,
+              description: addr.addressDescription,
+            }
+          : undefined,
+        customerNote: p.customerNote,
+        deliveryType: p.deliveryType,
+        lines,
+      };
+    });
 
 
   return {

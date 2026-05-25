@@ -5,6 +5,7 @@
 export const PRODUCT_IMAGE_FILES: Readonly<Record<string, string>> = {
   "adana-durum": "adana-durum.jpg",
   "adana-iskender": "adana-iskender.jpg",
+  "adana-iskender (1)": "adana-iskender (1).jpg",
   "adana-kebap": "adana-kebap.jpg",
   "adana-kebap-2": "adana-kebap-2.jpg",
   "ali-nazik-kebabi": "ali-nazik-kebabi.jpg",
@@ -22,6 +23,7 @@ export const PRODUCT_IMAGE_FILES: Readonly<Record<string, string>> = {
   "konak-kofte": "konak-kofte.jpg",
   "patlicanli-kebap": "patlicanli-kebap.jpg",
   "suzme-mercimek": "suzme-mercimek.jpg",
+  "tavuk-göğüsü": "tavuk-göğüsü.jpg",
   "tavuk-pirzola": "tavuk-pirzola.jpg",
   "tavuk-sis": "tavuk-sis.jpg",
   "urfa-durum": "urfa-durum.jpg",
