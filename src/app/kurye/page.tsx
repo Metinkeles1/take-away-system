@@ -21,9 +21,6 @@ import { formatCurrency, formatRelativeTime, cn } from "@/lib/utils";
 
 const REFRESH_MS = 20_000;
 
-// Yöneticinin WhatsApp numarası (uluslararası, + olmadan): örn. 905321234567
-const ADMIN_WA = (process.env.NEXT_PUBLIC_ADMIN_WHATSAPP ?? "").replace(/\D/g, "");
-
 const PAYMENT_LABEL: Record<string, { label: string; icon: React.ElementType; tone: string }> = {
   cash: { label: "Nakit", icon: Banknote, tone: "text-emerald-600 bg-emerald-50" },
   card: { label: "Kart", icon: CreditCard, tone: "text-violet-600 bg-violet-50" },
@@ -39,11 +36,12 @@ function fullAddress(o: Order): string {
 }
 
 // "Teslim edildi" bildirimi — sade: adres — ödeme tipi — Teslim edildi.
-function buildWhatsAppUrl(o: Order): string | null {
-  if (!ADMIN_WA) return null;
+// Numara YOK: WhatsApp'ın sohbet seçme ekranı açılır, kurye grubu seçip gönderir.
+// (WhatsApp deep-link ile belirli bir gruba doğrudan mesaj atmaya izin vermez.)
+function buildWhatsAppUrl(o: Order): string {
   const payLabel = PAYMENT_LABEL[o.payment.method]?.label ?? "Ödeme";
   const text = `${fullAddress(o)} — ${payLabel} — Teslim edildi`;
-  return `https://wa.me/${ADMIN_WA}?text=${encodeURIComponent(text)}`;
+  return `https://wa.me/?text=${encodeURIComponent(text)}`;
 }
 
 export default function KuryePage() {
@@ -235,7 +233,7 @@ function OrderCard({
   onConfirm: () => void;
   onCancel: () => void;
   onDeliver: () => void;
-  waUrl: string | null;
+  waUrl: string;
 }) {
   const pay = PAYMENT_LABEL[o.payment.method];
   const itemCount = o.items.reduce((s, i) => s + i.quantity, 0);
@@ -366,9 +364,9 @@ function OrderCard({
               >
                 Vazgeç
               </button>
-              {/* Anchor: tıklamada durum güncellenir + WhatsApp açılır */}
+              {/* Anchor: tıklamada durum güncellenir + WhatsApp sohbet seçimi açılır */}
               <a
-                href={waUrl ?? undefined}
+                href={waUrl}
                 target="_blank"
                 rel="noreferrer"
                 onClick={onDeliver}
@@ -377,11 +375,9 @@ function OrderCard({
                 <CheckCircle2 className="h-5 w-5" /> Onayla & Bildir
               </a>
             </div>
-            {!waUrl && (
-              <p className="mt-2 text-center text-[11px] text-rose-500">
-                WhatsApp numarası tanımlı değil — sadece teslim edildi olarak işaretlenecek.
-              </p>
-            )}
+            <p className="mt-2 text-center text-[11px] text-slate-400">
+              WhatsApp açılınca teslimat grubunu seçip gönderin.
+            </p>
           </>
         )}
       </div>
