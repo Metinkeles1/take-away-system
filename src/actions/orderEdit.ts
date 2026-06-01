@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { connectDB } from "@/lib/mongodb";
 import OrderModel from "@/models/Order";
+import { notifyOrdersChanged } from "@/lib/pusher/server";
 import { type CustomerInfo, type OrderItem } from "@/types";
 
 interface UpdateOrderDetailsInput {
@@ -55,6 +56,8 @@ export async function updateOrderDetails(
 
     revalidatePath("/orders");
     revalidatePath(`/orders/${id}`);
+    // Düzenleme de gerçek zamanlı yayılsın (diğer sekme/cihazlar anlık görsün).
+    await notifyOrdersChanged("order-edited");
 
     return { ok: true };
   } catch (error) {
