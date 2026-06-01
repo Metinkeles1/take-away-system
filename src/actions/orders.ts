@@ -10,6 +10,7 @@ import {
   shipTrendyolPackage,
 } from "@/lib/integrations/trendyol/client";
 import { type Order, type OrderStatus, type PaymentInfo } from "@/types";
+import { notifyOrdersChanged } from "@/lib/pusher/server";
 
 // Dahili sipariş durumu → Trendyol GO Yemek API çağrı zinciri.
 // "preparing" webhook'ta otomatik "picked" (kabul) atılırken yapılıyor — burada tekrarlanmaz.
@@ -118,6 +119,7 @@ export async function createOrder(
     });
 
     revalidatePath("/orders");
+    await notifyOrdersChanged("order-created");
 
     return { ok: true };
   } catch (error) {
@@ -147,6 +149,7 @@ export async function updateOrderStatus(
       await syncStatusToTrendyol(doc.externalRef, status);
     }
 
+    await notifyOrdersChanged("status-changed");
     return { ok: true };
   } catch (error) {
     console.error("[updateOrderStatus]", error);
@@ -165,6 +168,7 @@ export async function updateOrderPayment(
     const doc = await OrderModel.findOneAndUpdate({ id }, { payment });
     if (!doc) return { ok: false, error: "Sipariş bulunamadı" };
 
+    await notifyOrdersChanged("payment-changed");
     return { ok: true };
   } catch (error) {
     console.error("[updateOrderPayment]", error);

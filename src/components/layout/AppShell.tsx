@@ -21,6 +21,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     setOpen(false);
   }
 
+  // Kurye sayfası public + mobil-öncelikli: admin chrome'u (sidebar/topbar)
+  // olmadan tam ekran render edilir.
+  if (pathname.startsWith("/kurye")) {
+    return <div className="h-full overflow-y-auto">{children}</div>;
+  }
+
   return (
     <div className="h-full flex">
       {/* Desktop sidebar — lg ve üzeri */}

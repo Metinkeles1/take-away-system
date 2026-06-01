@@ -24,6 +24,7 @@ import {
   Map as MapIcon,
   Tags,
   MessageSquare,
+  Bike,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -77,6 +78,7 @@ export const NAV_ITEMS: readonly NavEntry[] = [
   { kind: "leaf", href: "/customers",  label: "Müşteriler",   icon: Users,          color: "text-pink-400",   activeBg: "bg-pink-500/15" },
   { kind: "leaf", href: "/corporate",  label: "Kurumsal",     icon: Building2,      color: "text-cyan-400",   activeBg: "bg-cyan-500/15" },
   { kind: "leaf", href: "/products",   label: "Menü",         icon: UtensilsCrossed, color: "text-amber-400", activeBg: "bg-amber-500/15" },
+  { kind: "leaf", href: "/kurye",      label: "Kurye",        icon: Bike,           color: "text-lime-400",   activeBg: "bg-lime-500/15" },
 ];
 
 function isLeafActive(pathname: string, href: string) {

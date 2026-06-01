@@ -13,6 +13,7 @@ import {
   type OrderFilter,
 } from "@/components/orders/OrderStatusFilters";
 import { OrdersList } from "@/components/orders/OrdersList";
+import { subscribeOrders } from "@/lib/pusher/client";
 
 export default function OrdersPage() {
   const { orders, updateOrderStatus, loadOrders, isLoading } = useOrderStore();
@@ -30,9 +31,14 @@ export default function OrdersPage() {
       void loadOrders();
     }, LIST_REFRESH_MS);
 
+    // Gerçek zamanlı: kurye teslim edince / yeni sipariş gelince anında yenile.
+    // Pusher env'i yoksa no-op döner; polling yedek olarak çalışmaya devam eder.
+    const unsubscribe = subscribeOrders(() => void loadOrders());
+
     return () => {
       window.removeEventListener("focus", handleFocus);
       clearInterval(poll);
+      unsubscribe();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
