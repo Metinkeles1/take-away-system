@@ -37,6 +37,11 @@ interface OrderStore {
   // Yükleme durumu
   isLoading: boolean;
 
+  // İç durum: optimistic statü değişikliği sunucu tarafından henüz teyit
+  // edilmemiş siparişler. loadOrders'ın bir yarış durumunda taze (ama eski)
+  // veriyle optimistic'i ezmesini engeller.
+  pendingStatus: Record<string, OrderStatus>;
+
   // ── Draft aksiyonlar ──────────────────────────────────────────────────────
   addItem: (product: Product) => void;
   addItemWithPortion: (product: Product, portion: PortionOption) => void;
@@ -83,6 +88,7 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
   orders: [],
   savedCustomers: [],
   isLoading: false,
+  pendingStatus: {},
 
   // ── Ürün ekle (porsiyonsuz — fiyat tam olarak kullanılır) ────────────────
   addItem: (product) => {
@@ -368,8 +374,25 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
   loadOrders: async () => {
     set({ isLoading: true });
     try {
-      const orders = await getOrders();
-      set({ orders });
+      const fresh = await getOrders();
+      set((state) => {
+        const pending = state.pendingStatus;
+        // Teyit bekleyen yoksa düz değiştir (sık yol).
+        if (Object.keys(pending).length === 0) return { orders: fresh };
+
+        // Teyit bekleyen statüleri koru. DB artık aynı statüyü döndürdüyse
+        // değişiklik teyitlenmiştir → pending'den düşür. Henüz yetişmediyse
+        // optimistic statüyü uygulamaya devam et (yarış durumunda ezilmesin).
+        const nextPending: Record<string, OrderStatus> = {};
+        const orders = fresh.map((o) => {
+          const want = pending[o.id];
+          if (want === undefined) return o;
+          if (o.status === want) return o; // teyitli — pending'e taşımıyoruz
+          nextPending[o.id] = want; // henüz yetişmedi — koru
+          return { ...o, status: want };
+        });
+        return { orders, pendingStatus: nextPending };
+      });
     } finally {
       set({ isLoading: false });
     }
@@ -383,13 +406,23 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
 
   // ── Sipariş durumu güncelle ──────────────────────────────────────────
   updateOrderStatus: async (orderId, status) => {
-    // Optimistic update
+    // Optimistic update + "teyit bekliyor" işareti (refetch ezmesin).
     set((state) => ({
       orders: state.orders.map((o) =>
         o.id === orderId ? { ...o, status, updatedAt: new Date() } : o,
       ),
+      pendingStatus: { ...state.pendingStatus, [orderId]: status },
     }));
-    await dbUpdateStatus(orderId, status);
+    const res = await dbUpdateStatus(orderId, status);
+    if (!res?.ok) {
+      // Yazma başarısız: işareti kaldır ve gerçek durumu DB'den çek.
+      set((state) => {
+        const next = { ...state.pendingStatus };
+        delete next[orderId];
+        return { pendingStatus: next };
+      });
+      await get().loadOrders();
+    }
   },
 
   // ── Sipariş ödeme güncelle ──────────────────────────────────────────

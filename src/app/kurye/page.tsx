@@ -15,7 +15,6 @@ import {
   ShoppingBag,
 } from "lucide-react";
 import { getCourierOrders } from "@/actions/courier";
-import { updateOrderStatus } from "@/actions/orders";
 import { subscribeOrders } from "@/lib/pusher/client";
 import { type Order } from "@/types";
 import { formatCurrency, formatRelativeTime, cn } from "@/lib/utils";
@@ -108,13 +107,22 @@ export default function KuryePage() {
     startX.current = null;
   };
 
-  // Teslim onayı: durumu güncelle + listeden düş. WhatsApp anchor'ın kendi
-  // navigasyonuyla açılır (popup engeline takılmasın diye).
+  // Teslim onayı: durumu güvenilir biçimde DB'ye yaz + listeden düş.
+  // keepalive: "Onayla & Bildir" anchor'ı WhatsApp'ı açıp tarayıcıyı arka plana
+  // atsa bile istek tamamlanır. (Eski sürümde mobilde istek yarıda kesilip
+  // sipariş tekrar "teslim edilmedi" olarak geri dönebiliyordu.)
   const handleDeliver = (o: Order) => {
     setDeliveringId(o.id);
     setConfirming(false);
     setOrders((prev) => prev.filter((x) => x.id !== o.id));
-    void updateOrderStatus(o.id, "delivered").finally(() => setDeliveringId(null));
+    void fetch("/api/orders/deliver", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: o.id }),
+      keepalive: true,
+    }).catch(() => {
+      // Sunucuya ulaşamazsa sipariş bir sonraki yenilemede geri gelir; sessiz geç.
+    });
   };
 
   return (

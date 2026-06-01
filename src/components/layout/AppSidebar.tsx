@@ -5,6 +5,7 @@ import { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { getActiveOrdersCount } from "@/actions/orders";
+import { subscribeOrders } from "@/lib/pusher/client";
 import {
   Home,
   BarChart3,
@@ -134,11 +135,15 @@ function useLiveCount(fetcher: () => Promise<number>) {
     }, 20_000);
     const onFocus = () => void tick();
     window.addEventListener("focus", onFocus);
+    // Gerçek zamanlı: sipariş eklenince/teslim edilince rozet anında güncellensin
+    // (polling yedek olarak kalır; Pusher env'i yoksa no-op döner).
+    const unsubscribe = subscribeOrders(() => void tick());
 
     return () => {
       mountedRef.current = false;
       if (timer) clearInterval(timer);
       window.removeEventListener("focus", onFocus);
+      unsubscribe();
     };
   }, []);
 
