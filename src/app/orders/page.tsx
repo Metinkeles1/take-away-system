@@ -6,8 +6,6 @@ import { useOrderStore } from "@/store/orderStore";
 import { Button } from "@/components/ui/button";
 import { PlusCircle } from "lucide-react";
 import { type OrderStatus } from "@/types";
-
-const LIST_REFRESH_MS = 15_000;
 import {
   OrderStatusFilters,
   type OrderFilter,
@@ -26,18 +24,12 @@ export default function OrdersPage() {
     const handleFocus = () => loadOrders();
     window.addEventListener("focus", handleFocus);
 
-    const poll = setInterval(() => {
-      if (document.hidden) return;
-      void loadOrders();
-    }, LIST_REFRESH_MS);
-
     // Gerçek zamanlı: kurye teslim edince / yeni sipariş gelince anında yenile.
-    // Pusher env'i yoksa no-op döner; polling yedek olarak çalışmaya devam eder.
+    // Pusher asıl mekanizma; sekmeye geri dönünce focus ile yenileme de yedek.
     const unsubscribe = subscribeOrders(() => void loadOrders());
 
     return () => {
       window.removeEventListener("focus", handleFocus);
-      clearInterval(poll);
       unsubscribe();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

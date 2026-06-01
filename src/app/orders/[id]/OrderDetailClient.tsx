@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useCallback } from "react";
+import { useRef, useCallback, useEffect } from "react";
 import { useOrderStore } from "@/store/orderStore";
 import { useReactToPrint } from "react-to-print";
 import type { Order, OrderStatus, PaymentMethod, MealCardBrand } from "@/types";
@@ -10,18 +10,33 @@ import {
   OrderDetailsContent,
   ReceiptPreview,
 } from "@/components/orders/detail";
-
+import { subscribeOrders } from "@/lib/pusher/client";
 
 interface Props {
   initialOrder: Order;
 }
 
 export default function OrderDetailClient({ initialOrder }: Props) {
-  const { updateOrderStatus, updateOrderPayment, orders } = useOrderStore();
+  const { updateOrderStatus, updateOrderPayment, orders, loadOrders } = useOrderStore();
   const receiptRef = useRef<HTMLDivElement>(null);
 
   // Store'da varsa güncel hali, yoksa server'dan gelen initial veriyi kullan
   const order = orders.find((o) => o.id === initialOrder.id) ?? initialOrder;
+
+  // Gerçek zamanlı: kurye teslim edince / durum değişince bu sayfa da anında
+  // güncellensin. (Liste sayfasında vardı, detayda yoktu — teslim edilen sipariş
+  // burada eski statüde kalıyordu.) Pusher asıl mekanizma; sekmeye geri dönünce
+  // tek sefer yenileme ise arka plandayken kaçmış olabilecek olayı toparlar.
+  useEffect(() => {
+    const onFocus = () => void loadOrders();
+    window.addEventListener("focus", onFocus);
+    const unsubscribe = subscribeOrders(() => void loadOrders());
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      unsubscribe();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handlePrint = useReactToPrint({
     contentRef: receiptRef,

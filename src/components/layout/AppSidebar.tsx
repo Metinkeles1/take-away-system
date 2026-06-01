@@ -118,7 +118,6 @@ function useLiveCount(fetcher: () => Promise<number>) {
 
   useEffect(() => {
     mountedRef.current = true;
-    let timer: ReturnType<typeof setInterval> | null = null;
 
     const tick = async () => {
       try {
@@ -129,19 +128,15 @@ function useLiveCount(fetcher: () => Promise<number>) {
       }
     };
 
-    tick();
-    timer = setInterval(() => {
-      if (!document.hidden) void tick();
-    }, 20_000);
+    tick(); // ilk değer
     const onFocus = () => void tick();
     window.addEventListener("focus", onFocus);
-    // Gerçek zamanlı: sipariş eklenince/teslim edilince rozet anında güncellensin
-    // (polling yedek olarak kalır; Pusher env'i yoksa no-op döner).
+    // Gerçek zamanlı: sipariş eklenince/teslim edilince rozet anında güncellensin.
+    // Pusher asıl mekanizma; focus yenilemesi yedek.
     const unsubscribe = subscribeOrders(() => void tick());
 
     return () => {
       mountedRef.current = false;
-      if (timer) clearInterval(timer);
       window.removeEventListener("focus", onFocus);
       unsubscribe();
     };
