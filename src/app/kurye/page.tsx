@@ -13,6 +13,8 @@ import {
   WalletCards,
   Clock,
   ShoppingBag,
+  ChevronDown,
+  X,
 } from "lucide-react";
 import { getCourierOrders } from "@/actions/courier";
 import { subscribeOrders } from "@/lib/pusher/client";
@@ -51,6 +53,24 @@ export default function KuryePage() {
   const [confirming, setConfirming] = useState(false);
   const [deliveringId, setDeliveringId] = useState<string | null>(null);
   const startX = useRef<number | null>(null);
+  // Teslim anında yakalanan GPS konumu. Onay adımında erken yakalanır ki
+  // "Onayla & Bildir"e basınca koordinat hazır olsun (WhatsApp açılıp sayfa
+  // arka plana atılmadan önce).
+  const geoRef = useRef<{ lat: number; lng: number } | null>(null);
+
+  const captureGeo = () => {
+    geoRef.current = null;
+    if (typeof navigator === "undefined" || !navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        geoRef.current = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      },
+      () => {
+        // İzin yok / hata: sessiz geç, sipariş yine teslim olarak işaretlenir.
+      },
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 },
+    );
+  };
 
   const load = async () => {
     try {
@@ -92,6 +112,7 @@ export default function KuryePage() {
 
   const go = (i: number) => {
     setConfirming(false);
+    geoRef.current = null; // sipariş değişti, bekleyen konumu unut
     setActive(Math.max(0, Math.min(sorted.length - 1, i)));
   };
 
@@ -113,10 +134,11 @@ export default function KuryePage() {
     setDeliveringId(o.id);
     setConfirming(false);
     setOrders((prev) => prev.filter((x) => x.id !== o.id));
+    const geo = geoRef.current;
     void fetch("/api/orders/deliver", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id: o.id }),
+      body: JSON.stringify({ id: o.id, lat: geo?.lat, lng: geo?.lng }),
       keepalive: true,
     }).catch(() => {
       // Sunucuya ulaşamazsa sipariş bir sonraki yenilemede geri gelir; sessiz geç.
@@ -124,9 +146,9 @@ export default function KuryePage() {
   };
 
   return (
-    <div className="flex min-h-dvh flex-col bg-linear-to-b from-slate-100 to-slate-200">
+    <div className="flex h-dvh flex-col bg-linear-to-b from-slate-100 to-slate-200">
       {/* Üst başlık */}
-      <header className="sticky top-0 z-20 border-b border-slate-800 bg-slate-900/95 text-white backdrop-blur">
+      <header className="z-20 shrink-0 border-b border-slate-800 bg-slate-900/95 text-white backdrop-blur">
         <div className="mx-auto flex max-w-md items-center justify-between px-4 py-3">
           <div className="flex items-center gap-2.5">
             <span className="grid h-9 w-9 place-items-center rounded-xl bg-lime-500/20 text-xl">
@@ -147,14 +169,21 @@ export default function KuryePage() {
         </div>
       </header>
 
-      <main className="mx-auto flex w-full max-w-md flex-1 flex-col">
+      {/* Kayan içerik alanı */}
+      <main
+        className="mx-auto w-full max-w-md flex-1 overflow-y-auto select-none"
+        onTouchStart={(e) => onSwipeStart(e.touches[0].clientX)}
+        onTouchEnd={(e) => onSwipeEnd(e.changedTouches[0].clientX)}
+        onMouseDown={(e) => onSwipeStart(e.clientX)}
+        onMouseUp={(e) => onSwipeEnd(e.clientX)}
+      >
         {loading && orders.length === 0 ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-2 text-slate-400">
+          <div className="flex h-full flex-col items-center justify-center gap-2 text-slate-400">
             <Loader2 className="h-7 w-7 animate-spin" />
             <p className="text-sm">Paketler yükleniyor…</p>
           </div>
         ) : sorted.length === 0 || !current ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+          <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
             <div className="grid h-16 w-16 place-items-center rounded-full bg-emerald-100">
               <CheckCircle2 className="h-9 w-9 text-emerald-500" />
             </div>
@@ -165,38 +194,36 @@ export default function KuryePage() {
           </div>
         ) : (
           <>
-            {/* Konum göstergesi */}
-            <div className="px-4 py-3 text-center">
+            {/* Konum göstergesi + ok ile gezinme */}
+            <div className="flex items-center justify-center gap-4 px-4 py-3">
+              <button
+                onClick={() => go(idx - 1)}
+                disabled={idx === 0}
+                aria-label="Önceki"
+                className="grid h-8 w-8 place-items-center rounded-full bg-white text-slate-600 shadow-sm ring-1 ring-slate-200 transition active:scale-90 disabled:opacity-30"
+              >
+                ‹
+              </button>
               <span className="text-sm font-bold text-slate-500">
                 {idx + 1} / {sorted.length}
               </span>
-              {sorted.length > 1 && (
-                <p className="text-xs text-slate-400">← kaydırarak geç →</p>
-              )}
+              <button
+                onClick={() => go(idx + 1)}
+                disabled={idx === sorted.length - 1}
+                aria-label="Sonraki"
+                className="grid h-8 w-8 place-items-center rounded-full bg-white text-slate-600 shadow-sm ring-1 ring-slate-200 transition active:scale-90 disabled:opacity-30"
+              >
+                ›
+              </button>
             </div>
 
-            {/* Kaydırılabilir kart */}
-            <div
-              className="flex flex-1 items-start px-4 pb-4 select-none"
-              onTouchStart={(e) => onSwipeStart(e.touches[0].clientX)}
-              onTouchEnd={(e) => onSwipeEnd(e.changedTouches[0].clientX)}
-              onMouseDown={(e) => onSwipeStart(e.clientX)}
-              onMouseUp={(e) => onSwipeEnd(e.clientX)}
-            >
-              <OrderCard
-                o={current}
-                confirming={confirming}
-                delivering={deliveringId === current.id}
-                onConfirm={() => setConfirming(true)}
-                onCancel={() => setConfirming(false)}
-                onDeliver={() => handleDeliver(current)}
-                waUrl={buildWhatsAppUrl(current)}
-              />
+            <div className="px-4 pb-4">
+              <OrderCard key={current.id} o={current} />
             </div>
 
             {/* Nokta göstergesi — dokununca o siparişe atla */}
             {sorted.length > 1 && (
-              <div className="flex items-center justify-center gap-1.5 py-3">
+              <div className="flex items-center justify-center gap-1.5 pb-4">
                 {sorted.map((o, i) => (
                   <button
                     key={o.id}
@@ -213,174 +240,208 @@ export default function KuryePage() {
           </>
         )}
       </main>
+
+      {/* Sabit alt aksiyon barı — sadece teslim edilecek paket varken */}
+      {current && (
+        <footer className="z-20 shrink-0 border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">
+          <div className="mx-auto flex max-w-md items-stretch gap-2.5 p-3">
+            {!confirming ? (
+              <>
+                <a
+                  href={`tel:${current.customer.phone}`}
+                  aria-label="Müşteriyi ara"
+                  className="flex w-20 shrink-0 flex-col items-center justify-center gap-0.5 rounded-2xl bg-blue-600 text-white shadow-sm shadow-blue-600/25 transition active:scale-95"
+                >
+                  <Phone className="h-5 w-5" />
+                  <span className="text-xs font-semibold">Ara</span>
+                </a>
+                <button
+                  onClick={() => {
+                    captureGeo(); // konum iznini iste + erken yakala
+                    setConfirming(true);
+                  }}
+                  disabled={deliveringId === current.id}
+                  className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-emerald-600 py-4 text-base font-bold text-white shadow-sm shadow-emerald-600/25 transition active:scale-[0.98] disabled:opacity-60"
+                >
+                  {deliveringId === current.id ? (
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  ) : (
+                    <>
+                      <CheckCircle2 className="h-5 w-5" /> Teslim Et
+                    </>
+                  )}
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => setConfirming(false)}
+                  aria-label="Vazgeç"
+                  className="flex w-20 shrink-0 flex-col items-center justify-center gap-0.5 rounded-2xl bg-slate-100 text-slate-600 transition active:scale-95"
+                >
+                  <X className="h-5 w-5" />
+                  <span className="text-xs font-semibold">Vazgeç</span>
+                </button>
+                {/* Anchor: tıklamada durum güncellenir + WhatsApp sohbet seçimi açılır */}
+                <a
+                  href={buildWhatsAppUrl(current)}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={() => handleDeliver(current)}
+                  className="flex flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl bg-emerald-600 py-3 text-white shadow-sm shadow-emerald-600/25 transition active:scale-[0.98]"
+                >
+                  <span className="flex items-center gap-2 text-base font-bold">
+                    <CheckCircle2 className="h-5 w-5" /> Onayla & Bildir
+                  </span>
+                  <span className="text-[11px] font-medium text-emerald-100">
+                    WhatsApp'ta teslimat grubunu seç
+                  </span>
+                </a>
+              </>
+            )}
+          </div>
+        </footer>
+      )}
     </div>
   );
 }
 
 // ─── Tek sipariş kartı ───────────────────────────────────────────────────────
-function OrderCard({
-  o,
-  confirming,
-  delivering,
-  onConfirm,
-  onCancel,
-  onDeliver,
-  waUrl,
-}: {
-  o: Order;
-  confirming: boolean;
-  delivering: boolean;
-  onConfirm: () => void;
-  onCancel: () => void;
-  onDeliver: () => void;
-  waUrl: string;
-}) {
+function OrderCard({ o }: { o: Order }) {
+  const [itemsOpen, setItemsOpen] = useState(false);
   const pay = PAYMENT_LABEL[o.payment.method];
   const itemCount = o.items.reduce((s, i) => s + i.quantity, 0);
-  const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-    fullAddress(o),
-  )}`;
+  // Pinlenmiş konum varsa kesin koordinata git; yoksa metin adresini geocode et.
+  const hasPin = !!o.customer.geo;
+  const mapsUrl = hasPin
+    ? `https://www.google.com/maps/search/?api=1&query=${o.customer.geo!.lat},${o.customer.geo!.lng}`
+    : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullAddress(o))}`;
+  const detail = [o.customer.addressDetail, o.customer.district].filter(Boolean).join(" · ");
 
   return (
     <article className="w-full overflow-hidden rounded-3xl bg-white shadow-lg shadow-slate-300/40 ring-1 ring-slate-200">
-      {/* Başlık şeridi */}
-      <div className="flex items-center justify-between bg-slate-900 px-5 py-3 text-white">
-        <span className="text-lg font-bold">#{o.orderNumber}</span>
-        <span className="inline-flex items-center gap-1 text-xs text-slate-300">
+      {/* Başlık şeridi — sipariş no + ödeme rozeti + süre */}
+      <div className="flex items-center gap-3 bg-slate-900 px-5 py-3 text-white">
+        <span className="flex items-center gap-2 text-lg font-bold">
+          <span className="h-5 w-1 rounded-full bg-lime-400" />#{o.orderNumber}
+        </span>
+        {pay && (
+          <span className="inline-flex items-center gap-1 rounded-lg bg-white/10 px-2 py-0.5 text-xs font-semibold text-white">
+            <pay.icon className="h-3.5 w-3.5" />
+            {pay.label}
+          </span>
+        )}
+        <span className="ml-auto inline-flex items-center gap-1 text-xs text-slate-400">
           <Clock className="h-3.5 w-3.5" /> {formatRelativeTime(o.createdAt)}
         </span>
       </div>
 
-      {/* Adres — en belirgin, dokununca harita */}
-      <a
-        href={mapsUrl}
-        target="_blank"
-        rel="noreferrer"
-        className="flex items-start gap-3 px-5 py-4 transition active:bg-slate-50"
-      >
-        <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-rose-50">
-          <MapPin className="h-5 w-5 text-rose-500" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-lg font-bold leading-snug text-slate-900">
-            {o.customer.address}
-          </p>
-          {(o.customer.addressDetail || o.customer.district) && (
-            <p className="mt-0.5 text-sm text-slate-500">
-              {[o.customer.addressDetail, o.customer.district].filter(Boolean).join(" · ")}
+      {/* Adres — kartın kahramanı */}
+      <div className="px-5 pt-5">
+        <div className="flex items-start gap-3">
+          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-rose-50 ring-1 ring-rose-100">
+            <MapPin className="h-6 w-6 text-rose-500" />
+          </div>
+          <div className="min-w-0 flex-1 pt-0.5">
+            <p className="text-xl leading-tight font-extrabold tracking-tight text-slate-900">
+              {o.customer.address}
             </p>
-          )}
-          <span className="mt-1.5 inline-flex items-center gap-1 rounded-lg bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-600">
-            <Navigation className="h-3.5 w-3.5" /> Yol tarifi
-          </span>
-        </div>
-      </a>
-
-      {/* Müşteri + ödeme + ara */}
-      <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-5 py-3.5">
-        <div className="min-w-0">
-          <p className="truncate font-semibold text-slate-900">{o.customer.name}</p>
-          <div className="mt-1 flex items-center gap-2">
-            {pay && (
-              <span
-                className={cn(
-                  "inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-xs font-semibold",
-                  pay.tone,
-                )}
-              >
-                <pay.icon className="h-3.5 w-3.5" />
-                {pay.label}
+            {detail && <p className="mt-1 text-sm font-medium text-slate-500">{detail}</p>}
+            {hasPin && (
+              <span className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-emerald-50 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-600">
+                <MapPin className="h-3 w-3" /> Konum pinli
               </span>
             )}
-            <span className="font-bold text-slate-900">{formatCurrency(o.total)}</span>
           </div>
         </div>
+
+        {/* Yol tarifi — büyük, kaçırılması imkânsız birincil aksiyon */}
         <a
-          href={`tel:${o.customer.phone}`}
-          aria-label="Müşteriyi ara"
-          className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-blue-600 text-white shadow-sm active:scale-95"
+          href={mapsUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-4 flex items-center justify-center gap-2 rounded-2xl bg-blue-600 py-3.5 text-base font-bold text-white shadow-sm shadow-blue-600/25 transition active:scale-[0.98]"
         >
-          <Phone className="h-5 w-5" />
+          <Navigation className="h-5 w-5 fill-white" /> Yol Tarifi Al
         </a>
       </div>
 
-      {/* Sipariş içeriği */}
-      <div className="border-t border-slate-100 px-5 py-2.5">
-        <p className="mb-1 inline-flex items-center gap-1.5 text-xs font-semibold text-slate-400">
-          <ShoppingBag className="h-3.5 w-3.5" /> {itemCount} ürün
-        </p>
-        <ul className="divide-y divide-slate-100">
-          {o.items.map((item, i) => (
-            <li key={`${o.id}-${i}`} className="flex items-start gap-3 py-2">
-              <span className="mt-0.5 grid min-w-7 shrink-0 place-items-center rounded-md bg-white px-1.5 py-0.5 text-xs font-bold text-slate-700 ring-1 ring-slate-200">
-                {item.quantity}×
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-slate-800">
-                  {item.product.name}
-                  {item.portion && (
-                    <span className="ml-1 text-xs font-normal text-slate-400">
-                      ({item.portion.label})
-                    </span>
+      {/* Müşteri + tutar */}
+      <div className="mt-4 flex items-end justify-between gap-3 border-t border-slate-100 px-5 py-4">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold tracking-wide text-slate-400 uppercase">
+            Müşteri
+          </p>
+          <p className="truncate text-base font-bold text-slate-900">{o.customer.name}</p>
+        </div>
+        <div className="shrink-0 text-right">
+          <p className="text-[11px] font-semibold tracking-wide text-slate-400 uppercase">
+            Tahsilat
+          </p>
+          <p className="text-2xl leading-none font-extrabold tracking-tight text-slate-900">
+            {formatCurrency(o.total)}
+          </p>
+        </div>
+      </div>
+
+      {/* Sipariş içeriği — açılır-kapanır (accordion); varsayılan kapalı */}
+      <div className="border-t border-slate-100 bg-slate-50/60">
+        <button
+          onClick={() => setItemsOpen((v) => !v)}
+          aria-expanded={itemsOpen}
+          className="flex w-full items-center gap-2 px-5 py-3 text-left transition active:bg-slate-100"
+        >
+          <ShoppingBag className="h-4 w-4 text-slate-400" />
+          <span className="text-sm font-bold text-slate-700">{itemCount} Ürün</span>
+          <span className="text-xs font-medium text-slate-400">
+            {itemsOpen ? "gizle" : "detayı gör"}
+          </span>
+          <ChevronDown
+            className={cn(
+              "ml-auto h-5 w-5 text-slate-400 transition-transform",
+              itemsOpen && "rotate-180",
+            )}
+          />
+        </button>
+        {itemsOpen && (
+          <ul className="space-y-1.5 px-5 pb-3">
+            {o.items.map((item, i) => (
+              <li
+                key={`${o.id}-${i}`}
+                className="flex items-start gap-3 rounded-xl bg-white px-3 py-2 ring-1 ring-slate-100"
+              >
+                <span className="grid h-7 min-w-7 shrink-0 place-items-center rounded-lg bg-slate-900 text-xs font-bold text-white">
+                  {item.quantity}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-slate-800">
+                    {item.product.name}
+                    {item.portion && (
+                      <span className="ml-1 text-xs font-normal text-slate-400">
+                        ({item.portion.label})
+                      </span>
+                    )}
+                  </p>
+                  {item.note && (
+                    <p className="mt-0.5 text-xs font-medium text-amber-700">↳ {item.note}</p>
                   )}
-                </p>
-                {item.note && <p className="text-xs text-amber-700">↳ {item.note}</p>}
-              </div>
-              <span className="shrink-0 text-sm text-slate-500">
-                {formatCurrency(item.totalPrice)}
-              </span>
-            </li>
-          ))}
-        </ul>
+                </div>
+                <span className="shrink-0 text-sm font-semibold text-slate-500">
+                  {formatCurrency(item.totalPrice)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       {/* Sipariş notu */}
       {o.notes && (
-        <p className="bg-amber-50 px-5 py-2.5 text-sm text-amber-900">📝 {o.notes}</p>
+        <div className="flex items-start gap-2 border-t border-amber-100 bg-amber-50 px-5 py-3 text-sm font-medium text-amber-900">
+          <span className="shrink-0">📝</span>
+          <span>{o.notes}</span>
+        </div>
       )}
-
-      {/* Teslim et — iki adımlı onay */}
-      <div className="border-t border-slate-100 p-4">
-        {!confirming ? (
-          <button
-            onClick={onConfirm}
-            disabled={delivering}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 py-3.5 text-base font-bold text-white shadow-sm shadow-emerald-600/25 transition active:scale-[0.98] disabled:opacity-60"
-          >
-            {delivering ? (
-              <Loader2 className="h-5 w-5 animate-spin" />
-            ) : (
-              <>
-                <CheckCircle2 className="h-5 w-5" /> Teslim Et
-              </>
-            )}
-          </button>
-        ) : (
-          <>
-            <div className="flex gap-2">
-              <button
-                onClick={onCancel}
-                className="flex-1 rounded-xl bg-slate-100 py-3.5 text-sm font-semibold text-slate-600 active:scale-[0.98]"
-              >
-                Vazgeç
-              </button>
-              {/* Anchor: tıklamada durum güncellenir + WhatsApp sohbet seçimi açılır */}
-              <a
-                href={waUrl}
-                target="_blank"
-                rel="noreferrer"
-                onClick={onDeliver}
-                className="flex flex-2 items-center justify-center gap-2 rounded-xl bg-emerald-600 py-3.5 text-base font-bold text-white active:scale-[0.98]"
-              >
-                <CheckCircle2 className="h-5 w-5" /> Onayla & Bildir
-              </a>
-            </div>
-            <p className="mt-2 text-center text-[11px] text-slate-400">
-              WhatsApp açılınca teslimat grubunu seçip gönderin.
-            </p>
-          </>
-        )}
-      </div>
     </article>
   );
 }

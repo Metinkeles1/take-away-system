@@ -30,6 +30,14 @@ const OrderItemSchema = new Schema(
   { _id: false },
 );
 
+const GeoPointSchema = new Schema(
+  {
+    lat: { type: Number, required: true },
+    lng: { type: Number, required: true },
+  },
+  { _id: false },
+);
+
 const CustomerInfoSchema = new Schema(
   {
     name: { type: String, required: true },
@@ -37,6 +45,7 @@ const CustomerInfoSchema = new Schema(
     address: { type: String, required: true },
     addressDetail: String,
     district: String,
+    geo: { type: GeoPointSchema, default: undefined }, // teslimatta yakalanan konum
   },
   { _id: false },
 );

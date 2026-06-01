@@ -50,6 +50,14 @@ export interface OrderItem {
   totalPrice: number;
 }
 
+// ─── Coğrafi Konum ───────────────────────────────────────────────────────────
+// Kurye teslim ederken yakalanan kesin GPS koordinatı. Metin adresi geocode
+// etmek yerine harita doğrudan bu noktaya pinlenir.
+export interface GeoPoint {
+  lat: number;
+  lng: number;
+}
+
 // ─── Müşteri Bilgisi ─────────────────────────────────────────────────────────
 export interface CustomerInfo {
   name: string;
@@ -57,6 +65,7 @@ export interface CustomerInfo {
   address: string;
   addressDetail?: string; // Daire, kat vb.
   district?: string;
+  geo?: GeoPoint; // teslimatta yakalanmış kesin konum
 }
 
 // ─── Ödeme Yöntemi ────────────────────────────────────────────────────────────
