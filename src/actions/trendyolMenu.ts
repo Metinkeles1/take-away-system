@@ -8,8 +8,11 @@
 import {
   listTrendyolMenuProducts,
   listTrendyolPackages,
+  updateTrendyolMealPrices,
+  getTrendyolBatchRequestResult,
   type TrendyolMenuProduct,
   type TrendyolMenuSection,
+  type TrendyolPriceUpdateItem,
 } from "@/lib/integrations/trendyol/client";
 
 export interface TrendyolMenuItem {
@@ -270,6 +273,116 @@ async function fallbackFromPackages(reason: string): Promise<TrendyolMenuResult>
       categories: [],
       items: [],
       error: reason,
+    };
+  }
+}
+
+// ─── Fiyat güncelleme ──────────────────────────────────────────────────
+// Sadece DEĞİŞEN fiyatlar gönderilmeli (Trendyol aynı body'yi tekrarlarsa
+// "tekrarlı fiyat güncelleme" hatası verir). restaurantId göndermiyoruz →
+// fiyat tüm restoranlara uygulanır (tek mağazalı satıcı için doğru davranış).
+
+export interface PriceUpdateInput {
+  productId: number;
+  sellingPrice: number;
+}
+
+export interface PriceUpdateResponse {
+  ok: boolean;
+  batchRequestId?: string;
+  error?: string;
+}
+
+export async function updateTrendyolPrices(
+  items: PriceUpdateInput[],
+): Promise<PriceUpdateResponse> {
+  // Aynı ürün birden fazla kez geldiyse sonuncuyu al (duplicate productId'yi önle).
+  const byId = new Map<number, number>();
+  for (const it of items) {
+    if (!Number.isFinite(it.productId) || it.productId <= 0) continue;
+    if (!Number.isFinite(it.sellingPrice) || it.sellingPrice <= 0) continue;
+    // 2 ondalık basamağa yuvarla (kuruş)
+    byId.set(it.productId, Math.round(it.sellingPrice * 100) / 100);
+  }
+
+  const payload: TrendyolPriceUpdateItem[] = [...byId.entries()].map(
+    ([productId, sellingPrice]) => ({ productId, sellingPrice }),
+  );
+
+  if (payload.length === 0) {
+    return { ok: false, error: "Geçerli fiyat değişikliği yok." };
+  }
+  if (payload.length > 1000) {
+    return { ok: false, error: "Tek seferde en fazla 1000 ürün güncellenebilir." };
+  }
+
+  try {
+    const res = await updateTrendyolMealPrices(payload);
+    if (!res.ok) {
+      return { ok: false, error: `Trendyol: ${res.status} ${res.error}` };
+    }
+    const batchRequestId = res.data?.batchRequestId;
+    if (!batchRequestId) {
+      return { ok: false, error: "Trendyol batchRequestId döndürmedi." };
+    }
+    return { ok: true, batchRequestId };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Trendyol API'sına ulaşılamadı",
+    };
+  }
+}
+
+export interface BatchItemResult {
+  productId?: number;
+  status: string;
+  failureReasons: string[];
+}
+
+export interface BatchResultResponse {
+  ok: boolean;
+  completed: boolean;
+  status?: string;
+  itemCount?: number;
+  failedItemCount?: number;
+  items: BatchItemResult[];
+  error?: string;
+}
+
+export async function getTrendyolPriceBatchResult(
+  batchRequestId: string,
+): Promise<BatchResultResponse> {
+  try {
+    const res = await getTrendyolBatchRequestResult(batchRequestId);
+    if (!res.ok) {
+      return {
+        ok: false,
+        completed: false,
+        items: [],
+        error: `Trendyol: ${res.status} ${res.error}`,
+      };
+    }
+    const d = res.data;
+    const status = d?.status;
+    return {
+      ok: true,
+      completed: (status ?? "").toUpperCase() === "COMPLETED",
+      status,
+      itemCount: d?.itemCount,
+      failedItemCount: d?.failedItemCount,
+      items: (d?.items ?? []).map((it) => ({
+        productId: it.requestItem?.productId ?? it.requestItem?.request?.productId,
+        status: it.status ?? "UNKNOWN",
+        failureReasons: it.failureReasons ?? [],
+      })),
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      completed: false,
+      items: [],
+      error: err instanceof Error ? err.message : "Trendyol API'sına ulaşılamadı",
     };
   }
 }

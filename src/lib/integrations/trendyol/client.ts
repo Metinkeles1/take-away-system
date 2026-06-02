@@ -355,6 +355,68 @@ export function listTrendyolMenuProducts(params: {
   });
 }
 
+// ─── Ürün fiyat güncelleme ─────────────────────────────────────────────
+// Doküman: POST /integrator/product/meal/suppliers/{supplierId}/products/price
+// Kuyruğa alınır → { batchRequestId } döner. Sonuç getTrendyolBatchRequestResult ile.
+// Kurallar:
+//  - restaurantId opsiyonel; verilmezse fiyat TÜM restoranlara uygulanır.
+//  - aynı talepte max 1000 item.
+//  - AYNI body ile tekrar gönderilirse "tekrarlı fiyat güncelleme" hatası → sadece
+//    değişen fiyatları gönder.
+//  - originalPrice Trendyol tarafında hesaplanır; sadece sellingPrice gönderilir.
+export interface TrendyolPriceUpdateItem {
+  productId: number;
+  sellingPrice: number;
+  restaurantId?: number;
+}
+
+export interface TrendyolBatchRequestRef {
+  batchRequestId: string;
+}
+
+export function updateTrendyolMealPrices(items: TrendyolPriceUpdateItem[]) {
+  const supplierId = process.env.TRENDYOL_SUPPLIER_ID!;
+  return trendyolRequest<TrendyolBatchRequestRef>({
+    method: "POST",
+    path: `/integrator/product/meal/suppliers/${supplierId}/products/price`,
+    body: { items },
+  });
+}
+
+// ─── Toplu işlem sonucu (batch request result) ─────────────────────────
+// Doküman: GET /integrator/product/meal/suppliers/{supplierId}/batch-requests/{batchRequestId}
+// updatePrice kuyruğa atıldığı için sonucu bununla poll ederiz. 4 saat erişilebilir.
+export interface TrendyolBatchResultItem {
+  requestItem?: {
+    request?: TrendyolPriceUpdateItem;
+    productId?: number;
+    restaurantId?: number;
+  };
+  status?: "SUCCESS" | "FAILED" | string;
+  failureReasons?: string[];
+}
+
+export interface TrendyolBatchRequestResult {
+  supplierId?: number;
+  batchRequestId: string;
+  items?: TrendyolBatchResultItem[];
+  status?: "COMPLETED" | "PROCESSING" | string;
+  creationDate?: number;
+  lastModification?: number;
+  sourceType?: string;
+  itemCount?: number;
+  failedItemCount?: number;
+  batchRequestType?: string;
+}
+
+export function getTrendyolBatchRequestResult(batchRequestId: string) {
+  const supplierId = process.env.TRENDYOL_SUPPLIER_ID!;
+  return trendyolRequest<TrendyolBatchRequestResult>({
+    method: "GET",
+    path: `/integrator/product/meal/suppliers/${supplierId}/batch-requests/${batchRequestId}`,
+  });
+}
+
 // ─── 1) Siparişi kabul et (picked) ──────────────────────────────────────
 // preparationTime: dakika cinsinden hazırlık tahmini
 export function acceptTrendyolPackage(packageId: string, preparationTime = 20) {

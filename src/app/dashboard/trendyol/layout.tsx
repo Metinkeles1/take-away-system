@@ -14,6 +14,7 @@ const CRUMBS: Record<string, string> = {
   "/dashboard/trendyol/menu":      "Menü",
   "/dashboard/trendyol/categories": "Kategoriler",
   "/dashboard/trendyol/reviews":   "Değerlendirmeler",
+  "/dashboard/trendyol/campaigns": "Kampanyalar",
 };
 
 export default function TrendyolLayout({ children }: { children: React.ReactNode }) {
@@ -45,8 +46,10 @@ export default function TrendyolLayout({ children }: { children: React.ReactNode
         </nav>
       </header>
 
-      <div className="flex-1 min-h-0 overflow-y-auto bg-muted/30">
-        <div className="px-4 py-4 sm:px-8 sm:py-6">{children}</div>
+      <div className="flex-1 min-h-0 bg-muted/30 flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 sm:px-8 sm:py-6">
+          {children}
+        </div>
       </div>
     </div>
   );
