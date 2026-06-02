@@ -53,23 +53,24 @@ export default function KuryePage() {
   const [confirming, setConfirming] = useState(false);
   const [deliveringId, setDeliveringId] = useState<string | null>(null);
   const startX = useRef<number | null>(null);
-  // Teslim anında yakalanan GPS konumu. Onay adımında erken yakalanır ki
-  // "Onayla & Bildir"e basınca koordinat hazır olsun (WhatsApp açılıp sayfa
-  // arka plana atılmadan önce).
-  const geoRef = useRef<{ lat: number; lng: number } | null>(null);
+  // Teslim anında yakalanan GPS konumu — Promise olarak tutulur. "Teslim Et"e
+  // basınca yakalama başlar; "Onayla & Bildir"de bu Promise beklenir. Böylece
+  // kurye onaya hemen bassa bile konum gelene kadar (kısa süre) beklenir ve pin
+  // kaybolmaz. maximumAge ile yakın zamanlı bir fix varsa anında döner.
+  const geoPromiseRef = useRef<Promise<{ lat: number; lng: number } | null> | null>(null);
 
   const captureGeo = () => {
-    geoRef.current = null;
-    if (typeof navigator === "undefined" || !navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        geoRef.current = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-      },
-      () => {
-        // İzin yok / hata: sessiz geç, sipariş yine teslim olarak işaretlenir.
-      },
-      { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 },
-    );
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      geoPromiseRef.current = Promise.resolve(null);
+      return;
+    }
+    geoPromiseRef.current = new Promise((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        () => resolve(null), // izin yok / hata: pinsiz devam et
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 },
+      );
+    });
   };
 
   const load = async () => {
@@ -112,7 +113,7 @@ export default function KuryePage() {
 
   const go = (i: number) => {
     setConfirming(false);
-    geoRef.current = null; // sipariş değişti, bekleyen konumu unut
+    geoPromiseRef.current = null; // sipariş değişti, bekleyen konumu unut
     setActive(Math.max(0, Math.min(sorted.length - 1, i)));
   };
 
@@ -134,13 +135,21 @@ export default function KuryePage() {
     setDeliveringId(o.id);
     setConfirming(false);
     setOrders((prev) => prev.filter((x) => x.id !== o.id));
-    const geo = geoRef.current;
-    void fetch("/api/orders/deliver", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id: o.id, lat: geo?.lat, lng: geo?.lng }),
-      keepalive: true,
-    }).catch(() => {
+    const geoPromise = geoPromiseRef.current ?? Promise.resolve(null);
+    void (async () => {
+      // Konum henüz gelmediyse kısa süre bekle (yarış koşulunu kapatır); en geç
+      // 5 sn sonra pinsiz devam et ki teslim onayı asla takılmasın.
+      const geo = await Promise.race([
+        geoPromise,
+        new Promise<null>((r) => setTimeout(() => r(null), 5000)),
+      ]);
+      await fetch("/api/orders/deliver", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: o.id, lat: geo?.lat, lng: geo?.lng }),
+        keepalive: true,
+      });
+    })().catch(() => {
       // Sunucuya ulaşamazsa sipariş bir sonraki yenilemede geri gelir; sessiz geç.
     });
   };
