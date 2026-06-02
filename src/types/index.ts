@@ -100,6 +100,10 @@ export type OrderStatus =
 // Manuel = panelden açılan; diğerleri 3. parti pazaryeri entegrasyonları
 export type OrderSource = "manual" | "trendyol" | "getir" | "yemeksepeti";
 
+// ─── Tahsilat Durumu ─────────────────────────────────────────────────────────
+// "paid" = ödeme alındı (varsayılan). "open" = açık hesap, ödeme sonra alınacak.
+export type PaymentStatus = "paid" | "open";
+
 // ─── Sipariş ─────────────────────────────────────────────────────────────────
 export interface Order {
   id: string;
@@ -117,6 +121,9 @@ export interface Order {
   // Pazaryeri entegrasyonu — manuel siparişler için boş
   source?: OrderSource;
   externalRef?: string; // örn. Trendyol sipariş kodu
+  // Tahsilat durumu — "open" ise açık hesap (henüz ödenmedi). Varsayılan "paid".
+  paymentStatus?: PaymentStatus;
+  paidAt?: Date; // açık hesabın tahsil edildiği an
 }
 
 // ─── Sipariş Oluşturma Taslağı ───────────────────────────────────────────────

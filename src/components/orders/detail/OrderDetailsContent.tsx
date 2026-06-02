@@ -1,11 +1,18 @@
 "use client";
 
 import { memo } from "react";
-import type { Order, OrderStatus, PaymentMethod, MealCardBrand } from "@/types";
+import type {
+  Order,
+  OrderStatus,
+  PaymentMethod,
+  MealCardBrand,
+  PaymentInfo,
+} from "@/types";
 import OrderStatusCard from "./OrderStatusCard";
 import OrderItemsCard from "./OrderItemsCard";
 import CustomerInfoCard from "./CustomerInfoCard";
 import PaymentCard from "./PaymentCard";
+import OpenAccountCard from "./OpenAccountCard";
 import OrderNotesCard from "./OrderNotesCard";
 
 interface Props {
@@ -17,12 +24,16 @@ interface Props {
     ibanName?: string;
     ibanNumber?: string;
   }) => Promise<void>;
+  onCollect: (payment: PaymentInfo) => Promise<void>;
+  onToggleOpen: (open: boolean) => Promise<void>;
 }
 
 const OrderDetailsContent = memo(function OrderDetailsContent({
   order,
   onStatusChange,
   onPaymentUpdate,
+  onCollect,
+  onToggleOpen,
 }: Props) {
   return (
     <div className="flex-1 min-w-0 overflow-y-auto scrollbar-hide pt-px px-px pb-4 space-y-4">
@@ -35,6 +46,17 @@ const OrderDetailsContent = memo(function OrderDetailsContent({
       />
 
       <CustomerInfoCard customer={order.customer} />
+
+      {/* Açık hesap yalnızca manuel siparişlerde (veya zaten açıksa tahsilat için) */}
+      {(!order.source ||
+        order.source === "manual" ||
+        order.paymentStatus === "open") && (
+        <OpenAccountCard
+          order={order}
+          onCollect={onCollect}
+          onToggleOpen={onToggleOpen}
+        />
+      )}
 
       <PaymentCard payment={order.payment} onPaymentUpdate={onPaymentUpdate} />
 

@@ -89,6 +89,14 @@ const OrderSchema = new Schema(
       default: "manual",
     },
     externalRef: { type: String, index: true, sparse: true },
+    // Tahsilat durumu — "open" açık hesap, "paid" ödendi. Eski kayıtlar varsayılan "paid".
+    paymentStatus: {
+      type: String,
+      enum: ["paid", "open"],
+      default: "paid",
+      index: true,
+    },
+    paidAt: Date, // açık hesabın tahsil edildiği an
   },
   {
     timestamps: true, // createdAt & updatedAt otomatik

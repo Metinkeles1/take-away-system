@@ -3,7 +3,13 @@
 import { useRef, useCallback, useEffect } from "react";
 import { useOrderStore } from "@/store/orderStore";
 import { useReactToPrint } from "react-to-print";
-import type { Order, OrderStatus, PaymentMethod, MealCardBrand } from "@/types";
+import type {
+  Order,
+  OrderStatus,
+  PaymentMethod,
+  MealCardBrand,
+  PaymentInfo,
+} from "@/types";
 import { toast } from "sonner";
 import {
   OrderDetailHeader,
@@ -17,7 +23,14 @@ interface Props {
 }
 
 export default function OrderDetailClient({ initialOrder }: Props) {
-  const { updateOrderStatus, updateOrderPayment, orders, loadOrders } = useOrderStore();
+  const {
+    updateOrderStatus,
+    updateOrderPayment,
+    collectOpenAccount,
+    setOrderOpenAccount,
+    orders,
+    loadOrders,
+  } = useOrderStore();
   const receiptRef = useRef<HTMLDivElement>(null);
 
   // Store'da varsa güncel hali, yoksa server'dan gelen initial veriyi kullan
@@ -63,9 +76,27 @@ export default function OrderDetailClient({ initialOrder }: Props) {
     [order.id, updateOrderPayment]
   );
 
+  const handleCollect = useCallback(
+    async (payment: PaymentInfo) => {
+      await collectOpenAccount(order.id, payment);
+    },
+    [order.id, collectOpenAccount]
+  );
+
+  const handleToggleOpen = useCallback(
+    async (open: boolean) => {
+      await setOrderOpenAccount(order.id, open);
+    },
+    [order.id, setOrderOpenAccount]
+  );
+
   return (
     <main className="h-full flex flex-col px-4 pt-4 pb-4 md:px-6 md:pt-5 lg:px-8 lg:pt-6 overflow-hidden">
-      <OrderDetailHeader order={order} onPrint={() => handlePrint()} />
+      <OrderDetailHeader
+        order={order}
+        onPrint={() => handlePrint()}
+        onToggleOpen={handleToggleOpen}
+      />
 
       {/* İki sütun: Sol scroll, Sağ fiş sabit */}
       <div className="flex-1 min-h-0 flex gap-6">
@@ -73,6 +104,8 @@ export default function OrderDetailClient({ initialOrder }: Props) {
           order={order}
           onStatusChange={handleStatusChange}
           onPaymentUpdate={handlePaymentUpdate}
+          onCollect={handleCollect}
+          onToggleOpen={handleToggleOpen}
         />
 
         <ReceiptPreview ref={receiptRef} order={order} onPrint={() => handlePrint()} />

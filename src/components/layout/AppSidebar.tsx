@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { getActiveOrdersCount } from "@/actions/orders";
+import { getActiveOrdersCount, getOpenAccountsCount } from "@/actions/orders";
 import { subscribeOrders } from "@/lib/pusher/client";
 import {
   Home,
@@ -26,6 +26,7 @@ import {
   Tags,
   MessageSquare,
   Bike,
+  Wallet,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -76,6 +77,7 @@ export const NAV_ITEMS: readonly NavEntry[] = [
   },
   { kind: "leaf", href: "/orders/new", label: "Yeni Sipariş", icon: ShoppingBag,    color: "text-orange-400", activeBg: "bg-orange-500/15" },
   { kind: "leaf", href: "/orders",     label: "Siparişler",   icon: ClipboardList,  color: "text-emerald-400", activeBg: "bg-emerald-500/15" },
+  { kind: "leaf", href: "/open-accounts", label: "Açık Hesaplar", icon: Wallet,     color: "text-amber-400",  activeBg: "bg-amber-500/15" },
   { kind: "leaf", href: "/customers",  label: "Müşteriler",   icon: Users,          color: "text-pink-400",   activeBg: "bg-pink-500/15" },
   { kind: "leaf", href: "/corporate",  label: "Kurumsal",     icon: Building2,      color: "text-cyan-400",   activeBg: "bg-cyan-500/15" },
   { kind: "leaf", href: "/products",   label: "Menü",         icon: UtensilsCrossed, color: "text-amber-400", activeBg: "bg-amber-500/15" },
@@ -332,6 +334,7 @@ export default function AppSidebar({ variant = "desktop", onNavigate }: Props) {
   const isCollapsible = variant === "desktop";
   const showCollapsed = isCollapsible && collapsed;
   const activeOrdersCount = useLiveCount(getActiveOrdersCount);
+  const openAccountsCount = useLiveCount(getOpenAccountsCount);
 
   // Grup expand override'ları. undefined = otomatik (route aktifse açık).
   // Kullanıcı bir grubu elle açar/kapatırsa override sabitlenir; tekrar
@@ -395,7 +398,13 @@ export default function AppSidebar({ variant = "desktop", onNavigate }: Props) {
                 item={item}
                 isActive={active}
                 showCollapsed={showCollapsed}
-                badge={item.href === "/orders" ? activeOrdersCount : undefined}
+                badge={
+                  item.href === "/orders"
+                    ? activeOrdersCount
+                    : item.href === "/open-accounts"
+                      ? openAccountsCount
+                      : undefined
+                }
                 onNavigate={onNavigate}
               />
             );

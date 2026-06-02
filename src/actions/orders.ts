@@ -63,6 +63,8 @@ export async function getOrders(): Promise<Order[]> {
     total: doc.total,
     source: (doc.source as Order["source"]) ?? "manual",
     externalRef: doc.externalRef ?? undefined,
+    paymentStatus: (doc.paymentStatus as Order["paymentStatus"]) ?? "paid",
+    paidAt: (doc as unknown as { paidAt?: Date }).paidAt ?? undefined,
     createdAt: (doc as unknown as { createdAt: Date }).createdAt,
     updatedAt: (doc as unknown as { updatedAt: Date }).updatedAt,
   }));
@@ -88,6 +90,8 @@ export async function getOrderById(id: string): Promise<Order | null> {
     total: doc.total,
     source: (doc.source as Order["source"]) ?? "manual",
     externalRef: doc.externalRef ?? undefined,
+    paymentStatus: (doc.paymentStatus as Order["paymentStatus"]) ?? "paid",
+    paidAt: (doc as unknown as { paidAt?: Date }).paidAt ?? undefined,
     createdAt: (doc as unknown as { createdAt: Date }).createdAt,
     updatedAt: (doc as unknown as { updatedAt: Date }).updatedAt,
   };
@@ -116,6 +120,7 @@ export async function createOrder(
       total: order.total,
       source: order.source ?? "manual",
       externalRef: order.externalRef,
+      paymentStatus: order.paymentStatus ?? "paid",
     });
 
     revalidatePath("/orders");
@@ -186,6 +191,95 @@ export async function getActiveOrdersCount(): Promise<number> {
   } catch (error) {
     console.error("[getActiveOrdersCount]", error);
     return 0;
+  }
+}
+
+// ─── Açık hesaplar (ödenmemiş siparişler) ───────────────────────────────────
+export async function getOpenAccounts(): Promise<Order[]> {
+  await connectDB();
+
+  const docs = await OrderModel.find({ paymentStatus: "open" })
+    .sort({ createdAt: -1 })
+    .lean();
+
+  return docs.map((doc) => ({
+    id: doc.id,
+    orderNumber: doc.orderNumber,
+    items: doc.items as Order["items"],
+    customer: doc.customer as Order["customer"],
+    payment: doc.payment as Order["payment"],
+    status: doc.status as Order["status"],
+    notes: doc.notes ?? undefined,
+    subtotal: doc.subtotal,
+    deliveryFee: doc.deliveryFee,
+    total: doc.total,
+    source: (doc.source as Order["source"]) ?? "manual",
+    externalRef: doc.externalRef ?? undefined,
+    paymentStatus: (doc.paymentStatus as Order["paymentStatus"]) ?? "paid",
+    paidAt: (doc as unknown as { paidAt?: Date }).paidAt ?? undefined,
+    createdAt: (doc as unknown as { createdAt: Date }).createdAt,
+    updatedAt: (doc as unknown as { updatedAt: Date }).updatedAt,
+  }));
+}
+
+// Açık hesap sayısı — sidebar rozeti için hafif sorgu.
+export async function getOpenAccountsCount(): Promise<number> {
+  try {
+    await connectDB();
+    return await OrderModel.countDocuments({ paymentStatus: "open" });
+  } catch (error) {
+    console.error("[getOpenAccountsCount]", error);
+    return 0;
+  }
+}
+
+// Açık hesabı tahsil et: ödendi olarak işaretle, ödeme yöntemini güncelle, tarihini yaz.
+export async function collectOpenAccount(
+  id: string,
+  payment: PaymentInfo,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await connectDB();
+
+    const doc = await OrderModel.findOneAndUpdate(
+      { id },
+      { payment, paymentStatus: "paid", paidAt: new Date() },
+    );
+    if (!doc) return { ok: false, error: "Sipariş bulunamadı" };
+
+    revalidatePath("/open-accounts");
+    revalidatePath(`/orders/${id}`);
+    await notifyOrdersChanged("payment-changed");
+    return { ok: true };
+  } catch (error) {
+    console.error("[collectOpenAccount]", error);
+    return { ok: false, error: "Tahsilat kaydedilemedi" };
+  }
+}
+
+// Mevcut bir siparişi açık hesaba al / açık hesaptan çıkar (tahsilat durumunu değiştir).
+export async function setOrderPaymentStatus(
+  id: string,
+  paymentStatus: "open" | "paid",
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await connectDB();
+
+    const update =
+      paymentStatus === "paid"
+        ? { paymentStatus, paidAt: new Date() }
+        : { paymentStatus, paidAt: undefined };
+
+    const doc = await OrderModel.findOneAndUpdate({ id }, update);
+    if (!doc) return { ok: false, error: "Sipariş bulunamadı" };
+
+    revalidatePath("/open-accounts");
+    revalidatePath(`/orders/${id}`);
+    await notifyOrdersChanged("payment-changed");
+    return { ok: true };
+  } catch (error) {
+    console.error("[setOrderPaymentStatus]", error);
+    return { ok: false, error: "Durum güncellenemedi" };
   }
 }
 

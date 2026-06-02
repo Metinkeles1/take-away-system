@@ -60,6 +60,7 @@ export function buildOrderFromDraft(draft: OrderDraft): Order {
     deliveryFee,
     total,
     source: "manual",
+    paymentStatus: "paid",
     createdAt: new Date(),
     updatedAt: new Date(),
   };

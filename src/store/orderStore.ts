@@ -14,6 +14,8 @@ import {
   createOrder,
   updateOrderStatus as dbUpdateStatus,
   updateOrderPayment as dbUpdatePayment,
+  collectOpenAccount as dbCollectOpenAccount,
+  setOrderPaymentStatus as dbSetPaymentStatus,
   getOrders,
 } from "@/actions/orders";
 import { updateOrderDetails } from "@/actions/orderEdit";
@@ -70,6 +72,8 @@ interface OrderStore {
   loadSavedCustomers: () => Promise<void>;
   updateOrderStatus: (orderId: string, status: OrderStatus) => Promise<void>;
   updateOrderPayment: (orderId: string, payment: PaymentInfo) => Promise<void>;
+  collectOpenAccount: (orderId: string, payment: PaymentInfo) => Promise<void>;
+  setOrderOpenAccount: (orderId: string, open: boolean) => Promise<void>;
   getOrderById: (orderId: string) => Order | undefined;
 }
 
@@ -434,6 +438,45 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
       ),
     }));
     await dbUpdatePayment(orderId, payment);
+  },
+
+  // ── Açık hesabı tahsil et ──────────────────────────────────────────────
+  collectOpenAccount: async (orderId, payment) => {
+    // Optimistic: ödendi + yöntem güncelle
+    set((state) => ({
+      orders: state.orders.map((o) =>
+        o.id === orderId
+          ? {
+              ...o,
+              payment,
+              paymentStatus: "paid",
+              paidAt: new Date(),
+              updatedAt: new Date(),
+            }
+          : o,
+      ),
+    }));
+    const res = await dbCollectOpenAccount(orderId, payment);
+    if (!res?.ok) await get().loadOrders();
+  },
+
+  // ── Açık hesaba al / çıkar ─────────────────────────────────────────────
+  setOrderOpenAccount: async (orderId, open) => {
+    const next = open ? "open" : "paid";
+    set((state) => ({
+      orders: state.orders.map((o) =>
+        o.id === orderId
+          ? {
+              ...o,
+              paymentStatus: next,
+              paidAt: open ? undefined : new Date(),
+              updatedAt: new Date(),
+            }
+          : o,
+      ),
+    }));
+    const res = await dbSetPaymentStatus(orderId, next);
+    if (!res?.ok) await get().loadOrders();
   },
 
   // ── ID ile sipariş getir ───────────────────────────────────────────────

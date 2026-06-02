@@ -21,6 +21,7 @@ import {
   ChevronRight,
   Loader2,
   Store,
+  Wallet,
 } from "lucide-react";
 
 const SOURCE_BADGE: Record<
@@ -109,6 +110,12 @@ export function OrderListCard({ order, onStatusChange }: OrderListCardProps) {
                 {sourceBadge.label}
               </span>
             )}
+            {order.paymentStatus === "open" && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">
+                <Wallet className="h-3 w-3" />
+                Açık Hesap
+              </span>
+            )}
             <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground bg-muted rounded-full px-2 py-0.5">
               <Timer className="h-3 w-3" />
               <RelativeTime date={order.createdAt} />
@@ -148,7 +155,7 @@ export function OrderListCard({ order, onStatusChange }: OrderListCardProps) {
                 key={`${order.id}-item-${idx}`}
                 className="flex items-center gap-2 text-sm"
               >
-                <span className="inline-flex items-center justify-center min-w-[24px] h-5 rounded-md bg-muted text-[11px] font-bold px-1">
+                <span className="inline-flex items-center justify-center min-w-6 h-5 rounded-md bg-muted text-[11px] font-bold px-1">
                   {item.quantity}x
                 </span>
                 <span className="truncate">{item.product.name}</span>
@@ -181,7 +188,7 @@ export function OrderListCard({ order, onStatusChange }: OrderListCardProps) {
         </div>
 
         {/* Sağ: tutar + aksiyon */}
-        <div className="flex md:flex-col items-end justify-between md:justify-center gap-2 md:gap-2 md:border-l md:pl-4 md:min-w-[180px]">
+        <div className="flex md:flex-col items-end justify-between md:justify-center gap-2 md:gap-2 md:border-l md:pl-4 md:min-w-45">
           <div className="flex flex-col md:items-end">
             <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
               Toplam

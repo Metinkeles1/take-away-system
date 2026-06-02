@@ -10,12 +10,14 @@ import {
   CheckCircle2,
   Bike,
   XCircle,
+  Wallet,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { formatDate } from "@/lib/utils";
 import type { Order, OrderStatus } from "@/types";
-import { memo } from "react";
+import { memo, useState } from "react";
+import { toast } from "sonner";
 
 const iconMap: Record<OrderStatus, React.ElementType> = {
   pending: Clock,
@@ -54,15 +56,31 @@ const statusConfig: Record<
 interface Props {
   order: Order;
   onPrint: () => void;
+  onToggleOpen: (open: boolean) => Promise<void>;
 }
 
 const OrderDetailHeader = memo(function OrderDetailHeader({
   order,
   onPrint,
+  onToggleOpen,
 }: Props) {
   const router = useRouter();
   const config = statusConfig[order.status];
   const Icon = iconMap[order.status];
+  const [marking, setMarking] = useState(false);
+
+  const isManual = !order.source || order.source === "manual";
+  const canMarkOpen = isManual && order.paymentStatus !== "open";
+
+  const handleMarkOpen = async () => {
+    setMarking(true);
+    try {
+      await onToggleOpen(true);
+      toast.success("Açık hesaba alındı");
+    } finally {
+      setMarking(false);
+    }
+  };
 
   return (
     <div className="mb-4 flex items-center gap-3 shrink-0">
@@ -84,12 +102,23 @@ const OrderDetailHeader = memo(function OrderDetailHeader({
           {formatDate(order.createdAt)}
         </p>
       </div>
-      {(!order.source || order.source === "manual") && (
+      {isManual && (
         <Button variant="outline" asChild>
           <Link href={`/orders/${order.id}/edit`}>
             <Pencil className="mr-2 h-4 w-4" />
             Düzenle
           </Link>
+        </Button>
+      )}
+      {canMarkOpen && (
+        <Button
+          variant="outline"
+          onClick={handleMarkOpen}
+          disabled={marking}
+          className="border-amber-300 text-amber-700 hover:bg-amber-50 hover:text-amber-800 hover:border-amber-400"
+        >
+          <Wallet className="mr-2 h-4 w-4" />
+          {marking ? "İşleniyor..." : "Açık Hesaba Al"}
         </Button>
       )}
       <Button variant="outline" onClick={onPrint}>
