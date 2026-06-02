@@ -27,7 +27,6 @@ import {
   MessageSquare,
   Bike,
   Wallet,
-  Percent,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -74,7 +73,6 @@ export const NAV_ITEMS: readonly NavEntry[] = [
       { href: "/dashboard/trendyol/menu",      label: "Menü",            icon: UtensilsCrossed },
       { href: "/dashboard/trendyol/categories", label: "Kategoriler",    icon: Tags },
       { href: "/dashboard/trendyol/reviews",    label: "Değerlendirmeler", icon: MessageSquare },
-      { href: "/dashboard/trendyol/campaigns",  label: "Kampanyalar",     icon: Percent },
     ],
   },
   { kind: "leaf", href: "/orders/new", label: "Yeni Sipariş", icon: ShoppingBag,    color: "text-orange-400", activeBg: "bg-orange-500/15" },

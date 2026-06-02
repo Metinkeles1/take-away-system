@@ -303,7 +303,7 @@ export default function KuryePage() {
                     <CheckCircle2 className="h-5 w-5" /> Onayla & Bildir
                   </span>
                   <span className="text-[11px] font-medium text-emerald-100">
-                    WhatsApp'ta teslimat grubunu seç
+                    WhatsApp&apos;ta teslimat grubunu seç
                   </span>
                 </a>
               </>

@@ -14,7 +14,6 @@ const CRUMBS: Record<string, string> = {
   "/dashboard/trendyol/menu":      "Menü",
   "/dashboard/trendyol/categories": "Kategoriler",
   "/dashboard/trendyol/reviews":   "Değerlendirmeler",
-  "/dashboard/trendyol/campaigns": "Kampanyalar",
 };
 
 export default function TrendyolLayout({ children }: { children: React.ReactNode }) {
