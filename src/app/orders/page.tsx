@@ -1,6 +1,6 @@
 "use client";
 
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useOrderStore } from "@/store/orderStore";
 import { Button } from "@/components/ui/button";
@@ -21,12 +21,14 @@ export default function OrdersPage() {
   useEffect(() => {
     loadOrders().finally(() => setBootstrapping(false));
 
-    const handleFocus = () => loadOrders();
+    // Arka plan yenilemeleri sessiz: skeleton'a geçmeden listeyi yerinde günceller.
+    // (Kendi durum değişikliğinin Pusher echo'su tüm listeyi flush etmesin.)
+    const handleFocus = () => loadOrders({ silent: true });
     window.addEventListener("focus", handleFocus);
 
     // Gerçek zamanlı: kurye teslim edince / yeni sipariş gelince anında yenile.
     // Pusher asıl mekanizma; sekmeye geri dönünce focus ile yenileme de yedek.
-    const unsubscribe = subscribeOrders(() => void loadOrders());
+    const unsubscribe = subscribeOrders(() => void loadOrders({ silent: true }));
 
     return () => {
       window.removeEventListener("focus", handleFocus);
@@ -59,9 +61,13 @@ export default function OrdersPage() {
     [orders, deferredFilter],
   );
 
-  const handleStatusChange = (id: string, status: OrderStatus) => {
-    updateOrderStatus(id, status);
-  };
+  // Stabil referans — OrderListCard memo'sunun çalışması için şart.
+  const handleStatusChange = useCallback(
+    (id: string, status: OrderStatus) => {
+      updateOrderStatus(id, status);
+    },
+    [updateOrderStatus],
+  );
 
   return (
     <main className="h-full flex flex-col px-3 pt-3 pb-6 sm:px-4 sm:pt-4 md:px-6 md:pt-5 lg:px-8 lg:pt-6 lg:pb-8 overflow-hidden">

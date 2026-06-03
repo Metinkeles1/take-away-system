@@ -44,11 +44,31 @@ async function syncStatusToTrendyol(packageId: string, status: OrderStatus) {
   }
 }
 
-// ─── Tüm siparişleri getir ────────────────────────────────────────────────────
+// Siparişler listesi penceresi: canlı operasyon panelinde tüm geçmişi taşımak
+// gereksiz (her focus/echo'da koleksiyonun tamamı aktarılır). Aktif siparişler
+// ve açık hesaplar daima gelir; tamamlanmış/iptal geçmişi son ORDERS_WINDOW_DAYS
+// gün ile sınırlı, güvenlik için ORDERS_MAX tavanı var. Daha eski kayıtlar
+// rapor/settlement sayfalarından okunur.
+const ORDERS_WINDOW_DAYS = 14;
+const ORDERS_MAX = 500;
+const ACTIVE_STATUSES = ["pending", "preparing", "on-the-way"];
+
+// ─── Siparişleri getir (canlı pencere) ─────────────────────────────────────────
 export async function getOrders(): Promise<Order[]> {
   await connectDB();
 
-  const docs = await OrderModel.find().sort({ createdAt: -1 }).lean();
+  const cutoff = new Date(Date.now() - ORDERS_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+
+  const docs = await OrderModel.find({
+    $or: [
+      { status: { $in: ACTIVE_STATUSES } }, // aktif iş daima görünür
+      { paymentStatus: "open" }, // açık hesaplar daima görünür
+      { createdAt: { $gte: cutoff } }, // son N günün geçmişi
+    ],
+  })
+    .sort({ createdAt: -1 })
+    .limit(ORDERS_MAX)
+    .lean();
 
   return docs.map((doc) => ({
     id: doc.id,

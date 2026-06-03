@@ -1,4 +1,4 @@
-import { useTransition, useState } from "react";
+import { memo, useTransition, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -48,7 +48,7 @@ interface OrderListCardProps {
   onStatusChange: (id: string, status: OrderStatus) => void;
 }
 
-export function OrderListCard({ order, onStatusChange }: OrderListCardProps) {
+function OrderListCardImpl({ order, onStatusChange }: OrderListCardProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [navigating, setNavigating] = useState(false);
@@ -247,3 +247,8 @@ export function OrderListCard({ order, onStatusChange }: OrderListCardProps) {
     </Card>
   );
 }
+
+// memo: tek bir siparişin durumu değişince optimistic update sadece o siparişin
+// objesini yeniler; diğer kartların order referansı sabit kaldığı için render
+// edilmezler. onStatusChange'in stabil (useCallback) olması bunun ön koşulu.
+export const OrderListCard = memo(OrderListCardImpl);

@@ -108,6 +108,12 @@ const OrderSchema = new Schema(
 // `find({ source, createdAt > X }).sort({ createdAt: -1 })` collection scan'den kurtulur.
 OrderSchema.index({ source: 1, createdAt: -1 });
 
+// Siparişler listesi penceresi (getOrders) için. Sort daima createdAt -1; aktif
+// statü dalı status'a dayanır. $or'un her dalı indexli olmazsa tüm sorgu tam
+// taramaya düşer. status index'i ayrıca getActiveOrdersCount'u da hızlandırır.
+OrderSchema.index({ createdAt: -1 });
+OrderSchema.index({ status: 1 });
+
 export type OrderDocument = InferSchemaType<typeof OrderSchema>;
 
 // Hot-reload sırasında model çoğalmasını önle

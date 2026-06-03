@@ -68,7 +68,9 @@ interface OrderStore {
   saveEdit: () => Promise<{ ok: boolean; id?: string; error?: string }>;
 
   // ── Geçmiş ───────────────────────────────────────────────────────────────
-  loadOrders: () => Promise<void>;
+  // silent: arka plan yenilemesi (Pusher echo / focus) — skeleton gösterme,
+  // listeyi yerinde güncelle. Sadece ilk yüklemede isLoading açılır.
+  loadOrders: (opts?: { silent?: boolean }) => Promise<void>;
   loadSavedCustomers: () => Promise<void>;
   updateOrderStatus: (orderId: string, status: OrderStatus) => Promise<void>;
   updateOrderPayment: (orderId: string, payment: PaymentInfo) => Promise<void>;
@@ -375,8 +377,9 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
   },
 
   // ── DB'den siparişleri yükle ───────────────────────────────────────────
-  loadOrders: async () => {
-    set({ isLoading: true });
+  loadOrders: async (opts) => {
+    // Sessiz (arka plan) yenilemede skeleton'a geçme — liste yerinde güncellenir.
+    if (!opts?.silent) set({ isLoading: true });
     try {
       const fresh = await getOrders();
       set((state) => {
@@ -398,7 +401,7 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
         return { orders, pendingStatus: nextPending };
       });
     } finally {
-      set({ isLoading: false });
+      if (!opts?.silent) set({ isLoading: false });
     }
   },
 
