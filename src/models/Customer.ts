@@ -11,7 +11,7 @@ const CustomerSchema = new Schema(
     // Kurye teslimatta yakaladığı kesin konum + hangi adres için yakalandığı.
     // geoAddress, adres değişince eski pini kullanmamak için eşleştirmede kullanılır.
     geo: {
-      type: new Schema({ lat: Number, lng: Number }, { _id: false }),
+      type: new Schema({ lat: Number, lng: Number, accuracy: Number }, { _id: false }),
       default: undefined,
     },
     geoAddress: String,

@@ -693,3 +693,211 @@ export function listTrendyolReviews(params: {
     path: `/integrator/review/meal/suppliers/${supplierId}/stores/${params.storeId}/reviews/filter${query ? `?${query}` : ""}`,
   });
 }
+
+// ─── Promosyonlar (Kampanyalar) ─────────────────────────────────────────
+// Doküman: .../integrator/promotion/suppliers/{supplierId}/promotions
+// NOT: Bu endpoint "order/meal" değil, ayrı "promotion" alan adı altında.
+// channel: bu panel için MEAL (Yemek). Koşullarda sectionIds = menü kategorileri.
+// İndirimin tipi award.type ile belirlenir:
+//   AMOUNT      → sabit TL indirim
+//   PERCENTAGE  → yüzde indirim (value=100 → bedava)
+//   FIXED_PRICE → ürünü sabit fiyata sat
+// Tier (kademeli) = birden fazla award. Kod promosyonu = code alanı dolu.
+// Hediye/ödül ürün = award.condition.contentIds + award.visible=true.
+
+export type TrendyolPromotionStatus =
+  | "CREATED"
+  | "ATTENDANCE"
+  | "READY"
+  | "ACTIVE"
+  | "COMPLETED"
+  | "CANCELED";
+
+export type TrendyolPromotionChannel = "MEAL" | "GROCERY";
+
+export type TrendyolAwardType = "AMOUNT" | "PERCENTAGE" | "FIXED_PRICE";
+
+export interface TrendyolPromotionTerm {
+  isBold: boolean;
+  term: string;
+}
+
+export interface TrendyolPromotionDate {
+  start: string; // ISO 8601 (örn. 2026-01-16T19:33:22.997Z)
+  end: string;
+}
+
+export interface TrendyolPromotionConditionSet {
+  brandIds?: number[];
+  categoryIds?: number[];
+  contentIds?: number[];
+  contentIdsMeta?: Array<{ secondaryId: string }>;
+  storeIds?: number[];
+  sellerIds?: number[];
+  userSegments?: string[];
+  sectionIds?: number[]; // sadece MEAL
+  specialSectionIds?: number[]; // sadece MEAL
+}
+
+export interface TrendyolPromotionConditions {
+  include?: TrendyolPromotionConditionSet;
+  exclude?: TrendyolPromotionConditionSet;
+}
+
+export interface TrendyolAwardCondition {
+  minProductQuantity?: number;
+  minBasketAmount?: number;
+  brandIds?: number[];
+  categoryIds?: number[];
+  contentIds?: number[];
+  storeIds?: number[];
+  sellerIds?: number[];
+  userSegments?: string[];
+  sectionIds?: number[];
+  specialSectionIds?: number[];
+}
+
+export interface TrendyolPromotionAward {
+  id?: string;
+  type: TrendyolAwardType;
+  value: number;
+  quantity?: number;
+  visible?: boolean;
+  condition: TrendyolAwardCondition;
+}
+
+export interface TrendyolPromotionUsage {
+  perUserLimit?: number;
+  current?: number;
+  maxLimit?: number;
+  exceeded?: boolean;
+  applyPerBasketLimit?: number;
+}
+
+export interface TrendyolPromotionDiscount {
+  perUserLimit?: number;
+  perOrderLimit?: number;
+}
+
+export interface TrendyolPromotion {
+  id: string;
+  name: string;
+  shortname?: string;
+  code?: string;
+  description?: string;
+  tagId?: number;
+  apps: string[];
+  tags?: string[];
+  terms?: TrendyolPromotionTerm[];
+  date: TrendyolPromotionDate;
+  channel: string;
+  conditions?: TrendyolPromotionConditions;
+  awards: TrendyolPromotionAward[];
+  usage?: TrendyolPromotionUsage;
+  discount?: TrendyolPromotionDiscount;
+  status: TrendyolPromotionStatus | string;
+  createdDate?: string;
+}
+
+export interface TrendyolPromotionsResponse {
+  items: TrendyolPromotion[];
+  links?: {
+    page?: number;
+    perPage?: number;
+    pageCount?: number;
+    totalCount?: number;
+  };
+}
+
+// POST body (oluşturma). idempotencyKey zorunlu.
+export interface CreateTrendyolPromotionBody {
+  idempotencyKey: string;
+  name: string;
+  shortname?: string;
+  code?: string;
+  description?: string;
+  tagId?: number;
+  tags?: string[];
+  apps: string[];
+  terms: TrendyolPromotionTerm[];
+  date: TrendyolPromotionDate;
+  channel: string;
+  conditions: TrendyolPromotionConditions;
+  awards: TrendyolPromotionAward[];
+  usage?: TrendyolPromotionUsage;
+  discount?: TrendyolPromotionDiscount;
+}
+
+// PUT body (güncelleme). idempotencyKey yok; gerisi aynı.
+export type UpdateTrendyolPromotionBody = Omit<
+  CreateTrendyolPromotionBody,
+  "idempotencyKey"
+>;
+
+function promotionPath(suffix: string) {
+  const supplierId = process.env.TRENDYOL_SUPPLIER_ID!;
+  return `/integrator/promotion/suppliers/${supplierId}/promotions${suffix}`;
+}
+
+// Listele. channel zorunlu. status/storeId/page/size opsiyonel.
+export function listTrendyolPromotions(params: {
+  channel?: TrendyolPromotionChannel | string;
+  status?: TrendyolPromotionStatus | string;
+  storeId?: string | number;
+  page?: number;
+  size?: number;
+}) {
+  const qs = new URLSearchParams();
+  qs.set("channel", params.channel ?? "GROCERY");
+  if (params.status) qs.set("status", params.status);
+  if (params.storeId) qs.set("storeId", String(params.storeId));
+  if (params.page !== undefined) qs.set("page", String(params.page));
+  if (params.size !== undefined) qs.set("size", String(params.size));
+  return trendyolRequest<TrendyolPromotionsResponse>({
+    method: "GET",
+    path: promotionPath(`?${qs.toString()}`),
+  });
+}
+
+// Tek kampanya detayı.
+export function getTrendyolPromotion(promotionId: string | number) {
+  return trendyolRequest<TrendyolPromotion>({
+    method: "GET",
+    path: promotionPath(`/${promotionId}`),
+  });
+}
+
+// Oluştur → 201 { id }.
+export function createTrendyolPromotion(body: CreateTrendyolPromotionBody) {
+  return trendyolRequest<{ id: string }>({
+    method: "POST",
+    path: promotionPath(""),
+    body,
+  });
+}
+
+// Güncelle → 204 (gövdesiz).
+export function updateTrendyolPromotion(
+  promotionId: string | number,
+  body: UpdateTrendyolPromotionBody,
+) {
+  return trendyolRequest({
+    method: "PUT",
+    path: promotionPath(`/${promotionId}`),
+    body,
+  });
+}
+
+// İptal → 204. updatedBy opsiyonel (kimin iptal ettiği).
+export function cancelTrendyolPromotion(
+  promotionId: string | number,
+  updatedBy?: string,
+) {
+  const qs = updatedBy
+    ? `?updatedBy=${encodeURIComponent(updatedBy)}`
+    : "";
+  return trendyolRequest({
+    method: "DELETE",
+    path: promotionPath(`/${promotionId}${qs}`),
+  });
+}

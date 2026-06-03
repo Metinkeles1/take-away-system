@@ -5,6 +5,13 @@ import OrderModel from "@/models/Order";
 import CustomerModel from "@/models/Customer";
 import { type GeoPoint, type Order } from "@/types";
 
+// Adres karşılaştırmasını gevşet: boşluk/büyük-küçük harf farkları yüzünden
+// kayıtlı pin gereksiz yere geçersiz sayılıp kuryeye her sefer yeniden
+// pinletmesin. Türkçe-duyarlı küçük harf + boşluk sadeleştirme.
+function normalizeAddr(s?: string): string {
+  return (s ?? "").trim().replace(/\s+/g, " ").toLocaleLowerCase("tr");
+}
+
 // Kurye sayfası için teslim edilmesi gereken siparişler.
 // Sadece aktif (teslim/iptal olmamış) siparişleri döner — public sayfa olduğu
 // için tüm geçmişi taşımayız, en yeni en üstte.
@@ -37,7 +44,10 @@ export async function getCourierOrders(): Promise<Order[]> {
     const saved = geoByPhone.get(customer.phone);
     const geo =
       customer.geo ??
-      (saved?.geo && saved.geoAddress === customer.address ? saved.geo : undefined);
+      (saved?.geo &&
+      normalizeAddr(saved.geoAddress) === normalizeAddr(customer.address)
+        ? saved.geo
+        : undefined);
 
     return {
       id: doc.id,

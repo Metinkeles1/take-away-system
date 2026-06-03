@@ -15,13 +15,23 @@ import {
   ShoppingBag,
   ChevronDown,
   X,
+  LocateFixed,
+  AlertTriangle,
 } from "lucide-react";
-import { getCourierOrders } from "@/actions/courier";
+import { getCourierOrders, saveDeliveryLocation } from "@/actions/courier";
 import { subscribeOrders } from "@/lib/pusher/client";
-import { type Order } from "@/types";
+import { type Order, type GeoPoint } from "@/types";
 import { formatCurrency, formatRelativeTime, cn } from "@/lib/utils";
+import { LocationPicker, type LatLng } from "@/components/kurye/LocationPicker";
 
 const REFRESH_MS = 20_000;
+
+// Harita hiç GPS/kayıtlı pin yokken bu noktaya ortalanır (kurye oradan kaydırır).
+// NEXT_PUBLIC_DEFAULT_LAT/LNG ile bölgene göre ayarlanabilir; varsayılan İstanbul.
+const DEFAULT_MAP_CENTER: LatLng = {
+  lat: Number(process.env.NEXT_PUBLIC_DEFAULT_LAT) || 41.0082,
+  lng: Number(process.env.NEXT_PUBLIC_DEFAULT_LNG) || 28.9784,
+};
 
 const PAYMENT_LABEL: Record<string, { label: string; icon: React.ElementType; tone: string }> = {
   cash: { label: "Nakit", icon: Banknote, tone: "text-emerald-600 bg-emerald-50" },
@@ -46,32 +56,144 @@ function buildWhatsAppUrl(o: Order): string {
   return `https://wa.me/?text=${encodeURIComponent(text)}`;
 }
 
+// GPS konumunu yakala. Başarısızlıkta kullanıcıya gösterilecek somut sebebi döner.
+// (Eskiden hata sessizce yutuluyordu; "bazı adresler neden pinlenmiyor" görünmüyordu.)
+type GeoResult =
+  | { ok: true; geo: { lat: number; lng: number; accuracy?: number } }
+  | { ok: false; reason: string };
+
+function geoErrorReason(err: GeolocationPositionError): string {
+  return err.code === err.PERMISSION_DENIED
+    ? "Konum izni reddedildi — tarayıcı ayarlarından izin ver."
+    : err.code === err.POSITION_UNAVAILABLE
+      ? "Konum sinyali alınamadı (kapalı alan / GPS kapalı)."
+      : err.code === err.TIMEOUT
+        ? "Konum zaman aşımına uğradı — açık alanda tekrar dene."
+        : "Konum alınamadı.";
+}
+
+// Tek bir getCurrentPosition denemesini Promise'e sarar + watchdog ekler.
+// Bazı tarayıcılarda izin penceresi yanıtlanmazsa ne başarı ne hata callback'i
+// gelir ve `timeout` bu süreyi saymaz → spinner sonsuza kadar takılır. Watchdog
+// bunu keser ve sentetik TIMEOUT döndürür ki UI asla kilitlenmesin.
+function tryPosition(opts: PositionOptions): Promise<GeolocationPosition> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(watchdog);
+      fn();
+    };
+    const watchdog = setTimeout(
+      () =>
+        finish(() =>
+          reject({
+            code: 3,
+            PERMISSION_DENIED: 1,
+            POSITION_UNAVAILABLE: 2,
+            TIMEOUT: 3,
+            message: "watchdog timeout",
+          } as GeolocationPositionError),
+        ),
+      (opts.timeout ?? 12000) + 3000,
+    );
+    navigator.geolocation.getCurrentPosition(
+      (pos) => finish(() => resolve(pos)),
+      (err) => finish(() => reject(err)),
+      opts,
+    );
+  });
+}
+
+// GPS konumunu yakala. İki aşamalı: önce yüksek doğruluk (makul cache toleransıyla),
+// zaman aşımı/sinyal yoksa düşük doğruluğa (WiFi/hücre — hızlı döner) düş. Böylece
+// kapalı alan / yavaş GPS'te "zaman aşımı" hatası büyük ölçüde önlenir; düşük
+// doğruluklu fix zaten amber "düşük doğruluk" olarak işaretlenir.
+async function getPosition(): Promise<GeoResult> {
+  // Geolocation güvenli bağlam (HTTPS) ister; HTTP'de tarayıcı sessizce reddeder.
+  if (typeof window !== "undefined" && window.isSecureContext === false) {
+    return {
+      ok: false,
+      reason: "Güvenli bağlantı (HTTPS) gerekli — tarayıcı konuma izin vermiyor.",
+    };
+  }
+  if (typeof navigator === "undefined" || !navigator.geolocation) {
+    return { ok: false, reason: "Cihaz konum servisini desteklemiyor." };
+  }
+
+  // Hızlı tanı: izin kalıcı olarak reddedilmişse 22 sn beklemeden anında bildir.
+  try {
+    const perm = await navigator.permissions?.query({
+      name: "geolocation" as PermissionName,
+    });
+    if (perm?.state === "denied") {
+      return {
+        ok: false,
+        reason:
+          "Konum izni kapalı — adres çubuğundaki kilit/konum simgesinden izin ver (masaüstünde ayrıca Windows konum hizmetinin açık olması gerekir).",
+      };
+    }
+  } catch {
+    // permissions API yok/desteklenmiyor — normal akışla devam et.
+  }
+
+  const toGeo = (pos: GeolocationPosition): GeoResult => ({
+    ok: true,
+    geo: {
+      lat: pos.coords.latitude,
+      lng: pos.coords.longitude,
+      accuracy: Number.isFinite(pos.coords.accuracy) ? pos.coords.accuracy : undefined,
+    },
+  });
+
+  // 1) Yüksek doğruluk. maximumAge 15sn: kapıda yeterince taze, ama sıfırdan fix
+  //    beklemeye zorlayıp gereksiz timeout üretmez.
+  try {
+    return toGeo(
+      await tryPosition({ enableHighAccuracy: true, timeout: 12000, maximumAge: 15000 }),
+    );
+  } catch (e) {
+    const err = e as GeolocationPositionError;
+    // İzin reddedildiyse ikinci deneme de reddedilir — direkt bildir.
+    if (err.code === err.PERMISSION_DENIED) {
+      return { ok: false, reason: geoErrorReason(err) };
+    }
+    // 2) Düşük doğruluk (WiFi/hücre). Hızlı döner; timeout senaryosunu kurtarır.
+    //    Sonuç yine accuracy eşiğinden geçer — uzak/çöp konum kaydedilmez.
+    try {
+      return toGeo(
+        await tryPosition({
+          enableHighAccuracy: false,
+          timeout: 10000,
+          maximumAge: 60000,
+        }),
+      );
+    } catch (e2) {
+      return { ok: false, reason: geoErrorReason(e2 as GeolocationPositionError) };
+    }
+  }
+}
+
+// Bu doğruluğun (metre) altındaki GPS fix'i "iyi" sayılır → otomatik pinlenir.
+// Üstündeyse haritada elle işaretlemeye düşülür (yanlış pin riskini insana bırakma).
+const PIN_ACCURACY_WARN = 100;
+
 export default function KuryePage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [active, setActive] = useState(0);
   const [confirming, setConfirming] = useState(false);
   const [deliveringId, setDeliveringId] = useState<string | null>(null);
+  const [deliverError, setDeliverError] = useState<string | null>(null);
+  // Pinleme durumu — teslimden tamamen ayrı. Kurye kapıda "Konumu Pinle"ye basar.
+  const [pinningId, setPinningId] = useState<string | null>(null);
+  const [pinErrors, setPinErrors] = useState<Record<string, string>>({});
+  // Harita seçici (manuel pinleme): hangi sipariş + harita merkezi.
+  const [pickerOrder, setPickerOrder] = useState<Order | null>(null);
+  const [pickerCenter, setPickerCenter] = useState<LatLng>(DEFAULT_MAP_CENTER);
+  const [pickerSaving, setPickerSaving] = useState(false);
   const startX = useRef<number | null>(null);
-  // Teslim anında yakalanan GPS konumu — Promise olarak tutulur. "Teslim Et"e
-  // basınca yakalama başlar; "Onayla & Bildir"de bu Promise beklenir. Böylece
-  // kurye onaya hemen bassa bile konum gelene kadar (kısa süre) beklenir ve pin
-  // kaybolmaz. maximumAge ile yakın zamanlı bir fix varsa anında döner.
-  const geoPromiseRef = useRef<Promise<{ lat: number; lng: number } | null> | null>(null);
-
-  const captureGeo = () => {
-    if (typeof navigator === "undefined" || !navigator.geolocation) {
-      geoPromiseRef.current = Promise.resolve(null);
-      return;
-    }
-    geoPromiseRef.current = new Promise((resolve) => {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        () => resolve(null), // izin yok / hata: pinsiz devam et
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 },
-      );
-    });
-  };
 
   const load = async () => {
     try {
@@ -113,7 +235,7 @@ export default function KuryePage() {
 
   const go = (i: number) => {
     setConfirming(false);
-    geoPromiseRef.current = null; // sipariş değişti, bekleyen konumu unut
+    setDeliverError(null);
     setActive(Math.max(0, Math.min(sorted.length - 1, i)));
   };
 
@@ -127,31 +249,121 @@ export default function KuryePage() {
     startX.current = null;
   };
 
-  // Teslim onayı: durumu güvenilir biçimde DB'ye yaz + listeden düş.
-  // keepalive: "Onayla & Bildir" anchor'ı WhatsApp'ı açıp tarayıcıyı arka plana
-  // atsa bile istek tamamlanır. (Eski sürümde mobilde istek yarıda kesilip
-  // sipariş tekrar "teslim edilmedi" olarak geri dönebiliyordu.)
-  const handleDeliver = (o: Order) => {
+  // Teslim onayı: ÖNCE durumu sunucuya yazmayı BEKLE, başarılı olunca WhatsApp'ı aç.
+  // (Eski akış: WhatsApp'a aynı anda yönlendirip isteği "ateşle-unut" gönderiyordu;
+  // mobilde sekme arka plana atılınca istek düşüp sipariş "hazırlanıyor"da kalıyordu.)
+  const handleDeliver = async (o: Order) => {
     setDeliveringId(o.id);
-    setConfirming(false);
-    setOrders((prev) => prev.filter((x) => x.id !== o.id));
-    const geoPromise = geoPromiseRef.current ?? Promise.resolve(null);
-    void (async () => {
-      // Konum henüz gelmediyse kısa süre bekle (yarış koşulunu kapatır); en geç
-      // 5 sn sonra pinsiz devam et ki teslim onayı asla takılmasın.
-      const geo = await Promise.race([
-        geoPromise,
-        new Promise<null>((r) => setTimeout(() => r(null), 5000)),
-      ]);
-      await fetch("/api/orders/deliver", {
+    setDeliverError(null);
+    const waUrl = buildWhatsAppUrl(o);
+    // WhatsApp'ı YENİ sekmede aç → kurye listesi açık kalsın. Boş pencereyi şimdi,
+    // kullanıcı jesti içinde aç (mobilde popup engeline takılmamak için); teslim
+    // onaylanınca adresine yönlendir. Engellenirse aynı sekmeye düş (yedek).
+    let waWin: Window | null = null;
+    try {
+      waWin = window.open("", "_blank");
+    } catch {
+      waWin = null;
+    }
+    try {
+      const res = await fetch("/api/orders/deliver", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id: o.id, lat: geo?.lat, lng: geo?.lng }),
-        keepalive: true,
+        body: JSON.stringify({ id: o.id }),
       });
-    })().catch(() => {
-      // Sunucuya ulaşamazsa sipariş bir sonraki yenilemede geri gelir; sessiz geç.
+      const data = (await res.json().catch(() => null)) as
+        | { ok?: boolean; error?: string }
+        | null;
+      if (!res.ok || data?.ok === false) {
+        throw new Error(data?.error || "Teslim güncellenemedi");
+      }
+      // Yazma onaylandı → listeden düş ve WhatsApp'ı aç.
+      setOrders((prev) => prev.filter((x) => x.id !== o.id));
+      setConfirming(false);
+      if (waWin && !waWin.closed) waWin.location.href = waUrl;
+      else window.location.href = waUrl;
+    } catch (err) {
+      // Yazma başarısız: boş sekmeyi kapat, sipariş listede kalsın, kurye tekrar denesin.
+      if (waWin && !waWin.closed) waWin.close();
+      setDeliverError(
+        err instanceof Error ? err.message : "Teslim kaydedilemedi, tekrar deneyin.",
+      );
+    } finally {
+      setDeliveringId(null);
+    }
+  };
+
+  const clearPinError = (id: string) =>
+    setPinErrors((e) => {
+      const next = { ...e };
+      delete next[id];
+      return next;
     });
+
+  // Konumu siparişe + müşteriye kaydet ve kartı anında güncelle.
+  const persistPin = async (o: Order, geo: GeoPoint): Promise<boolean> => {
+    try {
+      await saveDeliveryLocation(o.id, geo);
+      setOrders((prev) =>
+        prev.map((x) =>
+          x.id === o.id ? { ...x, customer: { ...x.customer, geo } } : x,
+        ),
+      );
+      clearPinError(o.id);
+      return true;
+    } catch {
+      setPinErrors((e) => ({ ...e, [o.id]: "Konum kaydedilemedi, tekrar deneyin." }));
+      return false;
+    }
+  };
+
+  // Hibrit "Konumu Pinle": önce GPS dene. İYİ doğruluk gelirse otomatik kaydet
+  // (harita yok). GPS yok / düşük doğruluk olursa haritada elle işaretlemeye düş —
+  // yanlış/uzak pin asla sessizce kaydedilmez.
+  const handlePin = async (o: Order) => {
+    setPinningId(o.id);
+    clearPinError(o.id);
+    const res = await getPosition();
+    setPinningId(null);
+
+    if (res.ok && res.geo.accuracy != null && res.geo.accuracy <= PIN_ACCURACY_WARN) {
+      await persistPin(o, res.geo); // iyi GPS → tek dokunuş, otomatik
+      return;
+    }
+
+    // GPS başarısız / düşük doğruluk / doğruluk bilinmiyor → haritada elle.
+    if (!res.ok) {
+      setPinErrors((e) => ({ ...e, [o.id]: `${res.reason} Haritadan işaretleyebilirsin.` }));
+    }
+    const center: LatLng = res.ok
+      ? { lat: res.geo.lat, lng: res.geo.lng }
+      : o.customer.geo
+        ? { lat: o.customer.geo.lat, lng: o.customer.geo.lng }
+        : DEFAULT_MAP_CENTER;
+    openMap(o, center);
+  };
+
+  // Haritayı aç (hem otomatik fallback hem "haritadan seç" linki kullanır).
+  const openMap = (o: Order, center: LatLng) => {
+    setPickerCenter(center);
+    setPickerOrder(o);
+  };
+
+  const openMapManual = (o: Order) => {
+    const center: LatLng = o.customer.geo
+      ? { lat: o.customer.geo.lat, lng: o.customer.geo.lng }
+      : DEFAULT_MAP_CENTER;
+    openMap(o, center);
+  };
+
+  // Haritada onaylanan konumu kaydet (elle → accuracy yok, insan-onaylı sayılır).
+  const handlePickerConfirm = async (geo: LatLng) => {
+    const o = pickerOrder;
+    if (!o) return;
+    setPickerSaving(true);
+    const ok = await persistPin(o, { lat: geo.lat, lng: geo.lng });
+    setPickerSaving(false);
+    if (ok) setPickerOrder(null);
   };
 
   return (
@@ -227,7 +439,14 @@ export default function KuryePage() {
             </div>
 
             <div className="px-4 pb-4">
-              <OrderCard key={current.id} o={current} />
+              <OrderCard
+                key={current.id}
+                o={current}
+                pinning={pinningId === current.id}
+                pinError={pinErrors[current.id]}
+                onPin={() => void handlePin(current)}
+                onPickOnMap={() => openMapManual(current)}
+              />
             </div>
 
             {/* Nokta göstergesi — dokununca o siparişe atla */}
@@ -253,6 +472,12 @@ export default function KuryePage() {
       {/* Sabit alt aksiyon barı — sadece teslim edilecek paket varken */}
       {current && (
         <footer className="z-20 shrink-0 border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">
+          {deliverError && (
+            <div className="mx-auto flex max-w-md items-start gap-2 px-3 pt-2 text-sm font-medium text-rose-700">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{deliverError}</span>
+            </div>
+          )}
           <div className="mx-auto flex max-w-md items-stretch gap-2.5 p-3">
             {!confirming ? (
               <>
@@ -266,7 +491,7 @@ export default function KuryePage() {
                 </a>
                 <button
                   onClick={() => {
-                    captureGeo(); // konum iznini iste + erken yakala
+                    setDeliverError(null);
                     setConfirming(true);
                   }}
                   disabled={deliveringId === current.id}
@@ -285,45 +510,78 @@ export default function KuryePage() {
               <>
                 <button
                   onClick={() => setConfirming(false)}
+                  disabled={deliveringId === current.id}
                   aria-label="Vazgeç"
-                  className="flex w-20 shrink-0 flex-col items-center justify-center gap-0.5 rounded-2xl bg-slate-100 text-slate-600 transition active:scale-95"
+                  className="flex w-20 shrink-0 flex-col items-center justify-center gap-0.5 rounded-2xl bg-slate-100 text-slate-600 transition active:scale-95 disabled:opacity-50"
                 >
                   <X className="h-5 w-5" />
                   <span className="text-xs font-semibold">Vazgeç</span>
                 </button>
-                {/* Anchor: tıklamada durum güncellenir + WhatsApp sohbet seçimi açılır */}
-                <a
-                  href={buildWhatsAppUrl(current)}
-                  target="_blank"
-                  rel="noreferrer"
-                  onClick={() => handleDeliver(current)}
-                  className="flex flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl bg-emerald-600 py-3 text-white shadow-sm shadow-emerald-600/25 transition active:scale-[0.98]"
+                {/* Önce teslim sunucuya yazılır (beklenir), başarılı olunca WhatsApp açılır. */}
+                <button
+                  onClick={() => void handleDeliver(current)}
+                  disabled={deliveringId === current.id}
+                  className="flex flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl bg-emerald-600 py-3 text-white shadow-sm shadow-emerald-600/25 transition active:scale-[0.98] disabled:opacity-70"
                 >
-                  <span className="flex items-center gap-2 text-base font-bold">
-                    <CheckCircle2 className="h-5 w-5" /> Onayla & Bildir
-                  </span>
-                  <span className="text-[11px] font-medium text-emerald-100">
-                    WhatsApp&apos;ta teslimat grubunu seç
-                  </span>
-                </a>
+                  {deliveringId === current.id ? (
+                    <span className="flex items-center gap-2 text-base font-bold">
+                      <Loader2 className="h-5 w-5 animate-spin" /> Kaydediliyor…
+                    </span>
+                  ) : (
+                    <>
+                      <span className="flex items-center gap-2 text-base font-bold">
+                        <CheckCircle2 className="h-5 w-5" /> Onayla & Bildir
+                      </span>
+                      <span className="text-[11px] font-medium text-emerald-100">
+                        Teslim kaydedilir, sonra WhatsApp açılır
+                      </span>
+                    </>
+                  )}
+                </button>
               </>
             )}
           </div>
         </footer>
       )}
+
+      {/* Manuel konum seçici (hibrit fallback + "haritadan seç") */}
+      <LocationPicker
+        open={!!pickerOrder}
+        center={pickerCenter}
+        addressLabel={pickerOrder ? fullAddress(pickerOrder) : ""}
+        saving={pickerSaving}
+        onConfirm={(geo) => void handlePickerConfirm(geo)}
+        onCancel={() => setPickerOrder(null)}
+      />
     </div>
   );
 }
 
 // ─── Tek sipariş kartı ───────────────────────────────────────────────────────
-function OrderCard({ o }: { o: Order }) {
+function OrderCard({
+  o,
+  pinning,
+  pinError,
+  onPin,
+  onPickOnMap,
+}: {
+  o: Order;
+  pinning: boolean;
+  pinError?: string;
+  onPin: () => void;
+  onPickOnMap: () => void;
+}) {
   const [itemsOpen, setItemsOpen] = useState(false);
   const pay = PAYMENT_LABEL[o.payment.method];
   const itemCount = o.items.reduce((s, i) => s + i.quantity, 0);
   // Pinlenmiş konum varsa kesin koordinata git; yoksa metin adresini geocode et.
-  const hasPin = !!o.customer.geo;
+  const geo = o.customer.geo;
+  const hasPin = !!geo;
+  const acc = geo?.accuracy;
+  const accText = acc != null ? `±${Math.round(acc)} m` : null;
+  const lowAccuracy = acc != null && acc > PIN_ACCURACY_WARN;
   const mapsUrl = hasPin
-    ? `https://www.google.com/maps/search/?api=1&query=${o.customer.geo!.lat},${o.customer.geo!.lng}`
+    ? `https://www.google.com/maps/search/?api=1&query=${geo!.lat},${geo!.lng}`
     : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullAddress(o))}`;
   const detail = [o.customer.addressDetail, o.customer.district].filter(Boolean).join(" · ");
 
@@ -356,12 +614,58 @@ function OrderCard({ o }: { o: Order }) {
               {o.customer.address}
             </p>
             {detail && <p className="mt-1 text-sm font-medium text-slate-500">{detail}</p>}
-            {hasPin && (
-              <span className="mt-1.5 inline-flex items-center gap-1 rounded-md bg-emerald-50 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-600">
-                <MapPin className="h-3 w-3" /> Konum pinli
+          </div>
+        </div>
+
+        {/* Pin durumu — tek kompakt satır. Sol: durum rozeti. Sağ: tek aksiyon.
+            • Pin YOKSA → "Pinle" (GPS dener, gerekirse haritaya düşer).
+            • Pin VARSA → "düzelt" (doğrudan harita; kuryeye gereksiz tekrar yok). */}
+        <div className="mt-3">
+          <div className="flex items-center justify-between gap-2">
+            {hasPin ? (
+              <span
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-bold",
+                  lowAccuracy
+                    ? "bg-amber-50 text-amber-700"
+                    : "bg-emerald-50 text-emerald-700",
+                )}
+              >
+                <MapPin className="h-3.5 w-3.5" />
+                {lowAccuracy ? "Düşük doğruluk" : "Konum pinli"}
+                {accText && <span className="font-medium opacity-75">· {accText}</span>}
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs font-bold text-amber-700">
+                <AlertTriangle className="h-3.5 w-3.5" /> Pin yok
               </span>
             )}
+
+            {hasPin ? (
+              <button
+                onClick={onPickOnMap}
+                className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-blue-600 transition hover:bg-blue-50 active:scale-95"
+              >
+                <MapPin className="h-3.5 w-3.5" /> düzelt
+              </button>
+            ) : (
+              <button
+                onClick={onPin}
+                disabled={pinning}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-3.5 py-1.5 text-xs font-bold text-white shadow-sm shadow-amber-500/25 transition active:scale-95 disabled:opacity-70"
+              >
+                {pinning ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <LocateFixed className="h-3.5 w-3.5" />
+                )}
+                {pinning ? "Alınıyor…" : "Pinle"}
+              </button>
+            )}
           </div>
+          {pinError && (
+            <p className="mt-1.5 text-xs font-medium text-amber-700">{pinError}</p>
+          )}
         </div>
 
         {/* Yol tarifi — büyük, kaçırılması imkânsız birincil aksiyon */}
@@ -369,7 +673,7 @@ function OrderCard({ o }: { o: Order }) {
           href={mapsUrl}
           target="_blank"
           rel="noreferrer"
-          className="mt-4 flex items-center justify-center gap-2 rounded-2xl bg-blue-600 py-3.5 text-base font-bold text-white shadow-sm shadow-blue-600/25 transition active:scale-[0.98]"
+          className="mt-3 flex items-center justify-center gap-2 rounded-2xl bg-blue-600 py-3.5 text-base font-bold text-white shadow-sm shadow-blue-600/25 transition active:scale-[0.98]"
         >
           <Navigation className="h-5 w-5 fill-white" /> Yol Tarifi Al
         </a>

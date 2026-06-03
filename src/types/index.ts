@@ -56,6 +56,7 @@ export interface OrderItem {
 export interface GeoPoint {
   lat: number;
   lng: number;
+  accuracy?: number; // GPS doğruluk yarıçapı (metre) — kötü/uzak pini ayırt etmek için
 }
 
 // ─── Müşteri Bilgisi ─────────────────────────────────────────────────────────

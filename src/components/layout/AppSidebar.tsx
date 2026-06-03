@@ -25,6 +25,7 @@ import {
   Map as MapIcon,
   Tags,
   MessageSquare,
+  Megaphone,
   Bike,
   Wallet,
 } from "lucide-react";
@@ -73,6 +74,7 @@ export const NAV_ITEMS: readonly NavEntry[] = [
       { href: "/dashboard/trendyol/menu",      label: "Menü",            icon: UtensilsCrossed },
       { href: "/dashboard/trendyol/categories", label: "Kategoriler",    icon: Tags },
       { href: "/dashboard/trendyol/reviews",    label: "Değerlendirmeler", icon: MessageSquare },
+      { href: "/dashboard/trendyol/promotions", label: "Kampanyalar",     icon: Megaphone },
     ],
   },
   { kind: "leaf", href: "/orders/new", label: "Yeni Sipariş", icon: ShoppingBag,    color: "text-orange-400", activeBg: "bg-orange-500/15" },

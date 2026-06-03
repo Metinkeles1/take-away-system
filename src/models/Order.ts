@@ -34,6 +34,7 @@ const GeoPointSchema = new Schema(
   {
     lat: { type: Number, required: true },
     lng: { type: Number, required: true },
+    accuracy: { type: Number }, // GPS doğruluk yarıçapı (metre); kötü pini ayırt etmek için
   },
   { _id: false },
 );
