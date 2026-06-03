@@ -417,6 +417,37 @@ export function getTrendyolBatchRequestResult(batchRequestId: string) {
   });
 }
 
+// ─── Ürün satışa aç/kapa ───────────────────────────────────────────────
+// Doküman: PUT /integrator/product/meal/suppliers/{supplierId}/stores/{storeId}/products/{productId}/status
+// body { status: "ACTIVE" | "PASSIVE" }. Senkron (200). 409 = eşzamanlı değişiklik, tekrar dene.
+export function updateTrendyolProductStatus(params: {
+  storeId: string | number;
+  productId: string | number;
+  status: "ACTIVE" | "PASSIVE";
+}) {
+  const supplierId = process.env.TRENDYOL_SUPPLIER_ID!;
+  return trendyolRequest({
+    method: "PUT",
+    path: `/integrator/product/meal/suppliers/${supplierId}/stores/${params.storeId}/products/${params.productId}/status`,
+    body: { status: params.status },
+  });
+}
+
+// ─── Kategori (section) satışa aç/kapa ──────────────────────────────────
+// Doküman: PUT /integrator/product/meal/suppliers/{supplierId}/stores/{storeId}/sections/{sectionId}/status
+export function updateTrendyolSectionStatus(params: {
+  storeId: string | number;
+  sectionId: string | number;
+  status: "ACTIVE" | "PASSIVE";
+}) {
+  const supplierId = process.env.TRENDYOL_SUPPLIER_ID!;
+  return trendyolRequest({
+    method: "PUT",
+    path: `/integrator/product/meal/suppliers/${supplierId}/stores/${params.storeId}/sections/${params.sectionId}/status`,
+    body: { status: params.status },
+  });
+}
+
 // ─── 1) Siparişi kabul et (picked) ──────────────────────────────────────
 // preparationTime: dakika cinsinden hazırlık tahmini
 export function acceptTrendyolPackage(packageId: string, preparationTime = 20) {

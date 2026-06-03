@@ -1,11 +1,14 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef, memo } from "react";
 import {
   getTrendyolMenu,
   updateTrendyolPrices,
   getTrendyolPriceBatchResult,
+  setTrendyolProductStatus,
+  setTrendyolSectionStatus,
   type TrendyolMenuResult,
+  type TrendyolMenuItem,
 } from "@/actions/trendyolMenu";
 import {
   Package,
@@ -19,6 +22,8 @@ import {
   Loader2,
   Upload,
   Zap,
+  ChevronDown,
+  Power,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -44,6 +49,9 @@ import {
 } from "@/components/ui/alert-dialog";
 
 type Filter = "all" | "active" | "inactive" | "out_of_stock";
+
+// Grup 1 kampanya objesi — her kart render'ında find çalışmasın diye modül sabiti.
+const GROUP_1 = getCampaignGroup(1)!;
 
 // Trendyol kuyruğu işleyene kadar batch sonucunu poll et (max ~20sn).
 async function pollBatchResult(batchRequestId: string) {
@@ -71,25 +79,27 @@ export function MenuTab() {
   const [includeFlash, setIncludeFlash] = useState(true);
   const [includeCommission, setIncludeCommission] = useState(false);
 
-  // Bir ürünün o an geçerli fiyatı (düzenleme modunda taslak değer öncelikli).
-  const effectivePrice = useCallback(
-    (productId: number, basePrice: number) => {
-      const raw = drafts[productId];
-      if (raw !== undefined) {
-        const v = parseFloat(raw.replace(",", "."));
-        if (Number.isFinite(v) && v > 0) return v;
-      }
-      return basePrice;
-    },
-    [drafts],
-  );
+  // Satışa aç/kapa
+  const [busyProduct, setBusyProduct] = useState<number | null>(null);
+  const [busySection, setBusySection] = useState<number | null>(null);
+  const [showSections, setShowSections] = useState(false);
 
+  // Bir ürünün taslak fiyatını güncelle (sabit referans → memoize'lı kart bozulmaz).
+  const onDraftChange = useCallback((productId: number, value: string) => {
+    setDrafts((d) => ({ ...d, [productId]: value }));
+  }, []);
+
+  // Eşzamanlı yüklemeleri teke indir (Yenile'ye üst üste basma / post-send reload).
+  const loadingRef = useRef(false);
   const load = useCallback(async () => {
+    if (loadingRef.current) return;
+    loadingRef.current = true;
     setIsLoading(true);
     try {
       const result = await getTrendyolMenu();
       setData(result);
     } finally {
+      loadingRef.current = false;
       setIsLoading(false);
     }
   }, []);
@@ -183,6 +193,81 @@ export function MenuTab() {
     }
   }, [changes, load]);
 
+  // Ürün satışa aç/kapa (optimistic; hata olursa geri al).
+  const handleToggleProduct = useCallback(async (item: TrendyolMenuItem) => {
+    const next = !item.isActive;
+    setBusyProduct(item.productId);
+    setData((prev) =>
+      prev
+        ? {
+            ...prev,
+            activeCount: prev.activeCount + (next ? 1 : -1),
+            items: prev.items.map((i) =>
+              i.productId === item.productId ? { ...i, isActive: next } : i,
+            ),
+          }
+        : prev,
+    );
+    const res = await setTrendyolProductStatus(item.storeId, item.productId, next);
+    if (!res.ok) {
+      toast.error(res.error ?? "Ürün durumu güncellenemedi");
+      setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              activeCount: prev.activeCount + (next ? -1 : 1),
+              items: prev.items.map((i) =>
+                i.productId === item.productId ? { ...i, isActive: !next } : i,
+              ),
+            }
+          : prev,
+      );
+    } else {
+      toast.success(next ? `${item.name} satışa açıldı` : `${item.name} kapatıldı`);
+    }
+    setBusyProduct(null);
+  }, []);
+
+  // Kategori (section) satışa aç/kapa.
+  const handleToggleSection = useCallback(
+    async (section: { id: number; name: string; status: string; storeId: number }) => {
+      const next = section.status.toUpperCase() !== "ACTIVE"; // pasifse aç
+      setBusySection(section.id);
+      setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              sections: prev.sections.map((s) =>
+                s.id === section.id ? { ...s, status: next ? "ACTIVE" : "PASSIVE" } : s,
+              ),
+            }
+          : prev,
+      );
+      const res = await setTrendyolSectionStatus(section.storeId, section.id, next);
+      if (!res.ok) {
+        toast.error(res.error ?? "Kategori durumu güncellenemedi");
+        setData((prev) =>
+          prev
+            ? {
+                ...prev,
+                sections: prev.sections.map((s) =>
+                  s.id === section.id
+                    ? { ...s, status: next ? "PASSIVE" : "ACTIVE" }
+                    : s,
+                ),
+              }
+            : prev,
+        );
+      } else {
+        toast.success(
+          next ? `${section.name} kategorisi açıldı` : `${section.name} kategorisi kapatıldı`,
+        );
+      }
+      setBusySection(null);
+    },
+    [],
+  );
+
   const filtered = useMemo(() => {
     if (!data) return [];
     const q = search.trim().toLowerCase();
@@ -190,8 +275,10 @@ export function MenuTab() {
       if (filter === "active" && !item.isActive) return false;
       if (filter === "inactive" && item.isActive) return false;
       if (filter === "out_of_stock" && item.inStock) return false;
-      if (activeCategory && (item.category ?? "Kategorisiz") !== activeCategory)
-        return false;
+      if (activeCategory) {
+        const cats = item.categories?.length ? item.categories : ["Kategorisiz"];
+        if (!cats.includes(activeCategory)) return false;
+      }
       if (q && !item.name.toLowerCase().includes(q)) return false;
       return true;
     });
@@ -368,6 +455,53 @@ export function MenuTab() {
             </div>
           </div>
 
+          {/* Kategori satışa aç/kapa */}
+          {canEdit && data.sections.length > 0 && (
+            <div className="rounded-lg border border-dashed bg-muted/30">
+              <button
+                type="button"
+                onClick={() => setShowSections((v) => !v)}
+                className="flex w-full items-center justify-between px-3 py-2 text-xs font-semibold text-gray-600"
+              >
+                <span>Kategori satışa aç/kapa ({data.sections.length})</span>
+                <ChevronDown
+                  className={`h-4 w-4 transition-transform ${showSections ? "rotate-180" : ""}`}
+                />
+              </button>
+              {showSections && (
+                <div className="flex flex-wrap gap-1.5 px-3 pb-2.5">
+                  {data.sections.map((s) => {
+                    const active = s.status.toUpperCase() === "ACTIVE";
+                    const busy = busySection === s.id;
+                    return (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => handleToggleSection(s)}
+                        disabled={busy}
+                        className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-50 ${
+                          active
+                            ? "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                            : "border-gray-300 bg-white text-gray-400 hover:bg-gray-50"
+                        }`}
+                        title={active ? "Satışta — kapatmak için tıkla" : "Kapalı — açmak için tıkla"}
+                      >
+                        {busy ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <span
+                            className={`h-2 w-2 rounded-full ${active ? "bg-emerald-500" : "bg-gray-300"}`}
+                          />
+                        )}
+                        {s.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Kategori chip'leri */}
           {data.categories.length > 1 && (
             <div className="flex flex-wrap items-center gap-1.5">
@@ -415,86 +549,18 @@ export function MenuTab() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {filtered.map((item) => (
-            <div
+            <ProductCard
               key={item.productId}
-              className={`rounded-2xl border bg-white overflow-hidden flex flex-col transition-shadow hover:shadow-md ${
-                !item.isActive ? "opacity-60" : ""
-              }`}
-            >
-              {item.imageUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={item.imageUrl}
-                  alt={item.name}
-                  className="w-full h-32 object-cover bg-gray-100"
-                  loading="lazy"
-                />
-              ) : (
-                <div className="w-full h-32 bg-linear-to-br from-orange-50 to-amber-50 flex items-center justify-center">
-                  <Package className="h-10 w-10 text-orange-300" />
-                </div>
-              )}
-              <div className="p-3 flex-1 flex flex-col">
-                <div className="flex items-start justify-between gap-2 mb-1">
-                  <h3 className="font-semibold text-sm text-gray-900 line-clamp-2">
-                    {item.name}
-                  </h3>
-                </div>
-                {item.category && (
-                  <span className="text-[10px] font-medium text-gray-500 uppercase tracking-wider mb-2">
-                    {item.category}
-                  </span>
-                )}
-                {item.description && (
-                  <p className="text-xs text-gray-500 line-clamp-2 mb-2">
-                    {item.description}
-                  </p>
-                )}
-                <div className="mt-auto flex items-center justify-between gap-2">
-                  {editing ? (
-                    <div className="flex items-center gap-1">
-                      <span className="text-xs text-gray-400">₺</span>
-                      <input
-                        type="number"
-                        inputMode="decimal"
-                        min={0}
-                        step="0.01"
-                        value={drafts[item.productId] ?? String(item.price)}
-                        onChange={(e) =>
-                          setDrafts((d) => ({
-                            ...d,
-                            [item.productId]: e.target.value,
-                          }))
-                        }
-                        className="w-24 rounded-lg border px-2 py-1 text-sm font-bold text-emerald-700 outline-none focus:ring-2 focus:ring-orange-200"
-                      />
-                    </div>
-                  ) : (
-                    <span className="text-base font-bold text-emerald-700">
-                      {formatCurrency(item.price)}
-                    </span>
-                  )}
-                  <div className="flex items-center gap-1">
-                    {!item.inStock && (
-                      <span className="text-[10px] font-semibold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">
-                        Stokta Yok
-                      </span>
-                    )}
-                    {!item.isActive && (
-                      <span className="text-[10px] font-semibold bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded">
-                        Pasif
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <DiscountInfo
-                  price={effectivePrice(item.productId, item.price)}
-                  includeFlash={includeFlash}
-                  includeCommission={includeCommission}
-                />
-              </div>
-            </div>
+              item={item}
+              editing={editing}
+              draftValue={drafts[item.productId]}
+              includeFlash={includeFlash}
+              includeCommission={includeCommission}
+              canEdit={canEdit}
+              isBusy={busyProduct === item.productId}
+              onDraftChange={onDraftChange}
+              onToggle={handleToggleProduct}
+            />
           ))}
         </div>
       )}
@@ -617,9 +683,150 @@ function ToggleChip({
   );
 }
 
+// Tek ürün kartı — memoize: yalnızca propu değişen kart yeniden render olur.
+// (Fiyat düzenlerken bir input'a yazınca tüm grid değil, sadece o kart güncellenir.)
+const ProductCard = memo(function ProductCard({
+  item,
+  editing,
+  draftValue,
+  includeFlash,
+  includeCommission,
+  canEdit,
+  isBusy,
+  onDraftChange,
+  onToggle,
+}: {
+  item: TrendyolMenuItem;
+  editing: boolean;
+  draftValue: string | undefined;
+  includeFlash: boolean;
+  includeCommission: boolean;
+  canEdit: boolean;
+  isBusy: boolean;
+  onDraftChange: (productId: number, value: string) => void;
+  onToggle: (item: TrendyolMenuItem) => void;
+}) {
+  // Düzenleme modunda geçerli/pozitif taslak değer öncelikli, yoksa gerçek fiyat.
+  let effective = item.price;
+  if (draftValue !== undefined) {
+    const v = parseFloat(draftValue.replace(",", "."));
+    if (Number.isFinite(v) && v > 0) effective = v;
+  }
+
+  return (
+    <div
+      className={`rounded-2xl border bg-white overflow-hidden flex flex-col transition-shadow hover:shadow-md ${
+        !item.isActive ? "opacity-60" : ""
+      }`}
+    >
+      <div className="w-full h-32 bg-linear-to-br from-orange-50 to-amber-50 flex items-center justify-center">
+        <Package className="h-10 w-10 text-orange-300" />
+      </div>
+      <div className="p-3 flex-1 flex flex-col">
+        <div className="flex items-start justify-between gap-2 mb-1">
+          <h3 className="font-semibold text-sm text-gray-900 line-clamp-2">
+            {item.name}
+          </h3>
+        </div>
+        {item.category && (
+          <span className="text-[10px] font-medium text-gray-500 uppercase tracking-wider mb-2">
+            {item.category}
+          </span>
+        )}
+        {item.description && (
+          <p className="text-xs text-gray-500 line-clamp-2 mb-2">
+            {item.description}
+          </p>
+        )}
+
+        {Boolean(item.ingredients?.length || item.modifiers?.length) && (
+          <div className="mb-2 flex flex-wrap gap-1">
+            {item.ingredients?.map((n, i) => (
+              <span
+                key={`ing-${i}`}
+                className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-600"
+              >
+                {n}
+              </span>
+            ))}
+            {item.modifiers?.map((n, i) => (
+              <span
+                key={`mod-${i}`}
+                className="inline-flex items-center gap-0.5 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700"
+              >
+                <Power className="h-2.5 w-2.5" />
+                {n}
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div className="mt-auto flex items-center justify-between gap-2">
+          {editing ? (
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-gray-400">₺</span>
+              <input
+                type="number"
+                inputMode="decimal"
+                min={0}
+                step="0.01"
+                value={draftValue ?? String(item.price)}
+                onChange={(e) => onDraftChange(item.productId, e.target.value)}
+                className="w-24 rounded-lg border px-2 py-1 text-sm font-bold text-emerald-700 outline-none focus:ring-2 focus:ring-orange-200"
+              />
+            </div>
+          ) : (
+            <span className="text-base font-bold text-emerald-700">
+              {formatCurrency(item.price)}
+            </span>
+          )}
+          <div className="flex items-center gap-1">
+            {!item.inStock && (
+              <span className="text-[10px] font-semibold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">
+                Stokta Yok
+              </span>
+            )}
+            {!item.isActive && (
+              <span className="text-[10px] font-semibold bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded">
+                Pasif
+              </span>
+            )}
+          </div>
+        </div>
+
+        <DiscountInfo
+          price={effective}
+          includeFlash={includeFlash}
+          includeCommission={includeCommission}
+        />
+
+        {canEdit && (
+          <button
+            type="button"
+            onClick={() => onToggle(item)}
+            disabled={isBusy}
+            className={`mt-2 flex items-center justify-center gap-1.5 rounded-lg border py-1.5 text-xs font-semibold transition-colors disabled:opacity-50 ${
+              item.isActive
+                ? "border-gray-200 text-gray-600 hover:bg-gray-50"
+                : "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+            }`}
+          >
+            {isBusy ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Power className="h-3.5 w-3.5" />
+            )}
+            {item.isActive ? "Satışı durdur" : "Satışa aç"}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+});
+
 // Ürün fiyatının Grup 1 kampanyasında denk geldiği indirim + net/hakediş tutarı.
 // includeCommission → indirim sonrası tutardan %12 Trendyol komisyonu da düşülür.
-function DiscountInfo({
+const DiscountInfo = memo(function DiscountInfo({
   price,
   includeFlash,
   includeCommission,
@@ -628,7 +835,7 @@ function DiscountInfo({
   includeFlash: boolean;
   includeCommission: boolean;
 }) {
-  const r = calcCampaignDiscount(getCampaignGroup(1)!, price, includeFlash);
+  const r = calcCampaignDiscount(GROUP_1, price, includeFlash);
   const discount = r.discount;
   const isFlash = r.source === "flash";
   const noDiscountHint =
@@ -682,7 +889,7 @@ function DiscountInfo({
       )}
     </div>
   );
-}
+});
 
 function MetricTile({
   icon: Icon,

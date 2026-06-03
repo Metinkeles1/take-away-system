@@ -10,6 +10,8 @@ import {
   listTrendyolPackages,
   updateTrendyolMealPrices,
   getTrendyolBatchRequestResult,
+  updateTrendyolProductStatus,
+  updateTrendyolSectionStatus,
   type TrendyolMenuProduct,
   type TrendyolMenuSection,
   type TrendyolPriceUpdateItem,
@@ -24,9 +26,20 @@ export interface TrendyolMenuItem {
   originalPrice?: number;
   isActive: boolean;
   inStock: boolean;
-  category?: string;
+  category?: string; // birincil kategori (kart etiketi için)
+  categories?: string[]; // ürünün ait olduğu TÜM kategoriler (çoklu kategori filtresi için)
+  sectionId?: number; // kategori (section) id — aç/kapa için
+  ingredients?: string[]; // çözümlenmiş malzeme adları
+  modifiers?: string[]; // çözümlenmiş modifier grup adları (ör. "Çorbalar")
   imageUrl?: string;
   hasDiscount: boolean;
+}
+
+export interface TrendyolMenuSectionInfo {
+  id: number;
+  name: string;
+  status: string; // ACTIVE | PASSIVE
+  storeId: number;
 }
 
 export interface TrendyolMenuResult {
@@ -37,21 +50,61 @@ export interface TrendyolMenuResult {
   activeCount: number;
   outOfStockCount: number;
   categories: { name: string; count: number }[];
+  sections: TrendyolMenuSectionInfo[];
   items: TrendyolMenuItem[];
   error?: string;
 }
 
-// Ürün -> Kategori eşlemesini sections'tan kur.
+// Trendyol'un otomatik vitrin/kürasyon kategorileri — gerçek menü kategorisi değil,
+// ürünleri tekrarlar. Kategori çiplerinde/filtrede gösterilmez. Yeni ad çıkarsa ekle.
+const CURATED_SECTION_HINTS = [
+  "en sevilen",
+  "cok satan",
+  "populer",
+  "one cikan",
+  "yeni eklenen",
+  "kampanya",
+  "firsat",
+];
+
+function normalizeTr(s: string): string {
+  return s
+    .toLowerCase()
+    .replaceAll("ç", "c")
+    .replaceAll("ı", "i")
+    .replaceAll("ğ", "g")
+    .replaceAll("ü", "u")
+    .replaceAll("ö", "o")
+    .replaceAll("ş", "s");
+}
+
+function isCuratedSection(name: string): boolean {
+  const n = normalizeTr(name);
+  return CURATED_SECTION_HINTS.some((h) => n.includes(h));
+}
+
+// Ürün -> ait olduğu TÜM gerçek kategoriler (bir ürün birden fazla section'da olabilir:
+// ör. hem "Restoranın En Sevilenleri" hem "Kebaplar"). Vitrin kategorileri atlanır.
+// İlk eleman birincil kategori (kart etiketi). Önce ACTIVE bölümler, sonra pasifler.
 function buildProductCategoryMap(
   sections: TrendyolMenuSection[] | undefined,
-): Map<number, string> {
-  const map = new Map<number, string>();
+): Map<number, string[]> {
+  const map = new Map<number, string[]>();
   if (!sections) return map;
+  const isActive = (s: TrendyolMenuSection) =>
+    (s.status ?? "ACTIVE").toUpperCase() === "ACTIVE";
+  const add = (id: number, name: string) => {
+    const arr = map.get(id);
+    if (!arr) map.set(id, [name]);
+    else if (!arr.includes(name)) arr.push(name);
+  };
   for (const s of sections) {
-    if (s.status && s.status.toUpperCase() !== "ACTIVE") continue;
-    for (const ref of s.products ?? []) {
-      if (!map.has(ref.id)) map.set(ref.id, s.name);
-    }
+    if (!isActive(s) || isCuratedSection(s.name)) continue;
+    for (const ref of s.products ?? []) add(ref.id, s.name);
+  }
+  for (const s of sections) {
+    if (isActive(s) || isCuratedSection(s.name)) continue;
+    for (const ref of s.products ?? []) add(ref.id, s.name);
   }
   return map;
 }
@@ -123,23 +176,58 @@ function extractPrices(p: unknown): { selling: number; original: number } {
   return { selling, original };
 }
 
+// Açıklama: alan adı yanıtta değişebiliyor (description / detail / productGroup.description).
+function pickDescription(p: unknown): string | undefined {
+  if (!p || typeof p !== "object") return undefined;
+  const o = p as Record<string, unknown>;
+  const candidates: unknown[] = [
+    o.description,
+    o.detail,
+    o.summary,
+    (o.productGroup as Record<string, unknown> | undefined)?.description,
+  ];
+  for (const c of candidates) {
+    if (typeof c === "string" && c.trim().length > 0) return c.trim();
+  }
+  return undefined;
+}
+
+// NOT: Trendyol GO Yemek menü API'si ürün GÖRSELİ döndürmüyor (dokümanda
+// yanıtta resim alanı yok). Bu yüzden imageUrl set edilmez; kart placeholder gösterir.
+
 function normalize(
   p: TrendyolMenuProduct,
   storeId: number,
-  categoryMap: Map<number, string>,
+  categoryMap: Map<number, string[]>,
+  sectionIdMap: Map<number, number>,
+  ingredientMap: Map<number, string>,
+  modifierMap: Map<number, string>,
 ): TrendyolMenuItem {
   const { selling, original } = extractPrices(p);
   const price = selling > 0 ? selling : original;
+
+  const ingredientIds = [...(p.ingredients ?? []), ...(p.extraIngredients ?? [])];
+  const ingredients = ingredientIds
+    .map((id) => ingredientMap.get(id))
+    .filter((n): n is string => !!n);
+  const modifiers = (p.modifierGroups ?? [])
+    .map((m) => modifierMap.get(m.id))
+    .filter((n): n is string => !!n);
+
   return {
     productId: p.id,
     storeId,
     name: pickProductName(p, p.id),
-    description: p.description ?? undefined,
+    description: pickDescription(p),
     price,
     originalPrice: original > 0 && original !== selling ? original : undefined,
     isActive: (p.status ?? "ACTIVE").toUpperCase() === "ACTIVE",
     inStock: true, // bu endpoint stok bilgisi vermiyor; varsayılan in-stock
-    category: categoryMap.get(p.id),
+    category: categoryMap.get(p.id)?.[0],
+    categories: categoryMap.get(p.id),
+    sectionId: sectionIdMap.get(p.id),
+    ingredients: ingredients.length ? ingredients : undefined,
+    modifiers: modifiers.length ? modifiers : undefined,
     hasDiscount: selling > 0 && original > selling,
   };
 }
@@ -149,10 +237,12 @@ async function resolveStoreIds(): Promise<number[]> {
   // 1) Env'de tanımlıysa onu kullan (virgüllü liste destekli)
   const envStores = process.env.TRENDYOL_STORE_ID;
   if (envStores) {
-    return envStores
+    const ids = envStores
       .split(",")
       .map((s) => parseInt(s.trim(), 10))
       .filter((n) => Number.isFinite(n) && n > 0);
+    // Aynı mağaza iki kez yazılmışsa ürünler ikilenmesin diye tekilleştir.
+    return [...new Set(ids)];
   }
 
   // 2) Son 30 günün paketlerinden çıkar
@@ -191,20 +281,77 @@ export async function getTrendyolMenu(): Promise<TrendyolMenuResult> {
   }
 
   try {
-    const allItems: TrendyolMenuItem[] = [];
+    // productId bazında tekilleştir: aynı ürün birden fazla mağaza/section'da
+    // dönebilir; eklenirse menü sayısı şişer (örn. 6 yerine 12 görünür).
+    const byId = new Map<number, TrendyolMenuItem>();
+    const sectionById = new Map<number, TrendyolMenuSectionInfo>();
     const errors: string[] = [];
 
-    for (const storeId of storeIds) {
-      const res = await listTrendyolMenuProducts({ storeId });
+    // Mağazaları paralel çek (çok mağazalı durumda sıralı await gecikmesini önler).
+    const responses = await Promise.all(
+      storeIds.map((storeId) =>
+        listTrendyolMenuProducts({ storeId }).then((res) => ({ storeId, res })),
+      ),
+    );
+
+    for (const { storeId, res } of responses) {
       if (!res.ok) {
         errors.push(`Mağaza ${storeId}: ${res.status} ${res.error}`);
         continue;
       }
-      const categoryMap = buildProductCategoryMap(res.data.sections);
-      for (const p of res.data.products ?? []) {
-        allItems.push(normalize(p, storeId, categoryMap));
+      const data = res.data;
+      const categoryMap = buildProductCategoryMap(data.sections);
+
+      // Section id ↔ ürün eşlemesi + yönetim listesi (pasifler dahil, aç/kapa için).
+      const sectionIdMap = new Map<number, number>();
+      for (const s of data.sections ?? []) {
+        if (!sectionById.has(s.id)) {
+          sectionById.set(s.id, {
+            id: s.id,
+            name: s.name,
+            status: (s.status ?? "ACTIVE").toUpperCase(),
+            storeId,
+          });
+        }
+        for (const ref of s.products ?? []) {
+          if (!sectionIdMap.has(ref.id)) sectionIdMap.set(ref.id, s.id);
+        }
+      }
+
+      // Malzeme/modifier id → ad çözümlemesi (opsiyon gösterimi için).
+      const ingredientMap = new Map<number, string>();
+      for (const ing of data.ingredients ?? []) ingredientMap.set(ing.id, ing.name);
+      const modifierMap = new Map<number, string>();
+      for (const mg of data.modifierGroups ?? []) modifierMap.set(mg.id, mg.name);
+
+      for (const p of data.products ?? []) {
+        const item = normalize(
+          p,
+          storeId,
+          categoryMap,
+          sectionIdMap,
+          ingredientMap,
+          modifierMap,
+        );
+        const existing = byId.get(item.productId);
+        if (!existing) {
+          byId.set(item.productId, item);
+        } else {
+          // Aynı ürün başka mağazada/section'da da olabilir → kategorileri birleştir.
+          const mergedCats = Array.from(
+            new Set([...(existing.categories ?? []), ...(item.categories ?? [])]),
+          );
+          byId.set(item.productId, {
+            ...existing,
+            category: existing.category ?? item.category,
+            categories: mergedCats.length ? mergedCats : undefined,
+            sectionId: existing.sectionId ?? item.sectionId,
+          });
+        }
       }
     }
+
+    const allItems = [...byId.values()];
 
     if (allItems.length === 0) {
       return await fallbackFromPackages(
@@ -214,7 +361,13 @@ export async function getTrendyolMenu(): Promise<TrendyolMenuResult> {
       );
     }
 
-    return buildResult(allItems, storeIds, "api", errors.length > 0 ? errors.join("; ") : undefined);
+    return buildResult(
+      allItems,
+      storeIds,
+      "api",
+      [...sectionById.values()],
+      errors.length > 0 ? errors.join("; ") : undefined,
+    );
   } catch (err) {
     return await fallbackFromPackages(
       err instanceof Error ? err.message : "Trendyol API'sına ulaşılamadı",
@@ -271,6 +424,7 @@ async function fallbackFromPackages(reason: string): Promise<TrendyolMenuResult>
       activeCount: 0,
       outOfStockCount: 0,
       categories: [],
+      sections: [],
       items: [],
       error: reason,
     };
@@ -387,10 +541,71 @@ export async function getTrendyolPriceBatchResult(
   }
 }
 
+// ─── Ürün / kategori satışa aç-kapa ────────────────────────────────────
+// Senkron (200). 409 = eşzamanlı değişiklik → tekrar denenmeli.
+export async function setTrendyolProductStatus(
+  storeId: number,
+  productId: number,
+  active: boolean,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await updateTrendyolProductStatus({
+      storeId,
+      productId,
+      status: active ? "ACTIVE" : "PASSIVE",
+    });
+    if (!res.ok) {
+      return {
+        ok: false,
+        error:
+          res.status === 409
+            ? "Eşzamanlı değişiklik oldu, tekrar deneyin."
+            : `Trendyol: ${res.status} ${res.error}`,
+      };
+    }
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Trendyol API'sına ulaşılamadı",
+    };
+  }
+}
+
+export async function setTrendyolSectionStatus(
+  storeId: number,
+  sectionId: number,
+  active: boolean,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await updateTrendyolSectionStatus({
+      storeId,
+      sectionId,
+      status: active ? "ACTIVE" : "PASSIVE",
+    });
+    if (!res.ok) {
+      return {
+        ok: false,
+        error:
+          res.status === 409
+            ? "Eşzamanlı değişiklik oldu, tekrar deneyin."
+            : `Trendyol: ${res.status} ${res.error}`,
+      };
+    }
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Trendyol API'sına ulaşılamadı",
+    };
+  }
+}
+
 function buildResult(
   items: TrendyolMenuItem[],
   storeIds: number[],
   source: "api" | "fallback",
+  sections: TrendyolMenuSectionInfo[] = [],
   warning?: string,
 ): TrendyolMenuResult {
   const catMap = new Map<string, number>();
@@ -399,8 +614,9 @@ function buildResult(
   for (const item of items) {
     if (item.isActive) activeCount++;
     if (!item.inStock) outOfStockCount++;
-    const cat = item.category ?? "Kategorisiz";
-    catMap.set(cat, (catMap.get(cat) ?? 0) + 1);
+    // Ürün birden fazla kategorideyse her birinde sayılır.
+    const cats = item.categories?.length ? item.categories : ["Kategorisiz"];
+    for (const cat of cats) catMap.set(cat, (catMap.get(cat) ?? 0) + 1);
   }
   const categories = [...catMap.entries()]
     .map(([name, count]) => ({ name, count }))
@@ -414,6 +630,7 @@ function buildResult(
     activeCount,
     outOfStockCount,
     categories,
+    sections: sections.sort((a, b) => a.name.localeCompare(b.name, "tr")),
     items: items.sort((a, b) => a.name.localeCompare(b.name, "tr")),
     error: warning,
   };
