@@ -3,8 +3,9 @@
 import { connectDB } from "@/lib/mongodb";
 import OrderModel from "@/models/Order";
 import VoucherModel from "@/models/Voucher";
+import EndOfDaySnapshotModel from "@/models/EndOfDaySnapshot";
 import { type OrderSource } from "@/types";
-import { istanbulDayStart } from "@/lib/datetime";
+import { istanbulDayStart, istanbulDateISO } from "@/lib/datetime";
 
 // ─── Tipler ──────────────────────────────────────────────────────────────────
 export type PaymentKey = "cash" | "card" | "online" | "meal_card" | "iban";
@@ -216,5 +217,101 @@ export async function getEndOfDayReport(dateStr?: string): Promise<EndOfDayRepor
     corporateTotal,
     corporateOpen,
     corporateVoucherCount: vouchers.length,
+  };
+}
+
+// ─── Snapshot (dondurulmuş gün sonu) ───────────────────────────────────────────
+// getEndOfDayReport ANLIK hesaplar; bu katman o özeti DB'ye sabitler ve okur.
+
+export type SnapshotSource = "cron" | "manual";
+
+export interface EndOfDayResult {
+  report: EndOfDayReport;
+  closed: boolean; // bu gün dondurulmuş bir snapshot'a sahip mi
+  closedAt: string | null; // ISO timestamp
+  source: SnapshotSource | null;
+}
+
+interface SnapshotLean {
+  date: string;
+  report: EndOfDayReport;
+  closedAt?: Date;
+  source?: SnapshotSource;
+}
+
+// O günün raporunu hesaplar ve EndOfDaySnapshot'a upsert eder (dondurur).
+// Hem cron hem "Günü Kapat" butonu bunu çağırır → tek kaynak. İdempotent:
+// kapalı gün tekrar çağrılırsa üzerine yazar.
+export async function saveEndOfDaySnapshot(
+  dateStr: string,
+  source: SnapshotSource = "manual",
+): Promise<EndOfDayReport> {
+  await connectDB();
+  const report = await getEndOfDayReport(dateStr);
+  await EndOfDaySnapshotModel.findOneAndUpdate(
+    { date: report.date },
+    {
+      $set: {
+        report,
+        totalRevenue: report.totalRevenue,
+        packageCount: report.packageCount,
+        closedAt: new Date(),
+        source,
+      },
+    },
+    { upsert: true },
+  );
+  return report;
+}
+
+// Dondurulmuş kaydı döndürür; yoksa null. (Dış API bunu kullanır.)
+export async function getEndOfDaySnapshot(dateStr: string): Promise<EndOfDayResult | null> {
+  await connectDB();
+  const snap = await EndOfDaySnapshotModel.findOne({ date: dateStr }).lean<SnapshotLean>();
+  if (!snap) return null;
+  return {
+    report: snap.report,
+    closed: true,
+    closedAt: snap.closedAt?.toISOString() ?? null,
+    source: snap.source ?? null,
+  };
+}
+
+// Sayfanın kullandığı okuma stratejisi:
+//  - Geçmiş + kapatılmış gün → dondurulmuş snapshot (resmî, değişmez).
+//  - Bugün / henüz kapatılmamış gün → canlı hesap (kapalıysa closed=true ile işaretlenir).
+export async function getEndOfDay(dateStr?: string): Promise<EndOfDayResult> {
+  await connectDB();
+  const { iso } = resolveDayRange(dateStr);
+  const today = istanbulDateISO();
+
+  // Geçmiş gün: önce snapshot'a bak. Varsa dondurulmuş veriyi döndür ve canlı
+  // hesaplamayı hiç çalıştırma (kapatılmış günlerin ucuz yolu). Sadece
+  // snapshot'sız geçmiş günde canlı hesaba düşeriz.
+  if (iso < today) {
+    const snap = await EndOfDaySnapshotModel.findOne({ date: iso }).lean<SnapshotLean>();
+    if (snap) {
+      return {
+        report: snap.report,
+        closed: true,
+        closedAt: snap.closedAt?.toISOString() ?? null,
+        source: snap.source ?? null,
+      };
+    }
+    return { report: await getEndOfDayReport(iso), closed: false, closedAt: null, source: null };
+  }
+
+  // Bugün / açık gün: snapshot durumu yalnızca "Kapatıldı" rozetini etkiler,
+  // raporu her halükarda canlı hesaplıyoruz → iki sorguyu paralel çalıştır
+  // (ardışık iki DB gidiş-dönüşü yerine tek tur, hot path'in gecikmesini düşürür).
+  const [snap, report] = await Promise.all([
+    EndOfDaySnapshotModel.findOne({ date: iso }).lean<SnapshotLean>(),
+    getEndOfDayReport(iso),
+  ]);
+  return {
+    report,
+    closed: !!snap,
+    closedAt: snap?.closedAt?.toISOString() ?? null,
+    source: snap?.source ?? null,
   };
 }

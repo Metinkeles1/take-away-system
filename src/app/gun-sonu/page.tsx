@@ -12,9 +12,15 @@ import {
   Receipt,
   Ban,
   Building2,
+  Lock,
+  LockKeyhole,
 } from "lucide-react";
 import Link from "next/link";
-import { getEndOfDayReport, type EndOfDayReport } from "@/actions/endOfDay";
+import {
+  getEndOfDay,
+  saveEndOfDaySnapshot,
+  type EndOfDayReport,
+} from "@/actions/endOfDay";
 import EndOfDayReceipt from "@/components/receipt/EndOfDayReceipt";
 import { formatCurrency, cn } from "@/lib/utils";
 
@@ -245,16 +251,37 @@ export default function EndOfDayPage() {
   const [date, setDate] = useState(istanbulToday);
   const [report, setReport] = useState<EndOfDayReport | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [closed, setClosed] = useState(false);
+  const [closedAt, setClosedAt] = useState<string | null>(null);
+  const [isClosing, setIsClosing] = useState(false);
 
   const load = useCallback(async () => {
     setIsLoading(true);
     try {
-      const data = await getEndOfDayReport(date);
-      setReport(data);
+      const data = await getEndOfDay(date);
+      setReport(data.report);
+      setClosed(data.closed);
+      setClosedAt(data.closedAt);
     } finally {
       setIsLoading(false);
     }
   }, [date]);
+
+  const closeDay = useCallback(async () => {
+    if (closed) {
+      const ok = window.confirm(
+        "Bu gün zaten kapatılmış. Yeniden kapatırsan eski kayıt güncel rakamlarla değiştirilir. Devam edilsin mi?",
+      );
+      if (!ok) return;
+    }
+    setIsClosing(true);
+    try {
+      await saveEndOfDaySnapshot(date, "manual");
+      await load();
+    } finally {
+      setIsClosing(false);
+    }
+  }, [date, closed, load]);
 
   useEffect(() => {
     load();
@@ -277,11 +304,19 @@ export default function EndOfDayPage() {
         {/* Header */}
         <header className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div className="min-w-0">
-            <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
+            <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight sm:text-2xl">
               Gün Sonu Raporu
+              {closed && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                  <Lock className="size-3" />
+                  Kapatıldı
+                </span>
+              )}
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Seçilen güne ait ödeme ve kanal kırılımı — fiş olarak yazdırılabilir
+              {closed && closedAt
+                ? `Bu gün donduruldu · ${new Date(closedAt).toLocaleString("tr-TR")}`
+                : "Seçilen güne ait ödeme ve kanal kırılımı — fiş olarak yazdırılabilir"}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -301,6 +336,16 @@ export default function EndOfDayPage() {
             >
               <RefreshCw className={cn("size-3.5", isLoading && "animate-spin")} />
               <span className="hidden sm:inline">Yenile</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={closeDay}
+              disabled={isLoading || isClosing || !report || report.packageCount === 0}
+              className="gap-1.5"
+            >
+              <LockKeyhole className={cn("size-3.5", isClosing && "animate-pulse")} />
+              {closed ? "Yeniden Kapat" : "Günü Kapat"}
             </Button>
             <Button
               size="sm"

@@ -29,3 +29,15 @@ export function istanbulDayStartDaysAgo(
   const start = istanbulDayStart(reference);
   return new Date(start.getTime() - days * 24 * 60 * 60 * 1000);
 }
+
+// Istanbul gününü "YYYY-MM-DD" olarak verir (gün sonu snapshot anahtarı).
+// Örn. cron 00:30 IST'de çalışıp dünü dondurmak için:
+//   istanbulDateISO(Date.now() - 24 * 60 * 60 * 1000)
+export function istanbulDateISO(reference: Date | number = new Date()): string {
+  const start = istanbulDayStart(reference);
+  const ist = new Date(start.getTime() + ISTANBUL_OFFSET_MS);
+  const y = ist.getUTCFullYear();
+  const m = `${ist.getUTCMonth() + 1}`.padStart(2, "0");
+  const d = `${ist.getUTCDate()}`.padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
