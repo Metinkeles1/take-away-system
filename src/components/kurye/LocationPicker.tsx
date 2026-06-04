@@ -3,19 +3,16 @@
 // Kurye için harita üzerinde elle konum seçici. Leaflet'i yalnızca client-side
 // (dinamik import) yükler — SSR'da window yok. Sürüklenebilir marker + haritaya
 // dokununca marker oraya gider. GPS kalitesinden bağımsız: doğru noktayı insan koyar.
+//
+// Tam ekran overlay (Dialog değil): harita tüm ekranı kaplar. Dialog'un portal +
+// açılış animasyonu + sınırlı boyut yarışı haritanın boş/kapalı kalmasına yol
+// açıyordu; tam ekran sabit konteyner net boyuta sahip olduğu için harita her
+// zaman güvenle açılır.
 
 import { useEffect, useRef, useState } from "react";
 import "leaflet/dist/leaflet.css";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { Check, Crosshair, Loader2, MapPin } from "lucide-react";
+import { Check, Crosshair, Loader2, MapPin, X } from "lucide-react";
 
 export interface LatLng {
   lat: number;
@@ -106,10 +103,9 @@ export function LocationPicker({
       mapRef.current = map;
       markerRef.current = marker;
 
-      // Dialog portal + açılış animasyonu yüzünden konteyner ilk anda 0 boyutlu
-      // olabilir → harita 0 tile ister ve boş kalır. Konteyner gerçek boyuta
-      // ulaştığı an invalidateSize ile tile'ları yeniden iste (ResizeObserver
-      // en güvenilir yöntem); ayrıca yedek olarak birkaç gecikmeli deneme.
+      // İlk frame'de konteyner boyutu tam oturmamış olabilir → invalidateSize ile
+      // tile'ları yeniden iste. ResizeObserver en güvenilir yöntem; yedek olarak
+      // birkaç gecikmeli deneme de var.
       const invalidate = () => {
         try {
           map.invalidateSize(false);
@@ -173,59 +169,69 @@ export function LocationPicker({
     );
   };
 
+  if (!open) return null;
+
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onCancel()}>
-      <DialogContent className="max-w-md gap-0 overflow-hidden p-0">
-        <DialogHeader className="p-4 pb-2">
-          <DialogTitle className="flex items-center gap-2">
-            <MapPin className="h-5 w-5 text-rose-500" /> Konumu işaretle
-          </DialogTitle>
-          <DialogDescription className="truncate">{addressLabel}</DialogDescription>
-        </DialogHeader>
-
-        <div className="relative">
-          <div ref={containerRef} className="h-72 w-full bg-slate-100" />
-          {/* Haritaya dokun veya pini sürükle ipucu */}
-          <div className="pointer-events-none absolute left-1/2 top-2 z-1000 -translate-x-1/2 rounded-full bg-slate-900/80 px-3 py-1 text-xs font-medium text-white">
-            Pini kapıya sürükle ya da haritaya dokun
-          </div>
-          <button
-            onClick={goToMyLocation}
-            disabled={locating}
-            className="absolute bottom-3 right-3 z-1000 flex items-center gap-1.5 rounded-full bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-md ring-1 ring-slate-200 active:scale-95 disabled:opacity-60"
-          >
-            {locating ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Crosshair className="h-4 w-4 text-blue-600" />
-            )}
-            Konumuma git
-          </button>
+    <div className="fixed inset-0 z-1000 flex flex-col bg-slate-900">
+      {/* Üst başlık */}
+      <header className="flex shrink-0 items-center gap-3 bg-slate-900 px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))] text-white">
+        <MapPin className="h-5 w-5 shrink-0 text-rose-400" />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-bold leading-tight">Konumu işaretle</p>
+          <p className="truncate text-xs text-slate-400">{addressLabel}</p>
         </div>
+        <button
+          onClick={onCancel}
+          disabled={saving}
+          aria-label="Kapat"
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-slate-300 transition hover:bg-white/10 active:scale-90 disabled:opacity-50"
+        >
+          <X className="h-5 w-5" />
+        </button>
+      </header>
 
-        <DialogFooter className="flex-row gap-2 p-4">
-          <Button
-            variant="outline"
-            className="flex-1"
-            onClick={onCancel}
-            disabled={saving}
-          >
-            Vazgeç
-          </Button>
-          <Button
-            className="flex-1"
-            onClick={() => onConfirm(picked)}
-            disabled={saving}
-          >
-            {saving ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Check className="h-4 w-4" />
-            )}
-            Bu konumu kaydet
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      {/* Harita — tüm boşluğu kaplar */}
+      <div className="relative flex-1">
+        <div ref={containerRef} className="absolute inset-0 bg-slate-100" />
+        {/* Haritaya dokun veya pini sürükle ipucu */}
+        <div className="pointer-events-none absolute left-1/2 top-3 z-1100 -translate-x-1/2 rounded-full bg-slate-900/80 px-3 py-1.5 text-xs font-medium text-white shadow-md">
+          Pini kapıya sürükle ya da haritaya dokun
+        </div>
+        {/* Sol-altta: Leaflet'in attribution/zoom kontrolleri sağ-üst/sağ-altta
+            olduğu için burası boş kalır, buton hiçbir kontrolün arkasında kaybolmaz. */}
+        <button
+          onClick={goToMyLocation}
+          disabled={locating}
+          className="absolute bottom-4 left-4 z-1100 flex items-center gap-1.5 rounded-full bg-white px-3.5 py-2.5 text-xs font-semibold text-slate-700 shadow-lg ring-1 ring-slate-200 active:scale-95 disabled:opacity-60"
+        >
+          {locating ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Crosshair className="h-4 w-4 text-blue-600" />
+          )}
+          Konumuma git
+        </button>
+      </div>
+
+      {/* Alt aksiyon barı */}
+      <div className="flex shrink-0 gap-2 bg-white p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+        <Button
+          variant="outline"
+          className="flex-1"
+          onClick={onCancel}
+          disabled={saving}
+        >
+          Vazgeç
+        </Button>
+        <Button className="flex-1" onClick={() => onConfirm(picked)} disabled={saving}>
+          {saving ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Check className="h-4 w-4" />
+          )}
+          Bu konumu kaydet
+        </Button>
+      </div>
+    </div>
   );
 }

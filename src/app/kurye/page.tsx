@@ -578,7 +578,6 @@ function OrderCard({
   const geo = o.customer.geo;
   const hasPin = !!geo;
   const acc = geo?.accuracy;
-  const accText = acc != null ? `±${Math.round(acc)} m` : null;
   const lowAccuracy = acc != null && acc > PIN_ACCURACY_WARN;
   const mapsUrl = hasPin
     ? `https://www.google.com/maps/search/?api=1&query=${geo!.lat},${geo!.lng}`
@@ -606,8 +605,30 @@ function OrderCard({
       {/* Adres — kartın kahramanı */}
       <div className="px-5 pt-5">
         <div className="flex items-start gap-3">
-          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-rose-50 ring-1 ring-rose-100">
+          <div className="relative grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-rose-50 ring-1 ring-rose-100">
             <MapPin className="h-6 w-6 text-rose-500" />
+            {/* Konum durumu rozeti — sadece ikon: yeşil ✓ pinli, amber ✓ düşük
+                doğruluk, amber ⚠ henüz pin yok. */}
+            {hasPin ? (
+              <span
+                className="absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full bg-white shadow-sm"
+                title={lowAccuracy ? "Konum pinli (düşük doğruluk)" : "Konum pinli"}
+              >
+                <CheckCircle2
+                  className={cn(
+                    "h-5 w-5",
+                    lowAccuracy ? "text-amber-500" : "text-emerald-500",
+                  )}
+                />
+              </span>
+            ) : (
+              <span
+                className="absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full bg-white shadow-sm"
+                title="Konum henüz pinlenmedi"
+              >
+                <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+              </span>
+            )}
           </div>
           <div className="min-w-0 flex-1 pt-0.5">
             <p className="text-xl leading-tight font-extrabold tracking-tight text-slate-900">
@@ -617,66 +638,47 @@ function OrderCard({
           </div>
         </div>
 
-        {/* Pin durumu — tek kompakt satır. Sol: durum rozeti. Sağ: tek aksiyon.
-            • Pin YOKSA → "Pinle" (GPS dener, gerekirse haritaya düşer).
-            • Pin VARSA → "düzelt" (doğrudan harita; kuryeye gereksiz tekrar yok). */}
-        <div className="mt-3">
-          <div className="flex items-center justify-between gap-2">
-            {hasPin ? (
-              <span
-                className={cn(
-                  "inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-bold",
-                  lowAccuracy
-                    ? "bg-amber-50 text-amber-700"
-                    : "bg-emerald-50 text-emerald-700",
-                )}
-              >
-                <MapPin className="h-3.5 w-3.5" />
-                {lowAccuracy ? "Düşük doğruluk" : "Konum pinli"}
-                {accText && <span className="font-medium opacity-75">· {accText}</span>}
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs font-bold text-amber-700">
-                <AlertTriangle className="h-3.5 w-3.5" /> Pin yok
-              </span>
-            )}
+        {/* Birincil aksiyonlar — Yol Tarifi (büyük) + konum aksiyonu yan yana.
+            İkisi de net ve dengeli: pin durumu adres ikonundaki rozetten okunur,
+            buradaki konum butonu yalnızca aksiyondur (Pinle / Düzelt). */}
+        <div className="mt-4 flex items-stretch gap-2.5">
+          <a
+            href={mapsUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-blue-600 text-base font-bold text-white shadow-sm shadow-blue-600/25 transition active:scale-[0.98]"
+          >
+            <Navigation className="h-5 w-5 fill-white" /> Yol Tarifi
+          </a>
 
-            {hasPin ? (
-              <button
-                onClick={onPickOnMap}
-                className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-blue-600 transition hover:bg-blue-50 active:scale-95"
-              >
-                <MapPin className="h-3.5 w-3.5" /> düzelt
-              </button>
-            ) : (
-              <button
-                onClick={onPin}
-                disabled={pinning}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-3.5 py-1.5 text-xs font-bold text-white shadow-sm shadow-amber-500/25 transition active:scale-95 disabled:opacity-70"
-              >
-                {pinning ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <LocateFixed className="h-3.5 w-3.5" />
-                )}
-                {pinning ? "Alınıyor…" : "Pinle"}
-              </button>
-            )}
-          </div>
-          {pinError && (
-            <p className="mt-1.5 text-xs font-medium text-amber-700">{pinError}</p>
+          {hasPin ? (
+            <button
+              onClick={onPickOnMap}
+              aria-label="Konumu düzelt"
+              className="flex w-24 shrink-0 flex-col items-center justify-center gap-1 rounded-2xl bg-slate-100 py-3 text-slate-700 ring-1 ring-slate-200 transition active:scale-95"
+            >
+              <MapPin className="h-5 w-5 text-blue-600" />
+              <span className="text-xs font-bold">Düzelt</span>
+            </button>
+          ) : (
+            <button
+              onClick={onPin}
+              disabled={pinning}
+              aria-label="Konumu pinle"
+              className="flex w-24 shrink-0 flex-col items-center justify-center gap-1 rounded-2xl bg-amber-500 py-3 text-white shadow-sm shadow-amber-500/25 transition active:scale-95 disabled:opacity-70"
+            >
+              {pinning ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : (
+                <LocateFixed className="h-5 w-5" />
+              )}
+              <span className="text-xs font-bold">{pinning ? "Alınıyor…" : "Pinle"}</span>
+            </button>
           )}
         </div>
-
-        {/* Yol tarifi — büyük, kaçırılması imkânsız birincil aksiyon */}
-        <a
-          href={mapsUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="mt-3 flex items-center justify-center gap-2 rounded-2xl bg-blue-600 py-3.5 text-base font-bold text-white shadow-sm shadow-blue-600/25 transition active:scale-[0.98]"
-        >
-          <Navigation className="h-5 w-5 fill-white" /> Yol Tarifi Al
-        </a>
+        {pinError && (
+          <p className="mt-2 text-xs font-medium text-amber-700">{pinError}</p>
+        )}
       </div>
 
       {/* Müşteri + tutar */}
