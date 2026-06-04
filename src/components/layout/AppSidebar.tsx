@@ -28,6 +28,7 @@ import {
   Megaphone,
   Bike,
   Wallet,
+  ReceiptText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -80,6 +81,7 @@ export const NAV_ITEMS: readonly NavEntry[] = [
   { kind: "leaf", href: "/orders/new", label: "Yeni Sipariş", icon: ShoppingBag,    color: "text-orange-400", activeBg: "bg-orange-500/15" },
   { kind: "leaf", href: "/orders",     label: "Siparişler",   icon: ClipboardList,  color: "text-emerald-400", activeBg: "bg-emerald-500/15" },
   { kind: "leaf", href: "/open-accounts", label: "Açık Hesaplar", icon: Wallet,     color: "text-amber-400",  activeBg: "bg-amber-500/15" },
+  { kind: "leaf", href: "/gun-sonu",   label: "Gün Sonu",     icon: ReceiptText,    color: "text-violet-400", activeBg: "bg-violet-500/15" },
   { kind: "leaf", href: "/customers",  label: "Müşteriler",   icon: Users,          color: "text-pink-400",   activeBg: "bg-pink-500/15" },
   { kind: "leaf", href: "/corporate",  label: "Kurumsal",     icon: Building2,      color: "text-cyan-400",   activeBg: "bg-cyan-500/15" },
   { kind: "leaf", href: "/products",   label: "Menü",         icon: UtensilsCrossed, color: "text-amber-400", activeBg: "bg-amber-500/15" },
