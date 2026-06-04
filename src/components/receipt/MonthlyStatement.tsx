@@ -280,6 +280,39 @@ export default function MonthlyStatement({
                     {formatCurrency(v.total)}
                   </span>
                 </div>
+                {v.billingType === "per_item" &&
+                  (v.items ?? []).map((it, idx) => (
+                    <div
+                      key={`${it.productId}-${idx}`}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "10mm 1fr auto",
+                        columnGap: "1.5mm",
+                        fontSize: FONT_SIZE_XSMALL,
+                        lineHeight: 1.3,
+                      }}
+                    >
+                      <span />
+                      <span
+                        style={{
+                          minWidth: 0,
+                          overflowWrap: "break-word",
+                        }}
+                      >
+                        {it.name}
+                        {it.portionLabel ? ` (${it.portionLabel})` : ""}
+                      </span>
+                      <span
+                        style={{
+                          textAlign: "right",
+                          whiteSpace: "nowrap",
+                          fontVariantNumeric: "tabular-nums",
+                        }}
+                      >
+                        x{it.quantity}
+                      </span>
+                    </div>
+                  ))}
                 {v.note && (
                   <div
                     style={{

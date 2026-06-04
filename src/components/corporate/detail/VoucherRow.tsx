@@ -115,6 +115,24 @@ export const VoucherRow = memo(function VoucherRow({
           </span>
           {voucher.note && <span className="truncate">· {voucher.note}</span>}
         </div>
+        {voucher.billingType === "per_item" && (voucher.items ?? []).length > 0 && (
+          <ul className="mt-1 space-y-0.5">
+            {(voucher.items ?? []).map((it, idx) => (
+              <li
+                key={`${it.productId}-${idx}`}
+                className="text-xs text-muted-foreground flex items-baseline gap-2"
+              >
+                <span className="font-medium text-foreground tabular-nums shrink-0">
+                  {it.quantity}×
+                </span>
+                <span className="min-w-0 truncate">
+                  {it.name}
+                  {it.portionLabel ? ` (${it.portionLabel})` : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       <div className="text-right shrink-0">
