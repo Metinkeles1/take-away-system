@@ -214,18 +214,16 @@ export default function MonthlyStatement({
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "10mm 14mm 1fr 20mm",
+              gridTemplateColumns: "1fr auto",
               columnGap: "1.5mm",
               fontSize: FONT_SIZE_XSMALL,
               fontWeight: 700,
               borderBottom: "1px solid #000",
               paddingBottom: "3px",
-              marginBottom: "4px",
+              marginBottom: "5px",
             }}
           >
-            <span>NO</span>
             <span>TARİH</span>
-            <span style={{ textAlign: "center" }}>ADET</span>
             <span style={{ textAlign: "right" }}>TUTAR</span>
           </div>
 
@@ -241,33 +239,37 @@ export default function MonthlyStatement({
             </div>
           )}
 
-          {sortedVouchers.map((v) => {
+          {sortedVouchers.map((v, vi) => {
             const d = new Date(v.date);
             const dateShort = `${String(d.getDate()).padStart(2, "0")}.${String(
               d.getMonth() + 1,
             ).padStart(2, "0")}`;
+            const weekday = d.toLocaleDateString("tr-TR", { weekday: "short" });
+            const isLast = vi === sortedVouchers.length - 1;
             return (
-              <div key={v.id} style={{ marginBottom: "3px" }}>
+              <div
+                key={v.id}
+                style={{
+                  marginBottom: isLast ? "0" : "6px",
+                  paddingBottom: isLast ? "0" : "6px",
+                  borderBottom: isLast ? "none" : "1px dashed #bbb",
+                }}
+              >
+                {/* Ana satır: tarih + tutar öne çıkar */}
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "10mm 14mm 1fr 20mm",
+                    gridTemplateColumns: "1fr auto",
                     columnGap: "1.5mm",
                     fontSize: FONT_SIZE_NORMAL,
                     alignItems: "baseline",
                   }}
                 >
-                  <span style={{ fontWeight: 700 }}>#{v.voucherNumber}</span>
-                  <span style={{ whiteSpace: "nowrap" }}>{dateShort}</span>
-                  <span
-                    style={{
-                      textAlign: "center",
-                      fontVariantNumeric: "tabular-nums",
-                    }}
-                  >
-                    {v.billingType === "per_person"
-                      ? `x${v.personCount ?? 0}`
-                      : `${(v.items ?? []).reduce((s, it) => s + it.quantity, 0)} ürün`}
+                  <span style={{ whiteSpace: "nowrap", fontWeight: 700 }}>
+                    {dateShort}{" "}
+                    <span style={{ fontWeight: 400, fontSize: FONT_SIZE_XSMALL }}>
+                      {weekday}
+                    </span>
                   </span>
                   <span
                     style={{
@@ -280,44 +282,56 @@ export default function MonthlyStatement({
                     {formatCurrency(v.total)}
                   </span>
                 </div>
-                {v.billingType === "per_item" &&
-                  (v.items ?? []).map((it, idx) => (
-                    <div
-                      key={`${it.productId}-${idx}`}
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "10mm 1fr auto",
-                        columnGap: "1.5mm",
-                        fontSize: FONT_SIZE_XSMALL,
-                        lineHeight: 1.3,
-                      }}
-                    >
-                      <span />
-                      <span
+
+                {/* Detay satırları */}
+                {v.billingType === "per_person" ? (
+                  <div
+                    style={{
+                      fontSize: FONT_SIZE_XSMALL,
+                      color: "#333",
+                      marginTop: "2px",
+                    }}
+                  >
+                    {v.personCount ?? 0} kişi
+                  </div>
+                ) : (
+                  <div style={{ marginTop: "2px" }}>
+                    {(v.items ?? []).map((it, idx) => (
+                      <div
+                        key={`${it.productId}-${idx}`}
                         style={{
-                          minWidth: 0,
-                          overflowWrap: "break-word",
+                          display: "grid",
+                          gridTemplateColumns: "auto 1fr",
+                          columnGap: "1.5mm",
+                          fontSize: FONT_SIZE_XSMALL,
+                          color: "#222",
+                          lineHeight: 1.4,
                         }}
                       >
-                        {it.name}
-                        {it.portionLabel ? ` (${it.portionLabel})` : ""}
-                      </span>
-                      <span
-                        style={{
-                          textAlign: "right",
-                          whiteSpace: "nowrap",
-                          fontVariantNumeric: "tabular-nums",
-                        }}
-                      >
-                        x{it.quantity}
-                      </span>
-                    </div>
-                  ))}
+                        <span
+                          style={{
+                            fontVariantNumeric: "tabular-nums",
+                            fontWeight: 700,
+                          }}
+                        >
+                          {it.quantity}×
+                        </span>
+                        <span style={{ minWidth: 0, overflowWrap: "break-word" }}>
+                          {it.name}
+                          {it.portionLabel ? ` (${it.portionLabel})` : ""}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 {v.note && (
                   <div
                     style={{
                       fontSize: FONT_SIZE_XSMALL,
-                      paddingLeft: "10mm",
+                      color: "#555",
+                      fontStyle: "italic",
+                      marginTop: "2px",
                       wordBreak: "break-word",
                     }}
                   >

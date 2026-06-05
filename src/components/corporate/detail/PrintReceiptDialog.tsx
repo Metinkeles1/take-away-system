@@ -39,7 +39,10 @@ export function PrintReceiptDialog({
         {/* Lazy mount: children'ı sadece dialog açıkken render et.
             Aksi halde MonthlyStatement / VoucherReceipt her parent render'ında
             tekrar inşa edilip gereksiz hesaplama yapar. */}
-        <div ref={contentRef} className="flex justify-center py-2">
+        <div
+          ref={contentRef}
+          className="flex max-h-[70vh] justify-center overflow-y-auto py-2 print:max-h-none print:overflow-visible"
+        >
           {open ? children : null}
         </div>
         <DialogFooter>
