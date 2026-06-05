@@ -34,7 +34,23 @@ export const useMenuStore = create<MenuStore>()(
     }),
     {
       name: "menu-cache",
+      // Şema/görsel alanları değiştikçe bu sürümü artır → eski (ör. resimsiz)
+      // cache'ler kullanıcı tarayıcılarında otomatik atılır, menü taze çekilir.
+      version: 1,
       partialize: (state) => ({ items: state.items, fetchedAt: state.fetchedAt }),
+      // Bayat cache (ör. ürün resimleri eklenmeden önce kaydedilmiş) resimsiz
+      // kart flash'ı yapmasın: belirli yaşı geçmişse boş başla, skeleton göster,
+      // loadMenu taze veriyi (resimlerle) getirsin.
+      merge: (persisted, current) => {
+        const p = persisted as Partial<MenuStore> | undefined;
+        const MAX_AGE = 12 * 60 * 60 * 1000; // 12 saat
+        const fresh = p?.fetchedAt != null && Date.now() - p.fetchedAt < MAX_AGE;
+        return {
+          ...current,
+          items: fresh ? (p?.items ?? []) : [],
+          fetchedAt: fresh ? (p?.fetchedAt ?? null) : null,
+        };
+      },
     },
   ),
 );
