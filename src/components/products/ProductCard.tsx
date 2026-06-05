@@ -46,7 +46,7 @@ export const ProductCard = memo(function ProductCard({
         <div className="absolute left-2 top-2">
           <Badge
             variant="secondary"
-            className="bg-background/85 backdrop-blur-sm text-[10px] font-medium shadow-sm"
+            className="bg-background/95 text-[10px] font-medium shadow-sm"
           >
             <span className="mr-1">{cat?.emoji}</span>
             {cat?.label ?? product.category}
@@ -67,7 +67,7 @@ export const ProductCard = memo(function ProductCard({
           <Button
             variant="secondary"
             size="icon"
-            className="h-8 w-8 bg-background/90 backdrop-blur-sm shadow-sm"
+            className="h-8 w-8 bg-background shadow-sm"
             onClick={() => onToggle(product)}
             title={product.available ? "Pasif yap" : "Aktif yap"}
           >
@@ -80,7 +80,7 @@ export const ProductCard = memo(function ProductCard({
           <Button
             variant="secondary"
             size="icon"
-            className="h-8 w-8 bg-background/90 backdrop-blur-sm shadow-sm"
+            className="h-8 w-8 bg-background shadow-sm"
             onClick={() => onEdit(product)}
             title="Düzenle"
           >
@@ -89,7 +89,7 @@ export const ProductCard = memo(function ProductCard({
           <Button
             variant="secondary"
             size="icon"
-            className="h-8 w-8 bg-background/90 backdrop-blur-sm shadow-sm text-destructive hover:text-destructive"
+            className="h-8 w-8 bg-background shadow-sm text-destructive hover:text-destructive"
             onClick={() => onDelete(product)}
             title="Sil"
           >
