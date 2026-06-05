@@ -62,7 +62,11 @@ function buildNotes(c: SavedCustomer): string {
 }
 
 export function exportCustomersToCsv(customers: SavedCustomer[]): void {
-  const esc = (v: string) => `"${(v ?? "").replace(/"/g, '""')}"`;
+  // Adres çok satırlı (Textarea) girilebildiği için içinde gizli satır sonu
+  // olabilir; CSV satırını bölüp sonraki sütunları (Notes'taki bina/daire)
+  // kaydırır. Önce satır sonlarını boşluğa indir, sonra tırnakla.
+  const esc = (v: string) =>
+    `"${(v ?? "").replace(/[\r\n]+/g, " ").replace(/"/g, '""')}"`;
   const empty = esc("");
 
   const rows = customers.map((c) => {

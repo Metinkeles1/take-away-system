@@ -395,6 +395,12 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
           const want = pending[o.id];
           if (want === undefined) return o;
           if (o.status === want) return o; // teyitli — pending'e taşımıyoruz
+          // Sunucu, bizim optimistic değerimizden FARKLI bir TERMINAL statüye
+          // geçtiyse (delivered/cancelled — örn. kuryenin "teslim et"i) başka
+          // bir aktör siparişi kapatmış demektir. Bunu asla geri almayız; aksi
+          // halde optimistic değer sonsuza dek takılıp DB'yi ezerdi (admin
+          // ekranında teslim edilen sipariş "Yolda" kalırdı). Sunucuya güven.
+          if (o.status === "delivered" || o.status === "cancelled") return o;
           nextPending[o.id] = want; // henüz yetişmedi — koru
           return { ...o, status: want };
         });

@@ -13,6 +13,9 @@ import {
 import { OrdersList } from "@/components/orders/OrdersList";
 import { subscribeOrders } from "@/lib/pusher/client";
 
+// Pusher yedeği — periyodik sessiz yenileme aralığı (kurye sayfasıyla aynı).
+const REFRESH_MS = 20_000;
+
 export default function OrdersPage() {
   const { orders, updateOrderStatus, loadOrders, isLoading } = useOrderStore();
   const [filter, setFilter] = useState<OrderFilter>("all");
@@ -21,17 +24,23 @@ export default function OrdersPage() {
   useEffect(() => {
     loadOrders().finally(() => setBootstrapping(false));
 
-    // Arka plan yenilemeleri sessiz: skeleton'a geçmeden listeyi yerinde günceller.
+    // Sessiz arka plan yenilemesi: skeleton'a geçmeden listeyi yerinde günceller.
     // (Kendi durum değişikliğinin Pusher echo'su tüm listeyi flush etmesin.)
-    const handleFocus = () => loadOrders({ silent: true });
-    window.addEventListener("focus", handleFocus);
+    const refresh = () => void loadOrders({ silent: true });
 
-    // Gerçek zamanlı: kurye teslim edince / yeni sipariş gelince anında yenile.
-    // Pusher asıl mekanizma; sekmeye geri dönünce focus ile yenileme de yedek.
-    const unsubscribe = subscribeOrders(() => void loadOrders({ silent: true }));
+    // Asıl mekanizma Pusher (anlık). Polling yalnızca yedek: Pusher env yoksa ya
+    // da bir mesaj kaçarsa nihai tutarlılığı garanti eder. Sekme gizliyken iş
+    // yapmaz (boşa istek atmaz). Kurye sayfasıyla aynı desen.
+    const poll = setInterval(() => {
+      if (!document.hidden) refresh();
+    }, REFRESH_MS);
+    const onFocus = () => refresh();
+    window.addEventListener("focus", onFocus);
+    const unsubscribe = subscribeOrders(refresh);
 
     return () => {
-      window.removeEventListener("focus", handleFocus);
+      clearInterval(poll);
+      window.removeEventListener("focus", onFocus);
       unsubscribe();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

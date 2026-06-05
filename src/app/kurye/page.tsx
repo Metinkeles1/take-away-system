@@ -50,10 +50,12 @@ function fullAddress(o: Order): string {
 // "Teslim edildi" bildirimi — sade: adres — ödeme tipi — Teslim edildi.
 // Numara YOK: WhatsApp'ın sohbet seçme ekranı açılır, kurye grubu seçip gönderir.
 // (WhatsApp deep-link ile belirli bir gruba doğrudan mesaj atmaya izin vermez.)
+// whatsapp:// protokolü → wa.me (WhatsApp Web) yerine doğrudan yüklü UYGULAMAYI açar
+// ve özel protokol olduğu için mevcut sayfayı boşaltmaz (kurye listesinde kalırız).
 function buildWhatsAppUrl(o: Order): string {
   const payLabel = PAYMENT_LABEL[o.payment.method]?.label ?? "Ödeme";
   const text = `${fullAddress(o)} — ${payLabel} — Teslim edildi`;
-  return `https://wa.me/?text=${encodeURIComponent(text)}`;
+  return `whatsapp://send?text=${encodeURIComponent(text)}`;
 }
 
 // GPS konumunu yakala. Başarısızlıkta kullanıcıya gösterilecek somut sebebi döner.
@@ -256,15 +258,6 @@ export default function KuryePage() {
     setDeliveringId(o.id);
     setDeliverError(null);
     const waUrl = buildWhatsAppUrl(o);
-    // WhatsApp'ı YENİ sekmede aç → kurye listesi açık kalsın. Boş pencereyi şimdi,
-    // kullanıcı jesti içinde aç (mobilde popup engeline takılmamak için); teslim
-    // onaylanınca adresine yönlendir. Engellenirse aynı sekmeye düş (yedek).
-    let waWin: Window | null = null;
-    try {
-      waWin = window.open("", "_blank");
-    } catch {
-      waWin = null;
-    }
     try {
       const res = await fetch("/api/orders/deliver", {
         method: "POST",
@@ -277,14 +270,18 @@ export default function KuryePage() {
       if (!res.ok || data?.ok === false) {
         throw new Error(data?.error || "Teslim güncellenemedi");
       }
-      // Yazma onaylandı → listeden düş ve WhatsApp'ı aç.
+      // Yazma onaylandı → listeden düş ve WhatsApp UYGULAMASINI aç.
       setOrders((prev) => prev.filter((x) => x.id !== o.id));
       setConfirming(false);
-      if (waWin && !waWin.closed) waWin.location.href = waUrl;
-      else window.location.href = waUrl;
+      // whatsapp:// özel protokolü işletim sistemine devredilir; sayfa boşalmaz,
+      // yeni sekme açılmaz → kurye listesinde kalırız, mesaj hazır gelir.
+      const a = document.createElement("a");
+      a.href = waUrl;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
     } catch (err) {
-      // Yazma başarısız: boş sekmeyi kapat, sipariş listede kalsın, kurye tekrar denesin.
-      if (waWin && !waWin.closed) waWin.close();
+      // Yazma başarısız: sipariş listede kalsın, kurye tekrar denesin.
       setDeliverError(
         err instanceof Error ? err.message : "Teslim kaydedilemedi, tekrar deneyin.",
       );
