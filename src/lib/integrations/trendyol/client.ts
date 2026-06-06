@@ -173,6 +173,14 @@ export interface TrendyolPackage {
     mealCard?: { cardSourceType?: string } | null;
     onDelivery?: { paymentType?: string };
   };
+  // Sepete uygulanan promosyonlar. totalSellerAmount = indirimin satıcı tarafından
+  // karşılanan (hakedişten düşülen) kısmı — satışlar sayfasındaki "İndirim" kolonu.
+  promotions?: Array<{
+    promotionId?: number;
+    description?: string;
+    totalSellerAmount?: number;
+  }>;
+  coupon?: { totalSellerAmount?: number } | null;
   customerNote?: string;
 }
 export interface TrendyolPackagesResponse {

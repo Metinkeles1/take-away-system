@@ -5,19 +5,15 @@ import OrderModel from "@/models/Order";
 import CustomerModel from "@/models/Customer";
 import { type GeoPoint, type Order } from "@/types";
 
-// Adres karşılaştırmasını gevşet: boşluk/büyük-küçük harf farkları yüzünden
-// kayıtlı pin gereksiz yere geçersiz sayılıp kuryeye her sefer yeniden
-// pinletmesin. Türkçe-duyarlı küçük harf + boşluk sadeleştirme.
-function normalizeAddr(s?: string): string {
-  return (s ?? "").trim().replace(/\s+/g, " ").toLocaleLowerCase("tr");
-}
-
 // Kurye sayfası için teslim edilmesi gereken siparişler.
 // Sadece aktif (teslim/iptal olmamış) siparişleri döner — public sayfa olduğu
 // için tüm geçmişi taşımayız, en yeni en üstte.
-// Daha önce teslim sırasında pinlenmiş konum varsa (telefon + aynı adres),
-// onu order.customer.geo'ya iliştiririz; böylece "Yol Tarifi Al" metin geocode
-// yerine kesin koordinata gider.
+// Daha önce pinlenmiş konum varsa (müşteri = telefon eşleşmesi), onu
+// order.customer.geo'ya iliştiririz; böylece aynı kişi tekrar sipariş verdiğinde
+// pin hazır gelir ve "Yol Tarifi" metin geocode yerine kesin koordinata gider.
+// Adres metni karşılaştırması bilinçli olarak yapılmaz: ufak yazım farkları
+// (boşluk, addressDetail, telefon formatı) yüzünden pin sessizce düşmesin —
+// telefon eşleşmesi yeterli. Kurye yanlış görürse karttaki "Düzelt" ile günceller.
 export async function getCourierOrders(): Promise<Order[]> {
   await connectDB();
 
@@ -30,24 +26,18 @@ export async function getCourierOrders(): Promise<Order[]> {
   // Bu siparişlerdeki müşterilerin kayıtlı pinlerini tek sorguda çek.
   const phones = [...new Set(docs.map((d) => (d.customer as Order["customer"]).phone))];
   const savedCustomers = await CustomerModel.find({ phone: { $in: phones } })
-    .select("phone geo geoAddress")
+    .select("phone geo")
     .lean();
-  const geoByPhone = new Map<string, { geo?: GeoPoint; geoAddress?: string }>();
+  const geoByPhone = new Map<string, GeoPoint | undefined>();
   for (const c of savedCustomers) {
-    const rec = c as unknown as { phone: string; geo?: GeoPoint; geoAddress?: string };
-    geoByPhone.set(rec.phone, { geo: rec.geo, geoAddress: rec.geoAddress });
+    const rec = c as unknown as { phone: string; geo?: GeoPoint };
+    geoByPhone.set(rec.phone, rec.geo);
   }
 
   return docs.map((doc) => {
     const customer = doc.customer as Order["customer"];
-    // Kayıtlı pin yalnızca adres değişmediyse geçerli sayılır.
-    const saved = geoByPhone.get(customer.phone);
-    const geo =
-      customer.geo ??
-      (saved?.geo &&
-      normalizeAddr(saved.geoAddress) === normalizeAddr(customer.address)
-        ? saved.geo
-        : undefined);
+    // Siparişin kendi pini varsa onu, yoksa müşteriye (telefon) kayıtlı pini kullan.
+    const geo = customer.geo ?? geoByPhone.get(customer.phone);
 
     return {
       id: doc.id,
@@ -70,7 +60,7 @@ export async function getCourierOrders(): Promise<Order[]> {
 
 // Kurye teslim ederken yakalanan GPS konumunu kaydeder:
 //  • teslim edilen siparişin kendi kaydına (geçmiş için)
-//  • müşteri kaydına (telefon + o adres için) — sonraki siparişlerde pin hazır.
+//  • müşteri kaydına (telefon üzerinden) — sonraki siparişlerde pin hazır gelir.
 export async function saveDeliveryLocation(
   orderId: string,
   geo: GeoPoint,
@@ -94,8 +84,6 @@ export async function saveDeliveryLocation(
   if (!doc) return;
 
   const customer = (doc as unknown as { customer: Order["customer"] }).customer;
-  await CustomerModel.updateOne(
-    { phone: customer.phone },
-    { $set: { geo, geoAddress: customer.address } },
-  );
+  // Müşteriye (telefon) kaydet — sonraki siparişlerde pin hazır gelsin.
+  await CustomerModel.updateOne({ phone: customer.phone }, { $set: { geo } });
 }

@@ -8,12 +8,14 @@ const CustomerSchema = new Schema(
     address: { type: String, required: true },
     addressDetail: String,
     orderCount: { type: Number, default: 1 },
-    // Kurye teslimatta yakaladığı kesin konum + hangi adres için yakalandığı.
-    // geoAddress, adres değişince eski pini kullanmamak için eşleştirmede kullanılır.
+    // Kurye teslimatta yakaladığı kesin konum. Telefon eşleşmesiyle sonraki
+    // siparişlere taşınır (adres metni karşılaştırılmaz).
     geo: {
       type: new Schema({ lat: Number, lng: Number, accuracy: Number }, { _id: false }),
       default: undefined,
     },
+    // (eski) Pinin yakalandığı adres metni — artık eşleştirmede kullanılmıyor,
+    // eski kayıtlarla uyum için tutuluyor.
     geoAddress: String,
   },
   { timestamps: true },

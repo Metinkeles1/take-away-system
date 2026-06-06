@@ -98,7 +98,11 @@ export interface TrendyolDashboardStats {
     totalCoupon: number;      // Coupon.debt − CouponCancel.credit (satıcı kuponu)
     totalRefund: number;      // Return.debt + ManualRefund.debt − iptaller
     totalCommission: number;  // tüm transactionType'larda commissionAmount işaretli toplam
-    netRevenue: number;       // tüm transactionType'larda sellerRevenue işaretli toplam
+    netRevenue: number;       // settlement sellerRevenue toplamı (online — yemek kartı HARİÇ)
+    // ─── Yemek kartı (settlement dışı) tahmini ───
+    mealCardRevenue: number;  // yemek kartı brüt ciro
+    mealCardNet: number;      // (brüt − gerçek indirim) × (1−Trendyol%) × (1−sağlayıcı%) tahmini
+    totalNet: number;         // netRevenue (online) + mealCardNet → tahmini toplam hakediş
   };
 
   // API erişilemezse / env eksikse buradan akar
@@ -164,6 +168,37 @@ function mealCardInfo(
 }
 
 const NON_REVENUE_STATUSES = new Set(["Cancelled", "UnSupplied"]);
+
+// ─── Yemek kartı net hakediş tahmini ────────────────────────────────────
+// Yemek kartı ödemeleri (Multinet, Sodexo, Edenred…) Trendyol settlement
+// API'sine HİÇ düşmez — parayı kart sağlayıcısı doğrudan satıcıya öder. Bu
+// yüzden settlement bazlı netRevenue yemek kartı gelirini içermez ve gün sonu
+// "gerçek hakediş" eksik görünür.
+//
+// Trendyol Satışlar sayfasından tersine mühendislikle doğrulanan formül:
+//   Trendyol neti = (totalPrice − satıcı indirimi) × (1 − Trendyol komisyonu)
+//   Banka neti    = Trendyol neti × (1 − sağlayıcı komisyonu)
+// Satıcı indirimi = promotions[].totalSellerAmount (gerçek, API'dan gelir).
+// Komisyon oranı yemek kartı siparişlerinde API'da YOK (settlement'ta görünmez);
+// ölçülen mağaza ortalaması ~%12,6 sabit kullanılır → sipariş başına ~%2-3 sapma.
+// Oranlar ileride ayar ekranına taşınabilir.
+const MEAL_CARD_TRENDYOL_COMMISSION_RATE = 0.126;
+const MEAL_CARD_PROVIDER_COMMISSION_RATE = 0.1;
+
+// Bir yemek kartı paketinin tahmini banka netini hesaplar.
+function estimateMealCardNet(p: TrendyolPackage): number {
+  const gross = p.totalPrice ?? 0;
+  // Satıcı tarafından karşılanan indirim = promosyon + kupon (varsa).
+  const sellerDiscount =
+    (p.promotions ?? []).reduce((s, pr) => s + (pr.totalSellerAmount ?? 0), 0) +
+    (p.coupon?.totalSellerAmount ?? 0);
+  const base = Math.max(gross - sellerDiscount, 0);
+  return (
+    base *
+    (1 - MEAL_CARD_TRENDYOL_COMMISSION_RATE) *
+    (1 - MEAL_CARD_PROVIDER_COMMISSION_RATE)
+  );
+}
 
 
 // API'a gönderilen aralık, gerçek period aralığından geriye doğru tampon içerir.
@@ -259,6 +294,9 @@ function emptyStats(
       totalRefund: 0,
       totalCommission: 0,
       netRevenue: 0,
+      mealCardRevenue: 0,
+      mealCardNet: 0,
+      totalNet: 0,
     },
     error,
   };
@@ -336,13 +374,21 @@ const TYPE_SIGN: Record<TrendyolSettlementTransactionType, 1 | -1> = {
   ProvisionNegative: -1,
 };
 
+// aggregateFinance yalnızca settlement'tan türeyen alanları döndürür; yemek kartı
+// tahmini (mealCardRevenue/mealCardNet/totalNet) packages verisi gerektirdiği için
+// ana fonksiyonda eklenir.
+type SettlementFinance = Omit<
+  TrendyolDashboardStats["finance"],
+  "mealCardRevenue" | "mealCardNet" | "totalNet"
+>;
+
 async function aggregateFinance(
   apiStart: number,
   apiEnd: number,
   targetStart: number,
   targetEnd: number,
 ): Promise<{
-  finance: TrendyolDashboardStats["finance"];
+  finance: SettlementFinance;
   netByOrder: Map<string, number>;
   ok: boolean;
   error?: string;
@@ -495,14 +541,14 @@ function isReferenceToday(referenceDate?: number): boolean {
 const cachedComputeToday = unstable_cache(
   async (period: TrendyolPeriod, _key: string, refTs: number) =>
     computeTrendyolDashboardStats(period, refTs),
-  ["trendyol-dashboard-today-v2"],
+  ["trendyol-dashboard-today-v3"],
   { revalidate: 60 },
 );
 
 const cachedComputePast = unstable_cache(
   async (period: TrendyolPeriod, _key: string, refTs: number) =>
     computeTrendyolDashboardStats(period, refTs),
-  ["trendyol-dashboard-past-v2"],
+  ["trendyol-dashboard-past-v3"],
   { revalidate: 600 },
 );
 
@@ -576,6 +622,16 @@ async function computeTrendyolDashboardStats(
       revenue: v.revenue,
     }))
     .sort((a, b) => b.revenue - a.revenue);
+
+  // Yemek kartı brüt cirosu (settlement'a düşmeyen) → tahmini net hakediş.
+  // Net, paket bazında gerçek indirim düşülerek hesaplanır (estimateMealCardNet).
+  let mealCardRevenue = 0;
+  let mealCardNet = 0;
+  for (const p of completed) {
+    if (paymentKey(p) !== "meal_card") continue;
+    mealCardRevenue += p.totalPrice ?? 0;
+    mealCardNet += estimateMealCardNet(p);
+  }
 
   // Yemek kartı marka dağılımı (online + kapıda kod birleşik)
   const mealCardMap = new Map<
@@ -718,6 +774,11 @@ async function computeTrendyolDashboardStats(
     recentOrders,
     settlementsAvailable: financeResult.ok,
     settlementsError: financeResult.error,
-    finance: financeResult.finance,
+    finance: {
+      ...financeResult.finance,
+      mealCardRevenue,
+      mealCardNet,
+      totalNet: financeResult.finance.netRevenue + mealCardNet,
+    },
   };
 }

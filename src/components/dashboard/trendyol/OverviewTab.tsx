@@ -29,6 +29,7 @@ import {
   RefreshCw,
   Download,
   ArrowUpRight,
+  Info,
 } from "lucide-react";
 import { PaymentBreakdown } from "@/components/dashboard/PaymentBreakdown";
 import { EmptyState } from "@/components/dashboard/EmptyState";
@@ -60,6 +61,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { formatCurrency } from "@/lib/utils";
 
 // ─── status map (chart vars + muted-foreground tonlar) ──────────────
@@ -260,14 +266,13 @@ export function OverviewTab() {
             footer={periodLabel}
           />
           <KpiCard
-            label="Net Hakediş"
-            value={stats?.finance.netRevenue}
+            label="Tahmini Toplam Hakediş"
+            value={stats?.finance.totalNet}
             valueFormat="currency"
             isLoading={isLoading && !stats}
             icon={TrendingUp}
-            footer={
-              stats?.settlementsAvailable ? "Settlement bazlı" : "Tahmini hesap"
-            }
+            footer="Online net + yemek kartı (tahmini)"
+            info="Gün sonu banka hesabına geçen tahmini net. İki kalem: (1) Online siparişlerin settlement bazlı GERÇEK neti; (2) Yemek kartı siparişlerinin tahmini neti — bunlar Trendyol settlement'ına düşmediği için (brüt − gerçek indirim) × (1−%12,6 Trendyol) × (1−%10 sağlayıcı) formülüyle hesaplanır. Kalemleri Finansal Akış kartında görebilirsiniz."
           />
           <KpiCard
             label="Ortalama Sepet"
@@ -433,6 +438,7 @@ function KpiCard({
   isLoading,
   icon: Icon,
   footer,
+  info,
 }: {
   label: string;
   value: number | undefined;
@@ -440,6 +446,7 @@ function KpiCard({
   isLoading: boolean;
   icon: React.ComponentType<{ className?: string }>;
   footer: string;
+  info?: string;
 }) {
   const display =
     value === undefined
@@ -451,8 +458,21 @@ function KpiCard({
   return (
     <Card>
       <CardHeader className="grid-cols-[1fr_auto]">
-        <CardDescription className="text-sm font-medium text-muted-foreground">
+        <CardDescription className="flex items-center gap-1 text-sm font-medium text-muted-foreground">
           {label}
+          {info && (
+            <Popover>
+              <PopoverTrigger
+                className="inline-flex shrink-0 text-muted-foreground/70 transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:text-foreground"
+                aria-label={`${label} hakkında bilgi`}
+              >
+                <Info className="size-3.5" />
+              </PopoverTrigger>
+              <PopoverContent align="start" className="text-xs leading-relaxed">
+                {info}
+              </PopoverContent>
+            </Popover>
+          )}
         </CardDescription>
         <Icon className="size-4 text-muted-foreground" />
       </CardHeader>
@@ -771,43 +791,45 @@ function TopProductsBlock({
 // ─── Finance flow ──────────────────────────────────────────────────
 
 function FinanceFlow({ finance }: { finance: TrendyolDashboardStats["finance"] }) {
-  const max = Math.max(
-    finance.grossSales,
-    finance.totalDiscount,
-    finance.totalCoupon,
-    finance.totalRefund,
-    finance.totalCommission,
-    finance.netRevenue,
-    1,
-  );
   const rows: {
     label: string;
     value: number;
     cssVar: string;
     negative?: boolean;
+    highlight?: boolean;
+    separatorBefore?: boolean;
   }[] = [
-    { label: "Brüt Satış",     value: finance.grossSales,      cssVar: "var(--chart-1)" },
-    { label: "İndirim",        value: finance.totalDiscount,   cssVar: "var(--chart-3)", negative: true },
-    { label: "Kupon",          value: finance.totalCoupon,     cssVar: "var(--chart-4)", negative: true },
-    { label: "İade",           value: finance.totalRefund,     cssVar: "var(--destructive)", negative: true },
-    { label: "Komisyon",       value: finance.totalCommission, cssVar: "var(--chart-2)", negative: true },
-    { label: "Net Hakediş",    value: finance.netRevenue,      cssVar: "var(--chart-5)" },
+    { label: "Brüt Satış (online)",       value: finance.grossSales,      cssVar: "var(--chart-1)" },
+    { label: "İndirim",                   value: finance.totalDiscount,   cssVar: "var(--chart-3)", negative: true },
+    { label: "Kupon",                     value: finance.totalCoupon,     cssVar: "var(--chart-4)", negative: true },
+    { label: "İade",                      value: finance.totalRefund,     cssVar: "var(--destructive)", negative: true },
+    { label: "Komisyon",                  value: finance.totalCommission, cssVar: "var(--chart-2)", negative: true },
+    { label: "Net Hakediş (online)",      value: finance.netRevenue,      cssVar: "var(--chart-5)", separatorBefore: true },
+    { label: "Yemek Kartı Net (tahmini)", value: finance.mealCardNet,     cssVar: "var(--chart-4)" },
+    { label: "Tahmini Toplam Hakediş",    value: finance.totalNet,        cssVar: "var(--chart-5)", highlight: true, separatorBefore: true },
   ];
+  const max = Math.max(...rows.map((r) => r.value), 1);
 
   return (
     <ul className="space-y-3">
-      {rows.map((r, idx) => {
+      {rows.map((r) => {
         const pct = (r.value / max) * 100;
-        const isLast = idx === rows.length - 1;
         return (
           <li key={r.label} className="space-y-1.5">
+            {r.separatorBefore && <Separator className="my-1" />}
             <div className="flex items-center justify-between gap-2 text-sm">
-              <span className="text-xs font-medium text-muted-foreground">
+              <span
+                className={`text-xs font-medium ${
+                  r.highlight ? "text-foreground" : "text-muted-foreground"
+                }`}
+              >
                 {r.label}
               </span>
               <span
-                className={`text-sm font-semibold tabular-nums ${
-                  isLast ? "text-foreground" : ""
+                className={`tabular-nums ${
+                  r.highlight
+                    ? "text-base font-bold text-foreground"
+                    : "text-sm font-semibold"
                 }`}
               >
                 {r.negative && r.value > 0 ? "−" : ""}
@@ -823,7 +845,6 @@ function FinanceFlow({ finance }: { finance: TrendyolDashboardStats["finance"] }
                 }}
               />
             </div>
-            {idx === 4 && <Separator className="my-1" />}
           </li>
         );
       })}

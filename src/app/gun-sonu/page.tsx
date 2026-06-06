@@ -14,12 +14,18 @@ import {
   Building2,
   Lock,
   LockKeyhole,
+  Bike,
+  Archive,
+  Bot,
+  Hand,
 } from "lucide-react";
 import Link from "next/link";
 import {
   getEndOfDay,
   saveEndOfDaySnapshot,
+  listEndOfDaySnapshots,
   type EndOfDayReport,
+  type EndOfDaySnapshotSummary,
 } from "@/actions/endOfDay";
 import EndOfDayReceipt from "@/components/receipt/EndOfDayReceipt";
 import { formatCurrency, cn } from "@/lib/utils";
@@ -247,6 +253,105 @@ const CorporateTable = memo(function CorporateTable({
   );
 });
 
+function formatDayTR(iso: string): string {
+  const d = new Date(iso + "T00:00:00Z");
+  return d.toLocaleDateString("tr-TR", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+// Kapatılmış (dondurulmuş) günlerin arşivi — satıra tıklayınca o güne gider.
+const ArchiveList = memo(function ArchiveList({
+  snapshots,
+  activeDate,
+  isLoading,
+  onSelect,
+}: {
+  snapshots: EndOfDaySnapshotSummary[];
+  activeDate: string;
+  isLoading: boolean;
+  onSelect: (date: string) => void;
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Archive className="size-4 text-slate-500" />
+          Kapatılan Günler
+          {snapshots.length > 0 && (
+            <span className="ml-auto text-xs font-normal text-muted-foreground">
+              {snapshots.length} kayıt
+            </span>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="space-y-2">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-12 w-full rounded-lg" />
+            ))}
+          </div>
+        ) : snapshots.length === 0 ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            Henüz kapatılmış gün yok. Bir günü kapatınca burada listelenir.
+          </p>
+        ) : (
+          <div className="max-h-96 space-y-1.5 overflow-y-auto pr-1">
+            {snapshots.map((s) => {
+              const isActive = s.date === activeDate;
+              const isCron = s.source === "cron";
+              return (
+                <button
+                  key={s.date}
+                  type="button"
+                  onClick={() => onSelect(s.date)}
+                  className={cn(
+                    "flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left transition-colors hover:bg-muted/50",
+                    isActive && "border-primary bg-primary/5 ring-1 ring-primary/30",
+                  )}
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{formatDayTR(s.date)}</p>
+                    <p className="truncate text-[11px] text-muted-foreground">
+                      {s.packageCount} paket
+                      {s.closedAt &&
+                        ` · ${new Date(s.closedAt).toLocaleString("tr-TR", {
+                          day: "2-digit",
+                          month: "2-digit",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}`}
+                    </p>
+                  </div>
+                  <span className="shrink-0 text-sm font-semibold tabular-nums">
+                    {formatCurrency(s.totalRevenue)}
+                  </span>
+                  <span
+                    className={cn(
+                      "inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+                      isCron
+                        ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                        : "bg-slate-500/15 text-slate-600 dark:text-slate-300",
+                    )}
+                    title={isCron ? "Otomatik (cron) kapatıldı" : "Elle kapatıldı"}
+                  >
+                    {isCron ? <Bot className="size-3" /> : <Hand className="size-3" />}
+                    {isCron ? "Oto" : "Elle"}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+});
+
 export default function EndOfDayPage() {
   const [date, setDate] = useState(istanbulToday);
   const [report, setReport] = useState<EndOfDayReport | null>(null);
@@ -254,6 +359,17 @@ export default function EndOfDayPage() {
   const [closed, setClosed] = useState(false);
   const [closedAt, setClosedAt] = useState<string | null>(null);
   const [isClosing, setIsClosing] = useState(false);
+  const [snapshots, setSnapshots] = useState<EndOfDaySnapshotSummary[]>([]);
+  const [archiveLoading, setArchiveLoading] = useState(true);
+
+  const loadArchive = useCallback(async () => {
+    setArchiveLoading(true);
+    try {
+      setSnapshots(await listEndOfDaySnapshots());
+    } finally {
+      setArchiveLoading(false);
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -277,15 +393,19 @@ export default function EndOfDayPage() {
     setIsClosing(true);
     try {
       await saveEndOfDaySnapshot(date, "manual");
-      await load();
+      await Promise.all([load(), loadArchive()]);
     } finally {
       setIsClosing(false);
     }
-  }, [date, closed, load]);
+  }, [date, closed, load, loadArchive]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    loadArchive();
+  }, [loadArchive]);
 
   useEffect(() => {
     document.title = "Gün Sonu Raporu · Paket Sipariş";
@@ -359,10 +479,10 @@ export default function EndOfDayPage() {
           </div>
         </header>
 
-        {/* KPI kartları */}
-        <section className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        {/* KPI kartları — 2 sıra × 3 (geniş ekranda sıkışmasın) */}
+        <section className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {isLoading || !report ? (
-            Array.from({ length: 5 }).map((_, i) => (
+            Array.from({ length: 6 }).map((_, i) => (
               <Skeleton key={i} className="h-20 w-full rounded-xl" />
             ))
           ) : (
@@ -379,6 +499,21 @@ export default function EndOfDayPage() {
                 label="Toplam Ciro"
                 value={formatCurrency(report.totalRevenue)}
                 accent="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+              />
+              <StatCard
+                icon={Bike}
+                label="Trendyol Net Hakediş"
+                value={
+                  report.trendyol?.available
+                    ? formatCurrency(report.trendyol.netRevenue)
+                    : "—"
+                }
+                sub={
+                  report.trendyol?.available
+                    ? `${report.trendyol.orderCount} sipariş · Brüt ${formatCurrency(report.trendyol.revenue)}`
+                    : "API'dan okunamadı"
+                }
+                accent="bg-orange-500/15 text-orange-600 dark:text-orange-400"
               />
               <StatCard
                 icon={Receipt}
@@ -438,8 +573,8 @@ export default function EndOfDayPage() {
             )}
           </div>
 
-          {/* Fiş önizleme — aynı instance yazdırma hedefi */}
-          <div className="lg:col-span-1">
+          {/* Fiş önizleme + arşiv — sağ kolon */}
+          <div className="flex flex-col gap-4 lg:col-span-1">
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-sm">
@@ -455,6 +590,13 @@ export default function EndOfDayPage() {
                 )}
               </CardContent>
             </Card>
+
+            <ArchiveList
+              snapshots={snapshots}
+              activeDate={date}
+              isLoading={archiveLoading}
+              onSelect={setDate}
+            />
           </div>
         </section>
       </div>

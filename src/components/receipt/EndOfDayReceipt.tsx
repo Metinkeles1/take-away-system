@@ -334,6 +334,21 @@ const EndOfDayReceipt = React.forwardRef<HTMLDivElement, EndOfDayReceiptProps>(
               ))
             )}
 
+            {/* Trendyol — brüt kanal kırılımında; burada net hakediş özeti */}
+            {report.trendyol?.available && report.trendyol.orderCount > 0 && (
+              <>
+                <Divider dashed />
+                <SectionTitle>Trendyol</SectionTitle>
+                <Row left="Sipariş" right={`${report.trendyol.orderCount}`} />
+                <Row left="Brüt Ciro" right={formatCurrency(report.trendyol.revenue)} />
+                <Row
+                  left="Net Hakediş"
+                  right={formatCurrency(report.trendyol.netRevenue)}
+                  bold
+                />
+              </>
+            )}
+
             {/* Kurumsal — o gün giden hesaplar */}
             {report.corporateBreakdown.length > 0 && (
               <>

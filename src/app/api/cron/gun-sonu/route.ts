@@ -2,14 +2,23 @@ import { NextRequest, NextResponse } from "next/server";
 import { saveEndOfDaySnapshot } from "@/actions/endOfDay";
 import { istanbulDateISO } from "@/lib/datetime";
 
-// Vercel Cron — 00:30 IST (21:30 UTC) çalışır, bkz. vercel.json.
-// Gece yarısını GEÇTİKTEN sonra çalışıp DÜNÜ dondurur: o gün tamamen kapanmış
-// olur (23:55 kaybı yok) ve Hobby planında cron zamanı ~1 saate kadar kaysa
-// bile sorun çıkmaz, çünkü bugünü değil kapanmış günü topluyoruz.
+// Vercel Cron — 23:59 IST (20:59 UTC) çalışır, bkz. vercel.json. Gün biterken
+// O GÜNÜ dondurur (kullanıcı isteği). Trendyol cirosu da o anki settlement ile
+// rapora dahil edilip sabitlenir.
 //
-// Hobby planı notu: cron günde 1 kez çalışabilir (dakikalık olan yasak), bu
-// uç nokta tam olarak günde 1 kez tetiklenir.
+// Hobby planı notu: cron günde 1 kez çalışır (dakikalık yasak) ve zamanı ~1
+// saate kadar kayabilir. Bu yüzden tarih seçimi drift-safe: cron 23:59'da
+// çalışırsa bugünü; eğer gece yarısını geçip ertesi sabaha kayarsa (IST saati
+// öğleden önce) bir önceki günü dondurur — her iki halde de "kapanan gün".
 export const dynamic = "force-dynamic";
+
+// Cron'un "kapatması gereken günü" verir. IST öğleden sonra/akşam ise bugün;
+// gece yarısını geçip sabaha kaydıysa (saat < 12) bir önceki gün.
+function targetDate(now: number): string {
+  const istClockHour = new Date(now + 3 * 60 * 60 * 1000).getUTCHours();
+  const ref = istClockHour < 12 ? now - 24 * 60 * 60 * 1000 : now;
+  return istanbulDateISO(ref);
+}
 
 export async function GET(req: NextRequest) {
   // Vercel Cron, "Authorization: Bearer <CRON_SECRET>" header'ı ile çağırır.
@@ -20,9 +29,8 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // Dünün Istanbul tarihi (YYYY-MM-DD).
-    const yesterday = istanbulDateISO(Date.now() - 24 * 60 * 60 * 1000);
-    const report = await saveEndOfDaySnapshot(yesterday, "cron");
+    const date = targetDate(Date.now());
+    const report = await saveEndOfDaySnapshot(date, "cron");
     return NextResponse.json({
       ok: true,
       date: report.date,

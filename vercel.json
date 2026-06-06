@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/cron/gun-sonu",
-      "schedule": "30 21 * * *"
+      "schedule": "59 20 * * *"
     }
   ]
 }
