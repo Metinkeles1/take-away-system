@@ -558,14 +558,14 @@ function isReferenceToday(referenceDate?: number): boolean {
 const cachedComputeToday = unstable_cache(
   async (period: TrendyolPeriod, _key: string, refTs: number) =>
     computeTrendyolDashboardStats(period, refTs),
-  ["trendyol-dashboard-today-v10"],
+  ["trendyol-dashboard-today-v11"],
   { revalidate: 60 },
 );
 
 const cachedComputePast = unstable_cache(
   async (period: TrendyolPeriod, _key: string, refTs: number) =>
     computeTrendyolDashboardStats(period, refTs),
-  ["trendyol-dashboard-past-v10"],
+  ["trendyol-dashboard-past-v11"],
   { revalidate: 600 },
 );
 
@@ -574,7 +574,12 @@ export async function getTrendyolDashboardStats(
   referenceDate?: number,
 ): Promise<TrendyolDashboardStats> {
   const key = dateKey(referenceDate);
-  const refTs = referenceDate ?? Date.now();
+  // refTs'i Istanbul gün başına normalize et. unstable_cache key'i TÜM
+  // argümanlardan türetir; ham `Date.now()` (veya ms farklı referenceDate)
+  // geçilirse key her çağrıda değişir ve cache hiç tutmaz. Gün başına
+  // sabitleyince aynı period+gün → aynı key → 60sn/600sn cache çalışır.
+  // compute zaten gün başını ve "now"u kendi içinde türetiyor; sonuç değişmez.
+  const refTs = istanbulDayStart(referenceDate ?? Date.now()).getTime();
   const fn = isReferenceToday(referenceDate) ? cachedComputeToday : cachedComputePast;
   return fn(period, key, refTs);
 }

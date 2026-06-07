@@ -259,13 +259,22 @@ export async function getActiveOrdersCount(): Promise<number> {
 }
 
 // ─── Açık hesaplar (ödenmemiş siparişler) ───────────────────────────────────
+// Ödenmemiş açık hesapların yanında BUGÜN tahsil edilenleri de döndürür; tahsil
+// edilen kayıt listeden kaybolmasın, "Tahsil Edildi" olarak görünsün. paidAt
+// yalnızca açık hesap tahsil edilince yazıldığından, peşin siparişleri kapsamaz.
 export async function getOpenAccounts(): Promise<Order[]> {
   await connectDB();
 
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+
   // İptal edilen siparişler alacak sayılmaz — açık hesaplardan dışla.
   const docs = await OrderModel.find({
-    paymentStatus: "open",
     status: { $ne: "cancelled" },
+    $or: [
+      { paymentStatus: "open" },
+      { paymentStatus: "paid", paidAt: { $gte: startOfToday } },
+    ],
   })
     .sort({ createdAt: -1 })
     .lean();

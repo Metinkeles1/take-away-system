@@ -15,6 +15,7 @@ interface OrdersListProps {
   isLoading: boolean;
   orders: Order[];
   filter: OrderFilter;
+  hasSearch?: boolean;
   onResetFilter: () => void;
   onStatusChange: (id: string, status: OrderStatus) => void;
 }
@@ -28,6 +29,7 @@ export function OrdersList({
   isLoading,
   orders,
   filter,
+  hasSearch = false,
   onResetFilter,
   onStatusChange,
 }: OrdersListProps) {
@@ -79,24 +81,30 @@ export function OrdersList({
           <CardContent className="flex flex-col items-center justify-center py-20 text-muted-foreground">
             <ClipboardList className="mb-4 h-16 w-16 opacity-20" />
             <p className="text-lg font-medium">
-              {filter === "all" ? "Henüz sipariş yok" : "Bu durumda sipariş yok"}
+              {hasSearch
+                ? "Eşleşen sipariş yok"
+                : filter === "all"
+                  ? "Henüz sipariş yok"
+                  : "Bu durumda sipariş yok"}
             </p>
             <p className="mt-1 text-sm">
-              {filter === "all"
-                ? "İlk siparişi almak için butona tıklayın"
-                : "Farklı bir filtre seçin veya yeni sipariş alın"}
+              {hasSearch
+                ? "Farklı bir arama deneyin"
+                : filter === "all"
+                  ? "İlk siparişi almak için butona tıklayın"
+                  : "Farklı bir filtre seçin veya yeni sipariş alın"}
             </p>
-            {filter === "all" ? (
+            {hasSearch || filter !== "all" ? (
+              <Button variant="outline" className="mt-4" onClick={onResetFilter}>
+                {hasSearch ? "Aramayı ve filtreyi temizle" : "Tüm Siparişleri Göster"}
+              </Button>
+            ) : (
               <Link href="/orders/new" className="mt-4">
                 <Button>
                   <PlusCircle className="mr-2 h-4 w-4" />
                   Yeni Sipariş Al
                 </Button>
               </Link>
-            ) : (
-              <Button variant="outline" className="mt-4" onClick={onResetFilter}>
-                Tüm Siparişleri Göster
-              </Button>
             )}
           </CardContent>
         </Card>

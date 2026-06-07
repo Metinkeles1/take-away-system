@@ -59,14 +59,29 @@ export default function TrendyolGunSonuPage() {
     setIsLoading(true);
     try {
       const refDate = parseDateInputValue(selectedDate).getTime();
-      setStats(await getTrendyolDashboardStats(period, refDate));
+      const result = await getTrendyolDashboardStats(period, refDate);
+      setStats(result);
+      return result;
     } finally {
       setIsLoading(false);
     }
   }, [period, selectedDate]);
 
+  // Period/tarih değişince yükle. Geçici API hatası dönerse (ilk yüklemede
+  // bazen oluyor) bir kez otomatik tekrar dener — kullanıcı elle yenilemesin.
   useEffect(() => {
-    if (selectedDate) loadStats();
+    if (!selectedDate) return;
+    let cancelled = false;
+    (async () => {
+      const r = await loadStats();
+      if (!cancelled && r?.error) {
+        await new Promise((res) => setTimeout(res, 800));
+        if (!cancelled) await loadStats();
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [loadStats, selectedDate]);
 
   const periodLabel = useMemo(() => {
@@ -105,6 +120,11 @@ export default function TrendyolGunSonuPage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-4">
+      {/* ── Yükleniyor çubuğu (sayfa üstü, her fetch'te görünür) ── */}
+      {isLoading && (
+        <div className="fixed inset-x-0 top-0 z-50 h-0.5 animate-pulse bg-orange-500" />
+      )}
+
       {/* ── Üst bar ── */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0 space-y-0.5">
@@ -115,7 +135,14 @@ export default function TrendyolGunSonuPage() {
             <ArrowLeft className="size-3" /> Genel Bakış
           </Link>
           <h2 className="text-2xl font-semibold tracking-tight">Gün Sonu Özeti</h2>
-          <p className="text-sm text-muted-foreground">{periodLabel} · Trendyol</p>
+          <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+            {periodLabel} · Trendyol
+            {isLoading && (
+              <span className="inline-flex items-center gap-1 text-orange-600">
+                <RefreshCw className="size-3 animate-spin" /> Yükleniyor…
+              </span>
+            )}
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Tabs value={period} onValueChange={(v) => setPeriod(v as TrendyolPeriod)}>

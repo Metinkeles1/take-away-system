@@ -42,6 +42,15 @@ import {
 import type { Order, PaymentInfo } from "@/types";
 import { toast } from "sonner";
 
+// Tahsilat ödeme yöntemi etiketleri — tahsil edilmiş kayıtta yöntemi göstermek için.
+const METHOD_LABEL: Record<string, string> = {
+  cash: "Nakit",
+  card: "Kart",
+  online: "Online",
+  meal_card: "Yemek Kartı",
+  iban: "IBAN",
+};
+
 // Tek satır — memoize: bir tahsilat sonrası diğer kartlar yeniden render olmasın.
 const OpenAccountRow = memo(function OpenAccountRow({
   order,
@@ -52,30 +61,51 @@ const OpenAccountRow = memo(function OpenAccountRow({
   onCollectClick: (order: Order) => void;
   onCancel: (order: Order) => void;
 }) {
+  // Tahsil edilmiş açık hesap (bugün): listeden düşmez, "Tahsil Edildi" görünür.
+  const collected = order.paymentStatus === "paid";
+
   return (
     <Card className="overflow-hidden relative">
-      <div className="absolute left-0 top-0 bottom-0 w-1 bg-amber-500" />
+      <div
+        className={cn(
+          "absolute left-0 top-0 bottom-0 w-1",
+          collected ? "bg-emerald-500" : "bg-amber-500",
+        )}
+      />
       <CardContent className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4 p-4 pl-5">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1 flex-wrap">
             <span className="font-bold text-lg">#{order.orderNumber}</span>
-            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-[11px] font-medium dark:bg-amber-950 dark:text-amber-300">
-              Açık Hesap
-            </span>
-            {/* Yaşlandırma — kaç gündür açık (3g+ sarı, 7g+ kırmızı) */}
-            {(() => {
-              const d = daysOpen(order.createdAt);
-              return (
-                <span
-                  className={cn(
-                    "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold",
-                    AGING_BADGE_CLASS[agingLevel(d)],
-                  )}
-                >
-                  {d <= 0 ? "bugün açıldı" : `${agingLabel(d)}dür açık`}
-                </span>
-              );
-            })()}
+            {collected ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 text-emerald-800 px-2 py-0.5 text-[11px] font-medium dark:bg-emerald-950 dark:text-emerald-300">
+                <CheckCircle2 className="h-3 w-3" />
+                Tahsil Edildi
+                {order.payment?.method && (
+                  <span className="opacity-80">
+                    · {METHOD_LABEL[order.payment.method] ?? order.payment.method}
+                  </span>
+                )}
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-[11px] font-medium dark:bg-amber-950 dark:text-amber-300">
+                Açık Hesap
+              </span>
+            )}
+            {/* Yaşlandırma — kaç gündür açık (3g+ sarı, 7g+ kırmızı). Tahsil edilende gizli. */}
+            {!collected &&
+              (() => {
+                const d = daysOpen(order.createdAt);
+                return (
+                  <span
+                    className={cn(
+                      "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold",
+                      AGING_BADGE_CLASS[agingLevel(d)],
+                    )}
+                  >
+                    {d <= 0 ? "bugün açıldı" : `${agingLabel(d)}dür açık`}
+                  </span>
+                );
+              })()}
             <span className="text-[11px] text-muted-foreground">
               <RelativeTime date={order.createdAt} />
             </span>
@@ -106,10 +136,22 @@ const OpenAccountRow = memo(function OpenAccountRow({
             <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
               Tutar
             </span>
-            <span className="text-xl font-bold leading-tight tabular-nums">
+            <span
+              className={cn(
+                "text-xl font-bold leading-tight tabular-nums",
+                collected && "text-emerald-600 dark:text-emerald-400",
+              )}
+            >
               {formatCurrency(order.total)}
             </span>
           </div>
+          {collected ? (
+            <Button variant="outline" size="sm" className="h-9" asChild>
+              <Link href={`/orders/${order.id}`} prefetch={false}>
+                <ChevronRight className="h-4 w-4" />
+              </Link>
+            </Button>
+          ) : (
           <div className="flex gap-2 md:w-full">
             <Button
               size="sm"
@@ -159,6 +201,7 @@ const OpenAccountRow = memo(function OpenAccountRow({
               </Link>
             </Button>
           </div>
+          )}
         </div>
       </CardContent>
     </Card>
@@ -203,18 +246,39 @@ export default function OpenAccountsPage() {
     };
   }, [load]);
 
-  const totalDue = useMemo(
-    () => orders.reduce((sum, o) => sum + o.total, 0),
+  // Hâlâ ödenmemiş açık hesaplar — toplam alacak ve sayım yalnızca bunlardan.
+  const openOrders = useMemo(
+    () => orders.filter((o) => o.paymentStatus === "open"),
+    [orders],
+  );
+  // Bugün tahsil edilenler — listede "Tahsil Edildi" olarak kalır.
+  const collectedOrders = useMemo(
+    () => orders.filter((o) => o.paymentStatus !== "open"),
     [orders],
   );
 
+  const totalDue = useMemo(
+    () => openOrders.reduce((sum, o) => sum + o.total, 0),
+    [openOrders],
+  );
+
   // En eski borç en üstte — yaşlanmış alacaklar öne çıksın.
-  const sortedOrders = useMemo(
+  const sortedOpen = useMemo(
     () =>
-      [...orders].sort(
+      [...openOrders].sort(
         (a, b) => +new Date(a.createdAt) - +new Date(b.createdAt),
       ),
-    [orders],
+    [openOrders],
+  );
+
+  // Tahsil edilenler — en son tahsil edilen en üstte.
+  const sortedCollected = useMemo(
+    () =>
+      [...collectedOrders].sort(
+        (a, b) =>
+          +new Date(b.paidAt ?? b.updatedAt) - +new Date(a.paidAt ?? a.updatedAt),
+      ),
+    [collectedOrders],
   );
 
   const handleCollectClick = useCallback((order: Order) => {
@@ -241,8 +305,14 @@ export default function OpenAccountsPage() {
     async (payment: PaymentInfo) => {
       if (!target) return;
       const { id, orderNumber } = target;
-      // Optimistic: tahsil edilen sipariş listeden anında düşer.
-      setOrders((prev) => prev.filter((o) => o.id !== id));
+      // Optimistic: tahsil edilen sipariş listeden DÜŞMEZ — "Tahsil Edildi" olarak kalır.
+      setOrders((prev) =>
+        prev.map((o) =>
+          o.id === id
+            ? { ...o, paymentStatus: "paid", payment, paidAt: new Date() }
+            : o,
+        ),
+      );
       const res = await collectOpenAccount(id, payment);
       if (!res.ok) {
         toast.error(res.error ?? "Tahsilat başarısız");
@@ -260,7 +330,7 @@ export default function OpenAccountsPage() {
         <div className="min-w-0">
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Açık Hesaplar</h1>
           <p className="mt-0.5 text-xs sm:text-sm text-muted-foreground">
-            Ödemesi alınmamış {orders.length} sipariş
+            Ödemesi alınmamış {openOrders.length} sipariş
           </p>
         </div>
         <div className="shrink-0 rounded-xl bg-amber-50 ring-1 ring-amber-200 px-4 py-2 text-right dark:bg-amber-950/40">
@@ -293,7 +363,7 @@ export default function OpenAccountsPage() {
           </Card>
         ) : (
           <div className="space-y-3">
-            {sortedOrders.map((order) => (
+            {sortedOpen.map((order) => (
               <OpenAccountRow
                 key={order.id}
                 order={order}
@@ -301,6 +371,25 @@ export default function OpenAccountsPage() {
                 onCancel={handleCancel}
               />
             ))}
+
+            {/* Bugün tahsil edilenler — listeden düşmez, ayrı başlık altında. */}
+            {sortedCollected.length > 0 && (
+              <div className="pt-2">
+                <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Bugün Tahsil Edilenler ({sortedCollected.length})
+                </p>
+                <div className="space-y-3">
+                  {sortedCollected.map((order) => (
+                    <OpenAccountRow
+                      key={order.id}
+                      order={order}
+                      onCollectClick={handleCollectClick}
+                      onCancel={handleCancel}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

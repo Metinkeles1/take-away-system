@@ -64,6 +64,21 @@ export type TrendyolResponse<T = unknown> =
   | { ok: true; status: number; data: T }
   | { ok: false; status: number; error: string };
 
+// Geçici (transient) hata = network kopması (status 0), rate limit (429) veya
+// sunucu hatası (5xx). Bunlar tek seferlik olabilir; dashboard ilk yüklemede
+// boş gelmesin diye kısa backoff ile birkaç kez denenir. 4xx (429 hariç) kalıcı
+// hata kabul edilir, retry edilmez.
+function isTransientStatus(status: number): boolean {
+  return status === 0 || status === 429 || status >= 500;
+}
+
+const MAX_ATTEMPTS = 3;
+const RETRY_BASE_DELAY_MS = 300;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
 async function trendyolRequest<T = unknown>(init: {
   method: "GET" | "POST" | "PUT" | "DELETE";
   path: string;
@@ -71,42 +86,56 @@ async function trendyolRequest<T = unknown>(init: {
 }): Promise<TrendyolResponse<T>> {
   const { baseUrl, token, supplierId, agentName, executorUser } = readEnv();
 
-  let res: Response;
-  try {
-    res = await fetch(`${baseUrl}${init.path}`, {
-      method: init.method,
-      headers: {
-        Authorization: `Basic ${token}`,
-        "User-Agent": `${supplierId} - SelfIntegration`,
-        "x-agentname": agentName,
-        "x-executor-user": executorUser,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: init.body ? JSON.stringify(init.body) : undefined,
-      cache: "no-store",
-    });
-  } catch (err) {
-    return {
-      ok: false,
-      status: 0,
-      error: err instanceof Error ? err.message : "network error",
-    };
+  let last: TrendyolResponse<T> = { ok: false, status: 0, error: "no attempt" };
+
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      // Üstel backoff: 300ms, 600ms…
+      await sleep(RETRY_BASE_DELAY_MS * 2 ** (attempt - 1));
+    }
+
+    let res: Response;
+    try {
+      res = await fetch(`${baseUrl}${init.path}`, {
+        method: init.method,
+        headers: {
+          Authorization: `Basic ${token}`,
+          "User-Agent": `${supplierId} - SelfIntegration`,
+          "x-agentname": agentName,
+          "x-executor-user": executorUser,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: init.body ? JSON.stringify(init.body) : undefined,
+        cache: "no-store",
+      });
+    } catch (err) {
+      last = {
+        ok: false,
+        status: 0,
+        error: err instanceof Error ? err.message : "network error",
+      };
+      continue; // network hatası → tekrar dene
+    }
+
+    const text = await res.text();
+    if (!res.ok) {
+      last = { ok: false, status: res.status, error: text || res.statusText };
+      if (isTransientStatus(res.status)) continue; // 429/5xx → tekrar dene
+      return last; // kalıcı 4xx → hemen dön
+    }
+    try {
+      return {
+        ok: true,
+        status: res.status,
+        data: (text ? JSON.parse(text) : null) as T,
+      };
+    } catch {
+      return { ok: true, status: res.status, data: text as unknown as T };
+    }
   }
 
-  const text = await res.text();
-  if (!res.ok) {
-    return { ok: false, status: res.status, error: text || res.statusText };
-  }
-  try {
-    return {
-      ok: true,
-      status: res.status,
-      data: (text ? JSON.parse(text) : null) as T,
-    };
-  } catch {
-    return { ok: true, status: res.status, data: text as unknown as T };
-  }
+  return last; // tüm denemeler tükendi
 }
 
 function supplierPath(suffix: string) {

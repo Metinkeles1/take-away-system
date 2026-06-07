@@ -4,7 +4,8 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "rea
 import Link from "next/link";
 import { useOrderStore } from "@/store/orderStore";
 import { Button } from "@/components/ui/button";
-import { PlusCircle } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { PlusCircle, Search, X } from "lucide-react";
 import { type OrderStatus } from "@/types";
 import {
   OrderStatusFilters,
@@ -19,6 +20,7 @@ const REFRESH_MS = 20_000;
 export default function OrdersPage() {
   const { orders, updateOrderStatus, loadOrders, isLoading } = useOrderStore();
   const [filter, setFilter] = useState<OrderFilter>("all");
+  const [search, setSearch] = useState("");
   const [bootstrapping, setBootstrapping] = useState(orders.length === 0);
 
   useEffect(() => {
@@ -62,13 +64,31 @@ export default function OrdersPage() {
   }, [orders]);
 
   const deferredFilter = useDeferredValue(filter);
-  const filteredOrders = useMemo(
-    () =>
+  const deferredSearch = useDeferredValue(search);
+  const filteredOrders = useMemo(() => {
+    const byStatus =
       deferredFilter === "all"
         ? orders
-        : orders.filter((o) => o.status === deferredFilter),
-    [orders, deferredFilter],
-  );
+        : orders.filter((o) => o.status === deferredFilter);
+
+    const q = deferredSearch.trim().toLocaleLowerCase("tr");
+    if (!q) return byStatus;
+
+    return byStatus.filter((o) => {
+      const haystack = [
+        String(o.orderNumber),
+        o.customer.name,
+        o.customer.phone,
+        o.customer.address,
+        o.externalRef,
+        ...o.items.map((i) => i.product.name),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLocaleLowerCase("tr");
+      return haystack.includes(q);
+    });
+  }, [orders, deferredFilter, deferredSearch]);
 
   // Stabil referans — OrderListCard memo'sunun çalışması için şart.
   const handleStatusChange = useCallback(
@@ -85,7 +105,7 @@ export default function OrdersPage() {
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Siparişler</h1>
           <p className="mt-0.5 text-xs sm:text-sm text-muted-foreground">
             Toplam {orders.length} sipariş
-            {filter !== "all" && (
+            {(filter !== "all" || search.trim()) && (
               <>
                 {" · "}
                 <span className="font-medium">{filteredOrders.length}</span> filtreli
@@ -101,6 +121,28 @@ export default function OrdersPage() {
         </Link>
       </div>
 
+      <div className="relative mb-3 shrink-0">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          type="search"
+          inputMode="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Sipariş no, müşteri, telefon, adres veya ürün ara…"
+          className="pl-9 pr-9"
+        />
+        {search && (
+          <button
+            type="button"
+            onClick={() => setSearch("")}
+            aria-label="Aramayı temizle"
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+
       <OrderStatusFilters filter={filter} counts={counts} onChange={setFilter} />
 
       <div className="flex-1 min-h-0 pt-px px-px">
@@ -108,7 +150,11 @@ export default function OrdersPage() {
           isLoading={isLoading || bootstrapping}
           orders={filteredOrders}
           filter={filter}
-          onResetFilter={() => setFilter("all")}
+          hasSearch={Boolean(search.trim())}
+          onResetFilter={() => {
+            setFilter("all");
+            setSearch("");
+          }}
           onStatusChange={handleStatusChange}
         />
       </div>
