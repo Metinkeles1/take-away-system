@@ -30,6 +30,14 @@ const EndOfDaySnapshotSchema = new Schema(
     // Ne zaman ve nasıl donduruldu.
     closedAt: { type: Date, default: () => new Date() },
     source: { type: String, enum: ["cron", "manual"], default: "manual" },
+
+    // Elle girilen kasa sayımı (gün kapatılırken kaydedilir). Sistem hesabıyla
+    // OTOMATİK kıyaslanmaz; sadece o günün fiziki kasa toplamı olarak saklanır.
+    // Cron kapanışında dokunulmaz (undefined geçilir → eski değer korunur).
+    cashCounted: { type: Number, default: null }, // nakit kasa toplamı (₺)
+    cardCounted: { type: Number, default: null }, // kredi kartı (POS) toplamı (₺)
+    ibanCounted: { type: Number, default: null }, // IBAN / havale toplamı (₺)
+    ticketCounted: { type: Number, default: null }, // yemek kartı (ticket) toplamı (₺)
   },
   { timestamps: true, versionKey: false },
 );

@@ -5,12 +5,40 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Wallet, Phone, MapPin, ChevronRight, CheckCircle2 } from "lucide-react";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import {
+  Wallet,
+  Phone,
+  MapPin,
+  ChevronRight,
+  CheckCircle2,
+  XCircle,
+} from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { formatCurrency, formatDate, cn } from "@/lib/utils";
+import {
+  daysOpen,
+  agingLevel,
+  agingLabel,
+  AGING_BADGE_CLASS,
+} from "@/lib/orders/aging";
 import { RelativeTime } from "@/components/RelativeTime";
 import { CollectPaymentDialog } from "@/components/orders/CollectPaymentDialog";
 import { subscribeOrders } from "@/lib/pusher/client";
-import { getOpenAccounts, collectOpenAccount } from "@/actions/orders";
+import {
+  getOpenAccounts,
+  collectOpenAccount,
+  updateOrderStatus,
+} from "@/actions/orders";
 import type { Order, PaymentInfo } from "@/types";
 import { toast } from "sonner";
 
@@ -18,9 +46,11 @@ import { toast } from "sonner";
 const OpenAccountRow = memo(function OpenAccountRow({
   order,
   onCollectClick,
+  onCancel,
 }: {
   order: Order;
   onCollectClick: (order: Order) => void;
+  onCancel: (order: Order) => void;
 }) {
   return (
     <Card className="overflow-hidden relative">
@@ -32,6 +62,20 @@ const OpenAccountRow = memo(function OpenAccountRow({
             <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-[11px] font-medium dark:bg-amber-950 dark:text-amber-300">
               Açık Hesap
             </span>
+            {/* Yaşlandırma — kaç gündür açık (3g+ sarı, 7g+ kırmızı) */}
+            {(() => {
+              const d = daysOpen(order.createdAt);
+              return (
+                <span
+                  className={cn(
+                    "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold",
+                    AGING_BADGE_CLASS[agingLevel(d)],
+                  )}
+                >
+                  {d <= 0 ? "bugün açıldı" : `${agingLabel(d)}dür açık`}
+                </span>
+              );
+            })()}
             <span className="text-[11px] text-muted-foreground">
               <RelativeTime date={order.createdAt} />
             </span>
@@ -75,6 +119,40 @@ const OpenAccountRow = memo(function OpenAccountRow({
               <CheckCircle2 className="mr-1.5 h-4 w-4" />
               Tahsil Et
             </Button>
+            {/* İptal Et — sipariş iptal edilince açık hesaptan ve alacaktan düşer.
+                Geri alınamaz olduğu için onay sorulur. */}
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+                  title="Siparişi iptal et"
+                >
+                  <XCircle className="h-4 w-4" />
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Siparişi iptal et?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    #{order.orderNumber} · {order.customer.name} ·{" "}
+                    {formatCurrency(order.total)} açık hesabı iptal edilecek.
+                    Sipariş &quot;İptal Edildi&quot; olarak işaretlenir ve
+                    alacaktan düşer. Bu işlem geri alınamaz.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Vazgeç</AlertDialogCancel>
+                  <AlertDialogAction
+                    variant="destructive"
+                    onClick={() => onCancel(order)}
+                  >
+                    İptal Et
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
             <Button variant="outline" size="sm" className="h-9" asChild>
               <Link href={`/orders/${order.id}`} prefetch={false}>
                 <ChevronRight className="h-4 w-4" />
@@ -130,10 +208,34 @@ export default function OpenAccountsPage() {
     [orders],
   );
 
+  // En eski borç en üstte — yaşlanmış alacaklar öne çıksın.
+  const sortedOrders = useMemo(
+    () =>
+      [...orders].sort(
+        (a, b) => +new Date(a.createdAt) - +new Date(b.createdAt),
+      ),
+    [orders],
+  );
+
   const handleCollectClick = useCallback((order: Order) => {
     setTarget(order);
     setDialogOpen(true);
   }, []);
+
+  const handleCancel = useCallback(
+    async (order: Order) => {
+      // Optimistic: iptal edilen sipariş listeden anında düşer.
+      setOrders((prev) => prev.filter((o) => o.id !== order.id));
+      const res = await updateOrderStatus(order.id, "cancelled");
+      if (!res.ok) {
+        toast.error(res.error ?? "Sipariş iptal edilemedi");
+        void load(); // geri al — taze listeyi çek
+        return;
+      }
+      toast.success(`#${order.orderNumber} iptal edildi`);
+    },
+    [load],
+  );
 
   const handleCollect = useCallback(
     async (payment: PaymentInfo) => {
@@ -191,11 +293,12 @@ export default function OpenAccountsPage() {
           </Card>
         ) : (
           <div className="space-y-3">
-            {orders.map((order) => (
+            {sortedOrders.map((order) => (
               <OpenAccountRow
                 key={order.id}
                 order={order}
                 onCollectClick={handleCollectClick}
+                onCancel={handleCancel}
               />
             ))}
           </div>

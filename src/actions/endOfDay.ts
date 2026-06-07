@@ -6,7 +6,10 @@ import VoucherModel from "@/models/Voucher";
 import EndOfDaySnapshotModel from "@/models/EndOfDaySnapshot";
 import { type OrderSource } from "@/types";
 import { istanbulDayStart, istanbulDateISO } from "@/lib/datetime";
-import { getTrendyolDashboardStats } from "@/actions/trendyolDashboard";
+import {
+  getTrendyolDashboardStats,
+  type TrendyolCategoryEarning,
+} from "@/actions/trendyolDashboard";
 
 // ─── Tipler ──────────────────────────────────────────────────────────────────
 export type PaymentKey = "cash" | "card" | "online" | "meal_card" | "iban";
@@ -29,14 +32,32 @@ export interface CorporateDayRow {
 // Trendyol o günün özeti — Trendyol API'sından (packages + settlements) okunur.
 // Yerel DB'de Trendyol siparişi tutulmadığı için bu blok ayrı çekilip rapora
 // birleştirilir; snapshot'a dondurulunca settlement rakamı da sabitlenir.
+// Ödeme kanalına göre hakediş kırılımı — Trendyol "Para Akışı" mantığı.
+//   trendyolNet = Tutar − Komisyon − İndirim (Trendyol "Satıcı Hakediş")
+//   bankNet     = bankaya fiilen yatacak; yemek kartı/kod ile kalemlerde
+//                 sağlayıcı %10'u da düşülmüş, kredi kartında = trendyolNet.
+// Bankaya yatacak hesaba SADECE online kanallar girer: kredi kartı + yemek
+// kartı. Kapıda ödeme (nakit/kart/kod) Trendyol'dan banka hesabına gelmez,
+// para zaten kuryeyle kasaya girer → hakediş toplamına dahil edilmez.
+export interface EndOfDayTrendyolEarnings {
+  commissionRate: number; // online karttan türetilen efektif komisyon oranı
+  creditCard: TrendyolCategoryEarning; // Kredi Kartı (online) — net GERÇEK
+  ticket: TrendyolCategoryEarning; // Yemek Kartı — tahmini
+  totalTrendyolNet: number; // kredi kartı + yemek kartı hakediş toplamı (₺)
+  totalBankNet: number; // sağlayıcı %10 sonrası bankaya yatacak tahmin (₺)
+}
+
 export interface EndOfDayTrendyol {
   available: boolean; // API'dan başarıyla okundu mu
   error?: string; // okunamadıysa sebep
   orderCount: number; // iptal hariç sipariş adedi
   cancelledCount: number;
   revenue: number; // brüt ciro (₺)
-  netRevenue: number; // net hakediş — settlement (₺)
+  netRevenue: number; // online kart settlement neti — Net Hakediş'in GERÇEK kısmı (₺)
   avgBasket: number;
+  // Hakediş kırılımı (kredi kartı / yemek kartı / kapıda) + bankaya yatacak.
+  // Eski snapshot'larda olmayabilir → opsiyonel.
+  earnings?: EndOfDayTrendyolEarnings | null;
 }
 
 export interface EndOfDayReport {
@@ -230,6 +251,19 @@ export async function getEndOfDayReport(dateStr?: string): Promise<EndOfDayRepor
       revenue: trendyol.revenue,
       netRevenue: trendyol.finance?.netRevenue ?? 0,
       avgBasket: trendyol.avgBasket,
+      // Kapıda ödemeyi dışarıda bırak → toplamları kredi kartı + yemek kartından kur.
+      earnings: trendyol.earnings
+        ? {
+            commissionRate: trendyol.earnings.commissionRate,
+            creditCard: trendyol.earnings.creditCard,
+            ticket: trendyol.earnings.ticket,
+            totalTrendyolNet:
+              trendyol.earnings.creditCard.trendyolNet +
+              trendyol.earnings.ticket.trendyolNet,
+            totalBankNet:
+              trendyol.earnings.creditCard.bankNet + trendyol.earnings.ticket.bankNet,
+          }
+        : null,
     };
 
     packageCount += trendyol.orderCount;
@@ -300,6 +334,10 @@ export interface EndOfDayResult {
   closed: boolean; // bu gün dondurulmuş bir snapshot'a sahip mi
   closedAt: string | null; // ISO timestamp
   source: SnapshotSource | null;
+  cashCounted: number | null; // elle girilen nakit kasa toplamı
+  cardCounted: number | null; // elle girilen kredi kartı (POS) toplamı
+  ibanCounted: number | null; // elle girilen IBAN / havale toplamı
+  ticketCounted: number | null; // elle girilen yemek kartı (ticket) toplamı
 }
 
 interface SnapshotLean {
@@ -307,6 +345,19 @@ interface SnapshotLean {
   report: EndOfDayReport;
   closedAt?: Date;
   source?: SnapshotSource;
+  cashCounted?: number | null;
+  cardCounted?: number | null;
+  ibanCounted?: number | null;
+  ticketCounted?: number | null;
+}
+
+// Elle girilen kasa sayımı — gün kapatılırken kaydedilir. Alan verilmezse
+// (undefined) snapshot'taki mevcut değer korunur (cron bu yüzden hiç göndermez).
+export interface ManualCashCount {
+  cash?: number | null;
+  card?: number | null;
+  iban?: number | null;
+  ticket?: number | null;
 }
 
 // O günün raporunu hesaplar ve EndOfDaySnapshot'a upsert eder (dondurur).
@@ -315,20 +366,28 @@ interface SnapshotLean {
 export async function saveEndOfDaySnapshot(
   dateStr: string,
   source: SnapshotSource = "manual",
+  counts?: ManualCashCount,
 ): Promise<EndOfDayReport> {
   await connectDB();
   const report = await getEndOfDayReport(dateStr);
+
+  const set: Record<string, unknown> = {
+    report,
+    totalRevenue: report.totalRevenue,
+    packageCount: report.packageCount,
+    closedAt: new Date(),
+    source,
+  };
+  // Yalnızca açıkça verilen kasa sayımlarını yaz; undefined alana dokunma ki
+  // cron kapanışı (counts hiç göndermez) elle girilen değerleri ezmesin.
+  if (counts?.cash !== undefined) set.cashCounted = counts.cash;
+  if (counts?.card !== undefined) set.cardCounted = counts.card;
+  if (counts?.iban !== undefined) set.ibanCounted = counts.iban;
+  if (counts?.ticket !== undefined) set.ticketCounted = counts.ticket;
+
   await EndOfDaySnapshotModel.findOneAndUpdate(
     { date: report.date },
-    {
-      $set: {
-        report,
-        totalRevenue: report.totalRevenue,
-        packageCount: report.packageCount,
-        closedAt: new Date(),
-        source,
-      },
-    },
+    { $set: set },
     { upsert: true },
   );
   return report;
@@ -377,6 +436,10 @@ export async function getEndOfDaySnapshot(dateStr: string): Promise<EndOfDayResu
     closed: true,
     closedAt: snap.closedAt?.toISOString() ?? null,
     source: snap.source ?? null,
+    cashCounted: snap.cashCounted ?? null,
+    cardCounted: snap.cardCounted ?? null,
+    ibanCounted: snap.ibanCounted ?? null,
+    ticketCounted: snap.ticketCounted ?? null,
   };
 }
 
@@ -399,9 +462,22 @@ export async function getEndOfDay(dateStr?: string): Promise<EndOfDayResult> {
         closed: true,
         closedAt: snap.closedAt?.toISOString() ?? null,
         source: snap.source ?? null,
+        cashCounted: snap.cashCounted ?? null,
+        cardCounted: snap.cardCounted ?? null,
+        ibanCounted: snap.ibanCounted ?? null,
+        ticketCounted: snap.ticketCounted ?? null,
       };
     }
-    return { report: await getEndOfDayReport(iso), closed: false, closedAt: null, source: null };
+    return {
+      report: await getEndOfDayReport(iso),
+      closed: false,
+      closedAt: null,
+      source: null,
+      cashCounted: null,
+      cardCounted: null,
+      ibanCounted: null,
+      ticketCounted: null,
+    };
   }
 
   // Bugün / açık gün: snapshot durumu yalnızca "Kapatıldı" rozetini etkiler,
@@ -416,5 +492,9 @@ export async function getEndOfDay(dateStr?: string): Promise<EndOfDayResult> {
     closed: !!snap,
     closedAt: snap?.closedAt?.toISOString() ?? null,
     source: snap?.source ?? null,
+    cashCounted: snap?.cashCounted ?? null,
+    cardCounted: snap?.cardCounted ?? null,
+    ibanCounted: snap?.ibanCounted ?? null,
+    ticketCounted: snap?.ticketCounted ?? null,
   };
 }

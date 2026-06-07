@@ -4,6 +4,10 @@ import { connectDB } from "@/lib/mongodb";
 import OrderModel from "@/models/Order";
 import CustomerModel from "@/models/Customer";
 import { type GeoPoint, type Order } from "@/types";
+import {
+  getOpenAccountsByPhone,
+  openAccountsExcluding,
+} from "@/lib/orders/openAccounts";
 
 // Kurye sayfası için teslim edilmesi gereken siparişler.
 // Sadece aktif (teslim/iptal olmamış) siparişleri döner — public sayfa olduğu
@@ -34,6 +38,9 @@ export async function getCourierOrders(): Promise<Order[]> {
     geoByPhone.set(rec.phone, rec.geo);
   }
 
+  // Bu müşterilerin açık hesapları — kurye kapıda "eski borcu var" uyarısı görsün.
+  const openByPhone = await getOpenAccountsByPhone(phones);
+
   return docs.map((doc) => {
     const customer = doc.customer as Order["customer"];
     // Siparişin kendi pini varsa onu, yoksa müşteriye (telefon) kayıtlı pini kullan.
@@ -52,6 +59,10 @@ export async function getCourierOrders(): Promise<Order[]> {
       total: doc.total,
       source: (doc.source as Order["source"]) ?? "manual",
       externalRef: doc.externalRef ?? undefined,
+      customerOpenAccounts: openAccountsExcluding(
+        openByPhone.get(customer.phone),
+        doc.id,
+      ),
       createdAt: (doc as unknown as { createdAt: Date }).createdAt,
       updatedAt: (doc as unknown as { updatedAt: Date }).updatedAt,
     };

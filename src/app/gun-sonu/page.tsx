@@ -18,6 +18,12 @@ import {
   Archive,
   Bot,
   Hand,
+  Landmark,
+  CreditCard,
+  Coins,
+  Banknote,
+  Ticket,
+  ArrowRightLeft,
 } from "lucide-react";
 import Link from "next/link";
 import {
@@ -26,6 +32,7 @@ import {
   listEndOfDaySnapshots,
   type EndOfDayReport,
   type EndOfDaySnapshotSummary,
+  type EndOfDayTrendyol,
 } from "@/actions/endOfDay";
 import EndOfDayReceipt from "@/components/receipt/EndOfDayReceipt";
 import { formatCurrency, cn } from "@/lib/utils";
@@ -51,6 +58,14 @@ const SOURCE_DOT: Record<string, string> = {
   getir: "bg-purple-500",
   yemeksepeti: "bg-pink-500",
 };
+
+// "1.234,50" / "1234.5" / "" → number | null. Boş veya geçersizse null.
+function parseAmount(s: string): number | null {
+  const t = s.trim().replace(/\s/g, "").replace(/\./g, "").replace(",", ".");
+  if (!t) return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
+}
 
 // Istanbul "bugün" tarihini YYYY-MM-DD olarak verir (date input default'u).
 function istanbulToday(): string {
@@ -253,6 +268,287 @@ const CorporateTable = memo(function CorporateTable({
   );
 });
 
+// ── Trendyol hakediş kartı — kredi kartı / yemek kartı / kapıda kırılımı ──────
+// "Net Hakediş" = Tutar−Komisyon−İndirim (Trendyol Satıcı Hakediş).
+// "Bankaya Yatacak" = yemek kartı/kod ile kalemlerde sağlayıcı %10 da düşülmüş hali.
+type TrendyolCat = NonNullable<EndOfDayTrendyol["earnings"]>["creditCard"];
+
+const EarningRow = memo(function EarningRow({
+  icon: Icon,
+  label,
+  cat,
+  tag,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  cat: TrendyolCat | undefined;
+  tag: "gerçek" | "tahmini";
+}) {
+  if (!cat || cat.count === 0) return null;
+  const hasProviderCut = cat.bankNet < cat.trendyolNet - 0.5;
+  return (
+    <div className="flex items-center justify-between gap-3 border-b py-2 last:border-0">
+      <div className="flex min-w-0 items-center gap-2.5">
+        <Icon className="size-4 shrink-0 text-muted-foreground" />
+        <div className="min-w-0">
+          <p className="flex items-center gap-1.5 text-sm font-medium">
+            {label}
+            <span className="rounded bg-muted px-1 py-px text-[10px] font-normal text-muted-foreground">
+              {tag}
+            </span>
+          </p>
+          <p className="truncate text-[11px] text-muted-foreground tabular-nums">
+            {cat.count} sipariş · brüt {formatCurrency(cat.gross)}
+            {hasProviderCut && ` · hakediş ${formatCurrency(cat.trendyolNet)} −%10`}
+          </p>
+        </div>
+      </div>
+      <span className="shrink-0 text-sm font-semibold tabular-nums">
+        {formatCurrency(cat.bankNet)}
+      </span>
+    </div>
+  );
+});
+
+const TrendyolEarningsCard = memo(function TrendyolEarningsCard({
+  trendyol,
+}: {
+  trendyol: EndOfDayTrendyol | null;
+}) {
+  if (!trendyol) return null;
+
+  if (!trendyol.available) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Bike className="size-4 text-orange-500" />
+            Trendyol Hakediş
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            Trendyol verisi API&apos;dan okunamadı
+            {trendyol.error ? ` · ${trendyol.error}` : ""}
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const e = trendyol.earnings;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Bike className="size-4 text-orange-500" />
+          Trendyol Hakediş
+          <span className="ml-auto text-xs font-normal text-muted-foreground tabular-nums">
+            {trendyol.orderCount} sipariş · brüt {formatCurrency(trendyol.revenue)}
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {!e || trendyol.orderCount === 0 ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            Bu gün Trendyol siparişi yok
+          </p>
+        ) : (
+          <>
+            <p className="mb-1 text-[11px] text-muted-foreground">
+              Komisyon ~%{(e.commissionRate * 100).toFixed(1)} (online karttan türetildi) ·
+              sadece online tahsilat (kapıda ödeme hariç) · tutarlar bankaya yatacak nettir
+            </p>
+            <EarningRow icon={CreditCard} label="Kredi Kartı" cat={e.creditCard} tag="gerçek" />
+            <EarningRow icon={Receipt} label="Yemek Kartı (Ticket)" cat={e.ticket} tag="tahmini" />
+
+            <div className="mt-3 space-y-2 rounded-lg bg-muted/40 p-3">
+              <div className="flex items-center justify-between gap-2 text-sm">
+                <span className="text-muted-foreground">Trendyol Hakediş (komisyon sonrası)</span>
+                <span className="font-semibold tabular-nums">
+                  {formatCurrency(e.totalTrendyolNet)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-1.5 text-sm font-semibold text-emerald-700 dark:text-emerald-400">
+                  <Landmark className="size-4" />
+                  Bankaya Yatacak
+                </span>
+                <span className="text-lg font-bold text-emerald-700 tabular-nums dark:text-emerald-400">
+                  {formatCurrency(e.totalBankNet)}
+                </span>
+              </div>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+});
+
+// ── Kasa Sayımı — elle girilen nakit / kredi kartı / IBAN / ticket toplamları ──
+// Trendyol HARİÇ kendi tahsilatların. Toplamı, sistemdeki yerel paket cirosuyla
+// (yine Trendyol hariç) kıyaslanır → "kasam siparişlerden az mı çok mu" teyidi.
+// Gün kapatılınca snapshot'a kaydedilir. Toplam ciroya EKLENMEZ (mükerrer olmaz).
+const CashCountCard = memo(function CashCountCard({
+  cashValue,
+  cardValue,
+  ibanValue,
+  ticketValue,
+  onCashChange,
+  onCardChange,
+  onIbanChange,
+  onTicketChange,
+  localRevenue,
+  trendyolBankNet,
+  closed,
+  disabled,
+}: {
+  cashValue: string;
+  cardValue: string;
+  ibanValue: string;
+  ticketValue: string;
+  onCashChange: (v: string) => void;
+  onCardChange: (v: string) => void;
+  onIbanChange: (v: string) => void;
+  onTicketChange: (v: string) => void;
+  localRevenue: number; // sistemdeki yerel paket cirosu (Trendyol hariç)
+  trendyolBankNet: number | null; // Trendyol'dan bankaya gelen net (otomatik)
+  closed: boolean;
+  disabled: boolean;
+}) {
+  const cash = parseAmount(cashValue);
+  const card = parseAmount(cardValue);
+  const iban = parseAmount(ibanValue);
+  const ticket = parseAmount(ticketValue);
+  const total = (cash ?? 0) + (card ?? 0) + (iban ?? 0) + (ticket ?? 0);
+  const hasAny = cash != null || card != null || iban != null || ticket != null;
+  const diff = total - localRevenue; // + → kasa fazla (beklenen); − → eksik (uyarı)
+  // Genel toplam = elle girilen kasa + Trendyol'dan bankaya gelen net satış.
+  const grandTotal = total + (trendyolBankNet ?? 0);
+
+  const field = (
+    icon: React.ComponentType<{ className?: string }>,
+    label: string,
+    value: string,
+    onChange: (v: string) => void,
+  ) => {
+    const Icon = icon;
+    return (
+      <label className="flex items-center gap-3 rounded-lg border px-3 py-2.5">
+        <Icon className="size-4 shrink-0 text-muted-foreground" />
+        <span className="flex-1 text-sm font-medium">{label}</span>
+        <span className="flex items-center gap-1">
+          <input
+            inputMode="decimal"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            disabled={disabled}
+            placeholder="0,00"
+            className="w-28 rounded-md border bg-background px-2 py-1 text-right text-sm tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+          />
+          <span className="text-sm text-muted-foreground">₺</span>
+        </span>
+      </label>
+    );
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Wallet className="size-4 text-emerald-500" />
+          Kasa Sayımı
+          <span className="ml-auto text-[11px] font-normal text-muted-foreground">
+            Trendyol hariç
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2.5">
+        {field(Banknote, "Nakit", cashValue, onCashChange)}
+        {field(CreditCard, "Kredi Kartı (POS)", cardValue, onCardChange)}
+        {field(ArrowRightLeft, "IBAN / Havale", ibanValue, onIbanChange)}
+        {field(Ticket, "Yemek Kartı (Ticket)", ticketValue, onTicketChange)}
+
+        <div className="flex items-center justify-between gap-2 rounded-lg bg-muted/40 px-3 py-2.5">
+          <span className="flex items-center gap-1.5 text-sm font-medium">
+            <Coins className="size-4 text-muted-foreground" />
+            Kasa Toplam
+            <span className="text-[11px] font-normal text-muted-foreground">
+              (Trendyol hariç)
+            </span>
+          </span>
+          <span className="text-sm font-semibold tabular-nums">
+            {hasAny ? formatCurrency(total) : "—"}
+          </span>
+        </div>
+
+        {/* Trendyol net satış — bankaya gelen kısım, otomatik çekilir */}
+        {trendyolBankNet != null && (
+          <div className="flex items-center justify-between gap-2 rounded-lg border px-3 py-2.5">
+            <span className="flex items-center gap-1.5 text-sm font-medium">
+              <Bike className="size-4 text-orange-500" />
+              Trendyol Net Satış
+              <span className="text-[11px] font-normal text-muted-foreground">otomatik</span>
+            </span>
+            <span className="text-sm font-semibold tabular-nums">
+              {formatCurrency(trendyolBankNet)}
+            </span>
+          </div>
+        )}
+
+        {/* Genel toplam — kasa + Trendyol (günün tüm net geliri) */}
+        {(hasAny || trendyolBankNet != null) && (
+          <div className="flex items-center justify-between gap-2 rounded-lg bg-emerald-500/10 px-3 py-3 ring-1 ring-emerald-500/20">
+            <span className="flex items-center gap-1.5 text-sm font-semibold text-emerald-700 dark:text-emerald-400">
+              <Coins className="size-4" />
+              Genel Toplam
+            </span>
+            <span className="text-lg font-bold text-emerald-700 tabular-nums dark:text-emerald-400">
+              {formatCurrency(grandTotal)}
+            </span>
+          </div>
+        )}
+
+        {/* Mutabakat — kasa toplamı vs sistemdeki yerel paket cirosu */}
+        {hasAny && (
+          <div className="space-y-1.5 rounded-lg border px-3 py-2.5 text-sm">
+            <div className="flex items-center justify-between gap-2 text-muted-foreground">
+              <span>Sistem yerel ciro (Trendyol hariç)</span>
+              <span className="tabular-nums">{formatCurrency(localRevenue)}</span>
+            </div>
+            <div
+              className={cn(
+                "flex items-center justify-between gap-2 font-semibold",
+                diff < -0.5
+                  ? "text-rose-600 dark:text-rose-400"
+                  : "text-emerald-600 dark:text-emerald-400",
+              )}
+            >
+              <span>{diff < -0.5 ? "Kasa eksik" : "Kasa farkı (fazla)"}</span>
+              <span className="tabular-nums">
+                {diff >= 0 ? "+" : ""}
+                {formatCurrency(diff)}
+              </span>
+            </div>
+            {diff < -0.5 && (
+              <p className="text-[11px] font-normal text-rose-600/80 dark:text-rose-400/80">
+                Kasan sistemdeki siparişlerden az — eksik tahsilat olabilir.
+              </p>
+            )}
+          </div>
+        )}
+
+        <p className="text-[11px] text-muted-foreground">
+          {closed
+            ? "Kayıtlı. Değiştirip “Yeniden Kapat” ile güncelleyebilirsin."
+            : "“Günü Kapat” ile birlikte kaydedilir."}
+        </p>
+      </CardContent>
+    </Card>
+  );
+});
+
 function formatDayTR(iso: string): string {
   const d = new Date(iso + "T00:00:00Z");
   return d.toLocaleDateString("tr-TR", {
@@ -361,6 +657,11 @@ export default function EndOfDayPage() {
   const [isClosing, setIsClosing] = useState(false);
   const [snapshots, setSnapshots] = useState<EndOfDaySnapshotSummary[]>([]);
   const [archiveLoading, setArchiveLoading] = useState(true);
+  // Elle girilen kasa sayımı (string — boş bırakılabilir). Gün kapatılınca kaydedilir.
+  const [cashCounted, setCashCounted] = useState("");
+  const [cardCounted, setCardCounted] = useState("");
+  const [ibanCounted, setIbanCounted] = useState("");
+  const [ticketCounted, setTicketCounted] = useState("");
 
   const loadArchive = useCallback(async () => {
     setArchiveLoading(true);
@@ -378,6 +679,12 @@ export default function EndOfDayPage() {
       setReport(data.report);
       setClosed(data.closed);
       setClosedAt(data.closedAt);
+      // Kayıtlı sayım varsa input'lara doldur (kapatılmış günü açınca görünür);
+      // yoksa boşalt — başka güne geçince önceki günün rakamı kalmasın.
+      setCashCounted(data.cashCounted != null ? String(data.cashCounted) : "");
+      setCardCounted(data.cardCounted != null ? String(data.cardCounted) : "");
+      setIbanCounted(data.ibanCounted != null ? String(data.ibanCounted) : "");
+      setTicketCounted(data.ticketCounted != null ? String(data.ticketCounted) : "");
     } finally {
       setIsLoading(false);
     }
@@ -392,12 +699,26 @@ export default function EndOfDayPage() {
     }
     setIsClosing(true);
     try {
-      await saveEndOfDaySnapshot(date, "manual");
+      await saveEndOfDaySnapshot(date, "manual", {
+        cash: parseAmount(cashCounted),
+        card: parseAmount(cardCounted),
+        iban: parseAmount(ibanCounted),
+        ticket: parseAmount(ticketCounted),
+      });
       await Promise.all([load(), loadArchive()]);
     } finally {
       setIsClosing(false);
     }
-  }, [date, closed, load, loadArchive]);
+  }, [
+    date,
+    closed,
+    cashCounted,
+    cardCounted,
+    ibanCounted,
+    ticketCounted,
+    load,
+    loadArchive,
+  ]);
 
   useEffect(() => {
     load();
@@ -417,6 +738,13 @@ export default function EndOfDayPage() {
     () => report?.paymentBreakdown.reduce((s, r) => s + r.amount, 0) ?? 0,
     [report],
   );
+  // Kasa mutabakatı için yerel paket cirosu: toplam ciro − Trendyol (Trendyol
+  // parası bankaya gider, kasaya değil; kasa sayımı yerel tahsilatları kapsar).
+  const localRevenue = useMemo(() => {
+    if (!report) return 0;
+    const ty = report.trendyol?.available ? report.trendyol.revenue : 0;
+    return Math.max(report.totalRevenue - ty, 0);
+  }, [report]);
 
   return (
     <div className="h-full overflow-y-auto">
@@ -502,15 +830,21 @@ export default function EndOfDayPage() {
               />
               <StatCard
                 icon={Bike}
-                label="Trendyol Net Hakediş"
+                label="Trendyol Bankaya Yatacak"
                 value={
                   report.trendyol?.available
-                    ? formatCurrency(report.trendyol.netRevenue)
+                    ? formatCurrency(
+                        report.trendyol.earnings?.totalBankNet ??
+                          report.trendyol.netRevenue,
+                      )
                     : "—"
                 }
                 sub={
                   report.trendyol?.available
-                    ? `${report.trendyol.orderCount} sipariş · Brüt ${formatCurrency(report.trendyol.revenue)}`
+                    ? `Hakediş ${formatCurrency(
+                        report.trendyol.earnings?.totalTrendyolNet ??
+                          report.trendyol.netRevenue,
+                      )} · Brüt ${formatCurrency(report.trendyol.revenue)}`
                     : "API'dan okunamadı"
                 }
                 accent="bg-orange-500/15 text-orange-600 dark:text-orange-400"
@@ -549,6 +883,7 @@ export default function EndOfDayPage() {
               </>
             ) : (
               <>
+                {report.trendyol && <TrendyolEarningsCard trendyol={report.trendyol} />}
                 <BreakdownTable
                   title="Ödeme Yöntemine Göre"
                   rows={report.paymentBreakdown}
@@ -573,8 +908,26 @@ export default function EndOfDayPage() {
             )}
           </div>
 
-          {/* Fiş önizleme + arşiv — sağ kolon */}
+          {/* Kasa sayımı + fiş önizleme + arşiv — sağ kolon */}
           <div className="flex flex-col gap-4 lg:col-span-1">
+            <CashCountCard
+              cashValue={cashCounted}
+              cardValue={cardCounted}
+              ibanValue={ibanCounted}
+              ticketValue={ticketCounted}
+              onCashChange={setCashCounted}
+              onCardChange={setCardCounted}
+              onIbanChange={setIbanCounted}
+              onTicketChange={setTicketCounted}
+              localRevenue={localRevenue}
+              trendyolBankNet={
+                report?.trendyol?.available
+                  ? report.trendyol.earnings?.totalBankNet ?? null
+                  : null
+              }
+              closed={closed}
+              disabled={isLoading || isClosing}
+            />
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-sm">
@@ -586,7 +939,13 @@ export default function EndOfDayPage() {
                 {isLoading || !report ? (
                   <Skeleton className="h-96 w-[72mm] rounded-md" />
                 ) : (
-                  <EndOfDayReceipt report={report} />
+                  <EndOfDayReceipt
+                    report={report}
+                    cashCounted={parseAmount(cashCounted)}
+                    cardCounted={parseAmount(cardCounted)}
+                    ibanCounted={parseAmount(ibanCounted)}
+                    ticketCounted={parseAmount(ticketCounted)}
+                  />
                 )}
               </CardContent>
             </Card>

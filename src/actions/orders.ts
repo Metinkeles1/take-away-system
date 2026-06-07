@@ -9,8 +9,18 @@ import {
   markTrendyolPackageInvoiced,
   shipTrendyolPackage,
 } from "@/lib/integrations/trendyol/client";
-import { type Order, type OrderStatus, type PaymentInfo } from "@/types";
+import {
+  type CustomerOpenAccounts,
+  type Order,
+  type OrderStatus,
+  type PaymentInfo,
+  type PaymentMethod,
+} from "@/types";
 import { notifyOrdersChanged } from "@/lib/pusher/server";
+import {
+  getOpenAccountsByPhone,
+  openAccountsExcluding,
+} from "@/lib/orders/openAccounts";
 
 // Dahili sipariş durumu → Trendyol GO Yemek API çağrı zinciri.
 // "preparing" webhook'ta otomatik "picked" (kabul) atılırken yapılıyor — burada tekrarlanmaz.
@@ -70,6 +80,12 @@ export async function getOrders(): Promise<Order[]> {
     .limit(ORDERS_MAX)
     .lean();
 
+  // Bu penceredeki müşterilerin açık hesaplarını tek sorguda çek; her siparişe
+  // "aynı müşterinin diğer açık hesapları" uyarısını iliştir (kendisi hariç).
+  const openByPhone = await getOpenAccountsByPhone(
+    docs.map((d) => (d.customer as Order["customer"]).phone),
+  );
+
   return docs.map((doc) => ({
     id: doc.id,
     orderNumber: doc.orderNumber,
@@ -85,6 +101,10 @@ export async function getOrders(): Promise<Order[]> {
     externalRef: doc.externalRef ?? undefined,
     paymentStatus: (doc.paymentStatus as Order["paymentStatus"]) ?? "paid",
     paidAt: (doc as unknown as { paidAt?: Date }).paidAt ?? undefined,
+    customerOpenAccounts: openAccountsExcluding(
+      openByPhone.get((doc.customer as Order["customer"]).phone),
+      doc.id,
+    ),
     createdAt: (doc as unknown as { createdAt: Date }).createdAt,
     updatedAt: (doc as unknown as { updatedAt: Date }).updatedAt,
   }));
@@ -201,6 +221,30 @@ export async function updateOrderPayment(
   }
 }
 
+// Sadece ödeme YÖNTEMİNİ güncelle (kurye kapıda gerçek yöntemi düzeltir).
+// updateOrderPayment tüm payment objesini ezerdi; bu yalnızca method'u $set eder,
+// cashGiven/change vb. korunur. Yöntem değiştirme kurye ekranında anlık çalışır.
+export async function setOrderPaymentMethod(
+  id: string,
+  method: PaymentMethod,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await connectDB();
+
+    const doc = await OrderModel.findOneAndUpdate(
+      { id },
+      { $set: { "payment.method": method } },
+    );
+    if (!doc) return { ok: false, error: "Sipariş bulunamadı" };
+
+    await notifyOrdersChanged("payment-changed");
+    return { ok: true };
+  } catch (error) {
+    console.error("[setOrderPaymentMethod]", error);
+    return { ok: false, error: "Ödeme yöntemi güncellenemedi" };
+  }
+}
+
 // ─── Tüm aktif sipariş sayısı (sidebar rozeti için, hafif sorgu) ────────────
 export async function getActiveOrdersCount(): Promise<number> {
   try {
@@ -218,7 +262,11 @@ export async function getActiveOrdersCount(): Promise<number> {
 export async function getOpenAccounts(): Promise<Order[]> {
   await connectDB();
 
-  const docs = await OrderModel.find({ paymentStatus: "open" })
+  // İptal edilen siparişler alacak sayılmaz — açık hesaplardan dışla.
+  const docs = await OrderModel.find({
+    paymentStatus: "open",
+    status: { $ne: "cancelled" },
+  })
     .sort({ createdAt: -1 })
     .lean();
 
@@ -242,11 +290,25 @@ export async function getOpenAccounts(): Promise<Order[]> {
   }));
 }
 
+// Tek bir müşterinin (telefon) açık hesap özeti — yeni sipariş alınırken
+// "bu müşterinin borcu var" uyarısı için. İptal edilenler dışlanır (helper'da).
+export async function getCustomerOpenAccounts(
+  phone: string,
+): Promise<CustomerOpenAccounts | null> {
+  const key = phone?.trim();
+  if (!key || key.length < 6) return null;
+  const map = await getOpenAccountsByPhone([key]);
+  return map.get(key) ?? null;
+}
+
 // Açık hesap sayısı — sidebar rozeti için hafif sorgu.
 export async function getOpenAccountsCount(): Promise<number> {
   try {
     await connectDB();
-    return await OrderModel.countDocuments({ paymentStatus: "open" });
+    return await OrderModel.countDocuments({
+      paymentStatus: "open",
+      status: { $ne: "cancelled" },
+    });
   } catch (error) {
     console.error("[getOpenAccountsCount]", error);
     return 0;
@@ -300,6 +362,41 @@ export async function setOrderPaymentStatus(
   } catch (error) {
     console.error("[setOrderPaymentStatus]", error);
     return { ok: false, error: "Durum güncellenemedi" };
+  }
+}
+
+// Bir siparişin müşterisinin (telefon) TÜM açık hesaplarını tek hareketle tahsil
+// edilmiş say. Kurye kapıda yeni siparişi teslim ederken "eski borçları da aldım"
+// derse çağrılır. Telefon, güvenlik için client'tan değil siparişten türetilir.
+// Not: ödeme yöntemine dokunulmaz (kapıda genelde nakit toplanır); yalnızca durum
+// "paid" yapılır ve paidAt yazılır. Kaç hesabın kapandığı döner.
+export async function settleCustomerOpenAccounts(
+  orderId: string,
+): Promise<{ ok: boolean; error?: string; settled?: number }> {
+  try {
+    await connectDB();
+
+    const order = await OrderModel.findOne({ id: orderId })
+      .select("customer.phone")
+      .lean();
+    if (!order) return { ok: false, error: "Sipariş bulunamadı" };
+
+    const phone = (order as unknown as { customer?: { phone?: string } }).customer
+      ?.phone;
+    if (!phone) return { ok: true, settled: 0 };
+
+    const res = await OrderModel.updateMany(
+      { "customer.phone": phone, paymentStatus: "open" },
+      { paymentStatus: "paid", paidAt: new Date() },
+    );
+
+    revalidatePath("/open-accounts");
+    revalidatePath("/orders");
+    await notifyOrdersChanged("payment-changed");
+    return { ok: true, settled: res.modifiedCount };
+  } catch (error) {
+    console.error("[settleCustomerOpenAccounts]", error);
+    return { ok: false, error: "Açık hesaplar kapatılamadı" };
   }
 }
 

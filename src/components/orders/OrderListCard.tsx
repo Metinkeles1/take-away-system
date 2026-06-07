@@ -13,6 +13,7 @@ import {
 import { type Order, type OrderStatus } from "@/types";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import { RelativeTime } from "@/components/RelativeTime";
+import { CustomerOpenAccountsBadge } from "@/components/orders/CustomerOpenAccountsBadge";
 import { ORDER_STATUS_CONFIG, ORDER_STATUS_ORDER } from "@/lib/orderStatus";
 import {
   Phone,
@@ -115,6 +116,9 @@ function OrderListCardImpl({ order, onStatusChange }: OrderListCardProps) {
                 <Wallet className="h-3 w-3" />
                 Açık Hesap
               </span>
+            )}
+            {order.customerOpenAccounts && (
+              <CustomerOpenAccountsBadge accounts={order.customerOpenAccounts} />
             )}
             <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground bg-muted rounded-full px-2 py-0.5">
               <Timer className="h-3 w-3" />

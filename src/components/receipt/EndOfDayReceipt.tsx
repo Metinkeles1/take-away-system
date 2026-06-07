@@ -6,30 +6,11 @@ import { formatCurrency } from "@/lib/utils";
 
 interface EndOfDayReceiptProps {
   report: EndOfDayReport;
+  cashCounted?: number | null; // elle girilen nakit kasa toplamı
+  cardCounted?: number | null; // elle girilen kredi kartı (POS) toplamı
+  ibanCounted?: number | null; // elle girilen IBAN / havale toplamı
+  ticketCounted?: number | null; // elle girilen yemek kartı (ticket) toplamı
 }
-
-const PAYMENT_LABELS: Record<string, string> = {
-  cash: "Nakit",
-  card: "Kredi/Banka Kartı",
-  online: "Online Ödeme",
-  meal_card: "Yemek Kartı",
-  iban: "IBAN / Havale",
-};
-
-const SOURCE_LABELS: Record<string, string> = {
-  manual: "Telefon / Manuel",
-  trendyol: "Trendyol",
-  getir: "Getir",
-  yemeksepeti: "Yemeksepeti",
-};
-
-const STATUS_LABELS: Record<string, string> = {
-  pending: "Bekliyor",
-  preparing: "Hazırlanıyor",
-  "on-the-way": "Yolda",
-  delivered: "Teslim Edildi",
-  cancelled: "İptal",
-};
 
 const PAPER_WIDTH = "72mm";
 const CONTENT_WIDTH = "64mm";
@@ -161,7 +142,7 @@ function formatDateTR(iso: string): string {
 }
 
 const EndOfDayReceipt = React.forwardRef<HTMLDivElement, EndOfDayReceiptProps>(
-  ({ report }, ref) => {
+  ({ report, cashCounted, cardCounted, ibanCounted, ticketCounted }, ref) => {
     const uniqueId = useId();
     const receiptId = `eod-receipt-${uniqueId.replace(/:/g, "")}`;
 
@@ -181,6 +162,27 @@ const EndOfDayReceipt = React.forwardRef<HTMLDivElement, EndOfDayReceiptProps>(
           minute: "2-digit",
         })}`
       : "";
+
+    // Elle girilen kasa kalemleri (Trendyol hariç) — yalnızca girilenler basılır.
+    const kasaRows = [
+      { label: "Nakit", value: cashCounted },
+      { label: "Kredi Kartı (POS)", value: cardCounted },
+      { label: "IBAN / Havale", value: ibanCounted },
+      { label: "Yemek Kartı (Ticket)", value: ticketCounted },
+    ].filter((r) => r.value != null) as { label: string; value: number }[];
+    const kasaTotal = kasaRows.reduce((s, r) => s + r.value, 0);
+
+    // Trendyol hakedişi — kredi kartı (net) ile ticket ayrı satır.
+    const ty = report.trendyol;
+    const tyAvailable = !!ty?.available && ty.orderCount > 0;
+    const tyEarnings = tyAvailable ? ty!.earnings : null;
+    // Trendyol'dan bankaya gelen net satış (otomatik).
+    const tyBankNet = tyAvailable
+      ? tyEarnings?.totalBankNet ?? ty!.netRevenue
+      : 0;
+    // Genel toplam = elle girilen kasa + Trendyol net satış.
+    const grandTotal = kasaTotal + tyBankNet;
+    const showGrandTotal = kasaRows.length > 0 || tyAvailable;
 
     return (
       <>
@@ -270,83 +272,74 @@ const EndOfDayReceipt = React.forwardRef<HTMLDivElement, EndOfDayReceiptProps>(
 
             <Divider dashed />
 
-            {/* Ödeme yöntemi kırılımı */}
-            <SectionTitle>Ödeme Yöntemine Göre</SectionTitle>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 9mm 20mm",
-                columnGap: "2mm",
-                fontSize: FONT_SIZE_XSMALL,
-                fontWeight: 700,
-                borderBottom: "1px solid #000",
-                paddingBottom: "3px",
-                marginBottom: "4px",
-              }}
-            >
-              <span>YÖNTEM</span>
-              <span style={{ textAlign: "center" }}>AD</span>
-              <span style={{ textAlign: "right" }}>TUTAR</span>
-            </div>
-            {report.paymentBreakdown.length === 0 ? (
-              <div style={{ fontSize: FONT_SIZE_XSMALL }}>Kayıt yok</div>
-            ) : (
-              report.paymentBreakdown.map((r) => (
-                <BreakdownRow
-                  key={r.key}
-                  label={PAYMENT_LABELS[r.key] ?? r.key}
-                  count={r.count}
-                  amount={r.amount}
-                />
-              ))
-            )}
-
-            <Divider dashed />
-
-            {/* Kanal / ticket kırılımı */}
-            <SectionTitle>Kanala Göre (Ticket)</SectionTitle>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 9mm 20mm",
-                columnGap: "2mm",
-                fontSize: FONT_SIZE_XSMALL,
-                fontWeight: 700,
-                borderBottom: "1px solid #000",
-                paddingBottom: "3px",
-                marginBottom: "4px",
-              }}
-            >
-              <span>KANAL</span>
-              <span style={{ textAlign: "center" }}>PKT</span>
-              <span style={{ textAlign: "right" }}>TUTAR</span>
-            </div>
-            {report.sourceBreakdown.length === 0 ? (
-              <div style={{ fontSize: FONT_SIZE_XSMALL }}>Kayıt yok</div>
-            ) : (
-              report.sourceBreakdown.map((r) => (
-                <BreakdownRow
-                  key={r.key}
-                  label={SOURCE_LABELS[r.key] ?? r.key}
-                  count={r.count}
-                  amount={r.amount}
-                />
-              ))
-            )}
-
-            {/* Trendyol — brüt kanal kırılımında; burada net hakediş özeti */}
-            {report.trendyol?.available && report.trendyol.orderCount > 0 && (
+            {/* Kasa (elle girilen, Trendyol hariç) */}
+            {kasaRows.length > 0 && (
               <>
+                <SectionTitle>Kasa (Trendyol Hariç)</SectionTitle>
+                {kasaRows.map((r) => (
+                  <Row key={r.label} left={r.label} right={formatCurrency(r.value)} />
+                ))}
+                <div style={{ borderTop: "1px solid #000", marginTop: "3px", paddingTop: "3px" }}>
+                  <Row left="Kasa Toplam" right={formatCurrency(kasaTotal)} bold />
+                </div>
                 <Divider dashed />
-                <SectionTitle>Trendyol</SectionTitle>
-                <Row left="Sipariş" right={`${report.trendyol.orderCount}`} />
-                <Row left="Brüt Ciro" right={formatCurrency(report.trendyol.revenue)} />
-                <Row
-                  left="Net Hakediş"
-                  right={formatCurrency(report.trendyol.netRevenue)}
-                  bold
-                />
               </>
+            )}
+
+            {/* Trendyol hakediş — bankaya gelecek (net hakediş + ticket) */}
+            {ty?.available && ty.orderCount > 0 && (
+              <>
+                <SectionTitle>Trendyol Hakediş</SectionTitle>
+                {tyEarnings ? (
+                  <>
+                    {tyEarnings.creditCard.count > 0 && (
+                      <Row
+                        left="Net Hakediş (Kredi Kartı)"
+                        right={formatCurrency(tyEarnings.creditCard.bankNet)}
+                      />
+                    )}
+                    {tyEarnings.ticket.count > 0 && (
+                      <Row
+                        left="Ticket Hakediş"
+                        right={formatCurrency(tyEarnings.ticket.bankNet)}
+                      />
+                    )}
+                    <div
+                      style={{ borderTop: "1px solid #000", marginTop: "3px", paddingTop: "3px" }}
+                    >
+                      <Row
+                        left="Bankaya Yatacak"
+                        right={formatCurrency(tyEarnings.totalBankNet)}
+                        bold
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <Row left="Net Hakediş" right={formatCurrency(ty.netRevenue)} bold />
+                )}
+                <Divider dashed />
+              </>
+            )}
+
+            {/* Genel toplam — kasa + Trendyol net satış (günün net geliri) */}
+            {showGrandTotal && (
+              <>
+                <div
+                  style={{ borderTop: "2px solid #000", marginTop: "2px", paddingTop: "4px" }}
+                >
+                  <Row left="GENEL TOPLAM" right={formatCurrency(grandTotal)} bold large />
+                </div>
+                <Divider dashed />
+              </>
+            )}
+
+            {/* Açık hesap (tahsil edilmemiş) */}
+            {report.openAmount > 0 && (
+              <Row
+                left={`Açık Hesap (${report.openCount})`}
+                right={formatCurrency(report.openAmount)}
+                bold
+              />
             )}
 
             {/* Kurumsal — o gün giden hesaplar */}
@@ -405,35 +398,6 @@ const EndOfDayReceipt = React.forwardRef<HTMLDivElement, EndOfDayReceiptProps>(
                     />
                   )}
                 </div>
-              </>
-            )}
-
-            {/* Tahsilat durumu — açık hesap varsa göster */}
-            {report.openCount > 0 && (
-              <>
-                <Divider dashed />
-                <SectionTitle>Tahsilat Durumu</SectionTitle>
-                <Row left="Tahsil Edilen" right={formatCurrency(report.paidAmount)} />
-                <Row
-                  left={`Açık Hesap (${report.openCount})`}
-                  right={formatCurrency(report.openAmount)}
-                  bold
-                />
-              </>
-            )}
-
-            {/* Sipariş durumları */}
-            {Object.keys(report.statusBreakdown).length > 0 && (
-              <>
-                <Divider dashed />
-                <SectionTitle>Sipariş Durumları</SectionTitle>
-                {Object.entries(report.statusBreakdown).map(([status, count]) => (
-                  <Row
-                    key={status}
-                    left={STATUS_LABELS[status] ?? status}
-                    right={`${count}`}
-                  />
-                ))}
               </>
             )}
 

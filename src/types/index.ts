@@ -105,6 +105,23 @@ export type OrderSource = "manual" | "trendyol" | "getir" | "yemeksepeti";
 // "paid" = ödeme alındı (varsayılan). "open" = açık hesap, ödeme sonra alınacak.
 export type PaymentStatus = "paid" | "open";
 
+// ─── Müşteri Açık Hesap Özeti ────────────────────────────────────────────────
+// Bir siparişe iliştirilen, AYNI müşterinin (telefon) DİĞER ödenmemiş siparişleri.
+// Kurye ve admin sipariş listesinde "bu müşterinin açık hesabı var" uyarısı için
+// hesaplanır (kalıcı alan değil; okuma sırasında türetilir, siparişin kendisi hariç).
+export interface OpenAccountRef {
+  id: string;
+  orderNumber: number;
+  total: number;
+  createdAt: Date;
+}
+
+export interface CustomerOpenAccounts {
+  count: number;
+  total: number;
+  orders: OpenAccountRef[];
+}
+
 // ─── Sipariş ─────────────────────────────────────────────────────────────────
 export interface Order {
   id: string;
@@ -125,6 +142,8 @@ export interface Order {
   // Tahsilat durumu — "open" ise açık hesap (henüz ödenmedi). Varsayılan "paid".
   paymentStatus?: PaymentStatus;
   paidAt?: Date; // açık hesabın tahsil edildiği an
+  // Aynı müşterinin diğer açık hesapları — okuma sırasında türetilir (kalıcı değil).
+  customerOpenAccounts?: CustomerOpenAccounts;
 }
 
 // ─── Sipariş Oluşturma Taslağı ───────────────────────────────────────────────

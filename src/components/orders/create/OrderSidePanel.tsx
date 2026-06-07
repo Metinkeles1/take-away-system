@@ -18,6 +18,7 @@ import {
 import { DEFAULT_IBAN_NAME, DEFAULT_IBAN_NUMBER } from "@/lib/constants";
 import ThermalReceipt from "@/components/receipt/ThermalReceipt";
 import { CustomerSearch } from "./sidepanel/CustomerSearch";
+import { CustomerOpenAccountWarning } from "./sidepanel/CustomerOpenAccountWarning";
 import { CartList } from "./sidepanel/CartList";
 import { PaymentPicker } from "./sidepanel/PaymentPicker";
 import { NotesSection } from "./sidepanel/NotesSection";
@@ -122,6 +123,8 @@ export default function OrderSidePanel({
             onPhoneChange={(value) => setCustomer({ phone: value, name: value })}
             onSelectCustomer={handleSelectCustomer}
           />
+
+          <CustomerOpenAccountWarning phone={draft.customer.phone ?? ""} />
 
           <Separator />
 
