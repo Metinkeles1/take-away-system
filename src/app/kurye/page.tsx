@@ -22,7 +22,12 @@ import {
 import { getCourierOrders, saveDeliveryLocation } from "@/actions/courier";
 import { setOrderPaymentMethod } from "@/actions/orders";
 import { subscribeOrders } from "@/lib/pusher/client";
-import { type Order, type GeoPoint, type PaymentMethod } from "@/types";
+import {
+  type Order,
+  type GeoPoint,
+  type PaymentMethod,
+  type CustomerOpenAccounts,
+} from "@/types";
 import { formatCurrency, formatRelativeTime, cn } from "@/lib/utils";
 import { LocationPicker, type LatLng } from "@/components/kurye/LocationPicker";
 
@@ -86,11 +91,21 @@ function fullAddress(o: Order): string {
 // (WhatsApp deep-link ile belirli bir gruba doğrudan mesaj atmaya izin vermez.)
 // whatsapp:// protokolü → wa.me (WhatsApp Web) yerine doğrudan yüklü UYGULAMAYI açar
 // ve özel protokol olduğu için mevcut sayfayı boşaltmaz (kurye listesinde kalırız).
-function buildWhatsAppUrl(o: Order, openAccount = false): string {
+// settledDebt: kurye bu teslimde müşterinin ÖNCEKİ açık hesaplarını da tahsil
+// ettiyse (onay ekranındaki "Eski borçları da aldım"), mesaja eklenir ki grupta
+// "eski borç da kapandı" net görülsün.
+function buildWhatsAppUrl(
+  o: Order,
+  opts: { openAccount?: boolean; settledDebt?: CustomerOpenAccounts | null } = {},
+): string {
+  const { openAccount = false, settledDebt = null } = opts;
   const payLabel = openAccount
     ? "AÇIK HESAP (ödeme alınamadı)"
     : (PAYMENT_LABEL[o.payment.method]?.label ?? "Ödeme");
-  const text = `${fullAddress(o)} — ${payLabel} — Teslim edildi`;
+  let text = `${fullAddress(o)} — ${payLabel} — Teslim edildi`;
+  if (settledDebt && settledDebt.count > 0) {
+    text += ` + ${settledDebt.count} eski hesap tahsil edildi (${formatCurrency(settledDebt.total)})`;
+  }
   return `whatsapp://send?text=${encodeURIComponent(text)}`;
 }
 
@@ -319,7 +334,10 @@ export default function KuryePage() {
     // hesaplarını kapat. Açık hesap (ödeme yok) yolunda anlamsız → gönderilmez.
     const settleOpenAccounts =
       !openAccount && settleDebt && !!o.customerOpenAccounts;
-    const waUrl = buildWhatsAppUrl(o, openAccount);
+    const waUrl = buildWhatsAppUrl(o, {
+      openAccount,
+      settledDebt: settleOpenAccounts ? o.customerOpenAccounts : null,
+    });
     try {
       const res = await fetch("/api/orders/deliver", {
         method: "POST",
