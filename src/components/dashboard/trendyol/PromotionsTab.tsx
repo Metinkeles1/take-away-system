@@ -85,9 +85,11 @@ function CampaignGroupRow({
       {/* Kademeler */}
       <div className="divide-y divide-gray-100">
         {group.tiers.map((tier, i) => (
-          <TierRow key={i} tier={tier} />
+          <TierRow key={`r${i}`} tier={tier} />
         ))}
-        <TierRow tier={group.flash} flash />
+        {group.flash.map((tier, i) => (
+          <TierRow key={`f${i}`} tier={tier} flash />
+        ))}
       </div>
     </div>
   );

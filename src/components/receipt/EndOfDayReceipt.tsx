@@ -63,50 +63,6 @@ const Row = ({
   </div>
 );
 
-// Adet + tutar gösteren üç sütunlu kırılım satırı.
-const BreakdownRow = ({
-  label,
-  count,
-  amount,
-}: {
-  label: string;
-  count: number;
-  amount: number;
-}) => (
-  <div
-    style={{
-      display: "grid",
-      gridTemplateColumns: "1fr 9mm 20mm",
-      columnGap: "2mm",
-      alignItems: "baseline",
-      fontSize: FONT_SIZE_NORMAL,
-      marginBottom: "2px",
-    }}
-  >
-    <span
-      style={{
-        minWidth: 0,
-        overflow: "hidden",
-        whiteSpace: "nowrap",
-        textOverflow: "ellipsis",
-      }}
-    >
-      {label}
-    </span>
-    <span style={{ textAlign: "center", whiteSpace: "nowrap" }}>{count}</span>
-    <span
-      style={{
-        textAlign: "right",
-        whiteSpace: "nowrap",
-        fontVariantNumeric: "tabular-nums",
-        fontWeight: 700,
-      }}
-    >
-      {formatCurrency(amount)}
-    </span>
-  </div>
-);
-
 const Divider = ({ dashed }: { dashed?: boolean }) => (
   <div
     style={{
@@ -258,14 +214,8 @@ const EndOfDayReceipt = React.forwardRef<HTMLDivElement, EndOfDayReceiptProps>(
 
             <Divider />
 
-            {/* Özet */}
-            <SectionTitle>Özet</SectionTitle>
-            <Row left="Toplam Paket" right={`${report.packageCount}`} bold />
-            <Row left="Ortalama Sepet" right={formatCurrency(report.avgBasket)} />
-            {report.cancelledCount > 0 && (
-              <Row left="İptal Edilen" right={`${report.cancelledCount}`} />
-            )}
-
+            {/* Özet — yalnızca paket adedi + toplam ciro */}
+            <Row left="Toplam Paket" right={`${report.packageCount}`} />
             <div style={{ borderTop: "2px solid #000", marginTop: "4px", paddingTop: "4px" }}>
               <Row left="TOPLAM CİRO" right={formatCurrency(report.totalRevenue)} bold large />
             </div>
@@ -294,13 +244,13 @@ const EndOfDayReceipt = React.forwardRef<HTMLDivElement, EndOfDayReceiptProps>(
                   <>
                     {tyEarnings.creditCard.count > 0 && (
                       <Row
-                        left="Net Hakediş (Kredi Kartı)"
+                        left="Kredi Kartı (net)"
                         right={formatCurrency(tyEarnings.creditCard.bankNet)}
                       />
                     )}
                     {tyEarnings.ticket.count > 0 && (
                       <Row
-                        left="Ticket Hakediş"
+                        left="Yemek Kartı (net)"
                         right={formatCurrency(tyEarnings.ticket.bankNet)}
                       />
                     )}
@@ -342,61 +292,24 @@ const EndOfDayReceipt = React.forwardRef<HTMLDivElement, EndOfDayReceiptProps>(
               />
             )}
 
-            {/* Kurumsal — o gün giden hesaplar */}
+            {/* Kurumsal — o gün giden hesaplar (firma + tutar) */}
             {report.corporateBreakdown.length > 0 && (
               <>
                 <Divider dashed />
-                <SectionTitle>Kurumsal Hesaplar (Bugün)</SectionTitle>
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "1fr 9mm 20mm",
-                    columnGap: "2mm",
-                    fontSize: FONT_SIZE_XSMALL,
-                    fontWeight: 700,
-                    borderBottom: "1px solid #000",
-                    paddingBottom: "3px",
-                    marginBottom: "4px",
-                  }}
-                >
-                  <span>FİRMA</span>
-                  <span style={{ textAlign: "center" }}>FİŞ</span>
-                  <span style={{ textAlign: "right" }}>TUTAR</span>
-                </div>
+                <SectionTitle>Kurumsal (Bugün)</SectionTitle>
                 {report.corporateBreakdown.map((c) => (
-                  <div key={c.id} style={{ marginBottom: "3px" }}>
-                    <BreakdownRow label={c.name} count={c.count} amount={c.amount} />
-                    {c.openAmount > 0 && (
-                      <div
-                        style={{
-                          fontSize: FONT_SIZE_XSMALL,
-                          paddingLeft: "2px",
-                          marginTop: "-1px",
-                        }}
-                      >
-                        (açık: {formatCurrency(c.openAmount)})
-                      </div>
-                    )}
-                  </div>
+                  <Row
+                    key={c.id}
+                    left={c.count > 1 ? `${c.name} (${c.count})` : c.name}
+                    right={formatCurrency(c.amount)}
+                  />
                 ))}
-                <div
-                  style={{
-                    borderTop: "1px solid #000",
-                    marginTop: "3px",
-                    paddingTop: "3px",
-                  }}
-                >
+                <div style={{ borderTop: "1px solid #000", marginTop: "3px", paddingTop: "3px" }}>
                   <Row
                     left="Kurumsal Toplam"
                     right={formatCurrency(report.corporateTotal)}
                     bold
                   />
-                  {report.corporateOpen > 0 && (
-                    <Row
-                      left="  Bunun Açık Kısmı"
-                      right={formatCurrency(report.corporateOpen)}
-                    />
-                  )}
                 </div>
               </>
             )}

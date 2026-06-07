@@ -18,7 +18,7 @@ export interface CampaignTier {
 export interface CampaignGroup {
   id: number;
   tiers: CampaignTier[]; // normal kademeler (artan)
-  flash: CampaignTier; // flaş kademe (yalnız uygulama)
+  flash: CampaignTier[]; // flaş kademeleri (yalnız uygulama) — çok kademeli
 }
 
 export const CAMPAIGN_GROUPS: CampaignGroup[] = [
@@ -29,7 +29,12 @@ export const CAMPAIGN_GROUPS: CampaignGroup[] = [
       { min: 325, discount: 110 },
       { min: 400, discount: 150 },
     ],
-    flash: { min: 500, discount: 200 },
+    flash: [
+      { min: 250, discount: 100 },
+      { min: 350, discount: 130 },
+      { min: 450, discount: 160 },
+      { min: 550, discount: 200 },
+    ],
   },
   {
     id: 2,
@@ -38,7 +43,7 @@ export const CAMPAIGN_GROUPS: CampaignGroup[] = [
       { min: 350, discount: 100 },
       { min: 450, discount: 150 },
     ],
-    flash: { min: 550, discount: 200 },
+    flash: [{ min: 550, discount: 200 }],
   },
   {
     id: 3,
@@ -47,7 +52,7 @@ export const CAMPAIGN_GROUPS: CampaignGroup[] = [
       { min: 475, discount: 140 },
       { min: 600, discount: 190 },
     ],
-    flash: { min: 750, discount: 250 },
+    flash: [{ min: 750, discount: 250 }],
   },
   {
     id: 4,
@@ -56,7 +61,7 @@ export const CAMPAIGN_GROUPS: CampaignGroup[] = [
       { min: 550, discount: 150 },
       { min: 700, discount: 200 },
     ],
-    flash: { min: 850, discount: 250 },
+    flash: [{ min: 850, discount: 250 }],
   },
   {
     id: 5,
@@ -65,7 +70,7 @@ export const CAMPAIGN_GROUPS: CampaignGroup[] = [
       { min: 350, discount: 130 },
       { min: 450, discount: 160 },
     ],
-    flash: { min: 550, discount: 200 },
+    flash: [{ min: 550, discount: 200 }],
   },
 ];
 
@@ -116,24 +121,34 @@ export function calcAverageDiscount(
   };
 }
 
+// Bir kademe dizisinde, tutarın ulaştığı en yüksek indirimli kademe.
+function bestTierReached(
+  tiers: CampaignTier[],
+  amount: number,
+): CampaignTier | null {
+  let best: CampaignTier | null = null;
+  for (const t of tiers) {
+    if (amount >= t.min && (best === null || t.discount > best.discount)) {
+      best = t;
+    }
+  }
+  return best;
+}
+
 // amount: sepet tutarı (TL). onApp: TGO by Uber Eats uygulaması siparişi mi.
 export function calcCampaignDiscount(
   group: CampaignGroup,
   amount: number,
   onApp: boolean,
 ): DiscountResult {
-  // En yüksek aşılan normal kademe (kademeler artan; min'i en yüksek geçerli olan).
-  let regularDiscount = 0;
-  let regularTier: CampaignTier | null = null;
-  for (const t of group.tiers) {
-    if (amount >= t.min && t.discount >= regularDiscount) {
-      regularDiscount = t.discount;
-      regularTier = t;
-    }
-  }
+  // En yüksek aşılan normal kademe.
+  const regularTier = bestTierReached(group.tiers, amount);
+  const regularDiscount = regularTier?.discount ?? 0;
 
-  const flashEligible = onApp && amount >= group.flash.min;
-  const flashDiscount = flashEligible ? group.flash.discount : 0;
+  // En yüksek aşılan flaş kademesi (yalnız uygulama siparişinde).
+  const flashTier = onApp ? bestTierReached(group.flash, amount) : null;
+  const flashEligible = flashTier !== null;
+  const flashDiscount = flashTier?.discount ?? 0;
 
   // En avantajlısı (birleşmez).
   let discount = regularDiscount;
@@ -144,7 +159,7 @@ export function calcCampaignDiscount(
   }
 
   // Bilgi: bir sonraki erişilebilir kademe (normal kademeler + uygulamadaysa flaş).
-  const candidates = [...group.tiers, ...(onApp ? [group.flash] : [])]
+  const candidates = [...group.tiers, ...(onApp ? group.flash : [])]
     .filter((t) => t.min > amount)
     .sort((a, b) => a.min - b.min);
   const nextTier = candidates[0] ?? null;
