@@ -29,6 +29,7 @@ import {
   Bike,
   Wallet,
   ReceiptText,
+  Landmark,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -69,6 +70,7 @@ export const NAV_ITEMS: readonly NavEntry[] = [
     basePath: "/dashboard/trendyol",
     children: [
       { href: "/dashboard/trendyol",           label: "Genel Bakış",     icon: LayoutDashboard },
+      { href: "/dashboard/trendyol/gun-sonu",  label: "Gün Sonu",        icon: Landmark },
       { href: "/dashboard/trendyol/sales",     label: "Satış Analitiği", icon: LineChart },
       { href: "/dashboard/trendyol/customers", label: "Müşteri",         icon: UserSearch },
       { href: "/dashboard/trendyol/regions",   label: "Bölgeler",        icon: MapIcon },

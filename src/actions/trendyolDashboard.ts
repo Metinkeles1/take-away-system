@@ -62,7 +62,14 @@ export interface MealCardBreakdownItem {
   brand: string;       // Multinet, Sodexo, Metropol, Ticket, Setcard, Edenred, Pluxee, Diğer
   count: number;
   revenue: number;
-  source: "online" | "on_delivery" | "mixed";
+  source: "online" | "on_delivery";  // online (PAY_WITH_MEAL_CARD) | kapıda kod (PAY_WITH_ON_DELIVERY)
+}
+
+export interface TrendyolCategoryEarning {
+  count: number;
+  gross: number;        // Tutar toplamı (brüt)
+  trendyolNet: number;  // Trendyol "Satıcı Hakediş" = Tutar − Komisyon − İndirim
+  bankNet: number;      // sağlayıcı %10 sonrası bankaya gelen (kart/nakitte = trendyolNet)
 }
 
 export interface TrendyolDashboardStats {
@@ -98,11 +105,24 @@ export interface TrendyolDashboardStats {
     totalCoupon: number;      // Coupon.debt − CouponCancel.credit (satıcı kuponu)
     totalRefund: number;      // Return.debt + ManualRefund.debt − iptaller
     totalCommission: number;  // tüm transactionType'larda commissionAmount işaretli toplam
-    netRevenue: number;       // settlement sellerRevenue toplamı (online — yemek kartı HARİÇ)
-    // ─── Yemek kartı (settlement dışı) tahmini ───
-    mealCardRevenue: number;  // yemek kartı brüt ciro
-    mealCardNet: number;      // (brüt − gerçek indirim) × (1−Trendyol%) × (1−sağlayıcı%) tahmini
-    totalNet: number;         // netRevenue (online) + mealCardNet → tahmini toplam hakediş
+    netRevenue: number;       // settlement sellerRevenue toplamı (online kart — gerçek)
+  };
+
+  // ─── Hakediş (Trendyol ödeme yöntemi kategorileri) ────────────────────
+  // Trendyol Satışlar sayfasıyla birebir kıyaslanabilsin diye 3 kategori:
+  // Kredi Kartı (online) / Yemek Kartı (online ticket) / Kapıda Ödeme
+  // (PAY_WITH_ON_DELIVERY — kod ile + nakit + kart). Her kategoride:
+  //   trendyolNet = Tutar − Komisyon − İndirim (Trendyol "Satıcı Hakediş")
+  //   bankNet     = yemek kartı kalemlerinde sağlayıcı %10 sonrası, kart/nakitte = trendyolNet
+  earnings: {
+    commissionRate: number;   // settlement'tan türetilen efektif Trendyol komisyon oranı
+    creditCard: TrendyolCategoryEarning;  // Kredi Kartı (PAY_WITH_CARD) — net settlement'tan GERÇEK
+    ticket: TrendyolCategoryEarning;       // Yemek Kartı (PAY_WITH_MEAL_CARD) — tahmini
+    onDelivery: TrendyolCategoryEarning;   // Kapıda Ödeme (PAY_WITH_ON_DELIVERY) — bilgi amaçlı
+    // ÖNEMLİ: kapıda ödemeler hakediş TOPLAMINA dahil DEĞİL — işletme içi ciroda
+    // ayrıca sayıldığı için mükerrer kayıt olmasın. Toplam yalnız kart + yemek kartı.
+    totalTrendyolNet: number; // Kredi Kartı + Yemek Kartı Trendyol hakediş toplamı
+    totalBankNet: number;     // sağlayıcı %10 sonrası bankaya gelen tahmini toplam (kapıda HARİÇ)
   };
 
   // API erişilemezse / env eksikse buradan akar
@@ -119,7 +139,8 @@ function paymentKey(p: TrendyolPackage): string {
     const sub = p.payment?.onDelivery?.paymentType?.toUpperCase();
     if (sub === "CARD") return "card";
     if (sub === "CASH" || !sub) return "cash";
-    // METROPOL_CODE / MULTINET_CODE vb. → kapıda yemek kartı kodu
+    // METROPOL_CODE / MULTINET_CODE vb. → "kod ile" yemek kartı. Para kapıda DEĞİL,
+    // sağlayıcıdan bankaya gelir → online yemek kartı gibi hakedişe yazılır.
     if (normalizeMealCardBrand(sub)) return "meal_card";
     return "cash";
   }
@@ -128,8 +149,8 @@ function paymentKey(p: TrendyolPackage): string {
 
 const PAYMENT_LABEL: Record<string, string> = {
   cash: "Nakit",
-  card: "Kredi Kartı",
-  online: "Online",
+  card: "Kapıda Kart",
+  online: "Online Kart",
   meal_card: "Yemek Kartı",
 };
 
@@ -169,35 +190,34 @@ function mealCardInfo(
 
 const NON_REVENUE_STATUSES = new Set(["Cancelled", "UnSupplied"]);
 
-// ─── Yemek kartı net hakediş tahmini ────────────────────────────────────
-// Yemek kartı ödemeleri (Multinet, Sodexo, Edenred…) Trendyol settlement
-// API'sine HİÇ düşmez — parayı kart sağlayıcısı doğrudan satıcıya öder. Bu
-// yüzden settlement bazlı netRevenue yemek kartı gelirini içermez ve gün sonu
-// "gerçek hakediş" eksik görünür.
+// ─── Hakediş tahmini ─────────────────────────────────────────────────────
+// Trendyol Satışlar sayfasından doğrulanan formül (her ödeme yöntemi için aynı):
+//   Trendyol "Satıcı Hakediş" = Tutar − Komisyon − İndirim
+//                             = (Tutar − İndirim) × (1 − komisyon oranı)
+// İndirim = promotions[].totalSellerAmount (+kupon) — gerçek, API'dan gelir.
+// Komisyon oranı API'da yemek kartı/kapıda siparişlerinde YOK; ama oran ödeme
+// kanalına göre DEĞİŞMİYOR (online kart, ticket, kapıda hepsi aynı dönem oranı).
+// Bu yüzden oranı online kartın GERÇEK settlement verisinden türetip diğerlerine
+// uyguluyoruz (deriveCommissionRate). Online kartın neti zaten settlement'tan
+// GERÇEK gelir; sadece ticket/kapıda tahmin edilir.
 //
-// Trendyol Satışlar sayfasından tersine mühendislikle doğrulanan formül:
-//   Trendyol neti = (totalPrice − satıcı indirimi) × (1 − Trendyol komisyonu)
-//   Banka neti    = Trendyol neti × (1 − sağlayıcı komisyonu)
-// Satıcı indirimi = promotions[].totalSellerAmount (gerçek, API'dan gelir).
-// Komisyon oranı yemek kartı siparişlerinde API'da YOK (settlement'ta görünmez);
-// ölçülen mağaza ortalaması ~%12,6 sabit kullanılır → sipariş başına ~%2-3 sapma.
-// Oranlar ileride ayar ekranına taşınabilir.
-const MEAL_CARD_TRENDYOL_COMMISSION_RATE = 0.126;
-const MEAL_CARD_PROVIDER_COMMISSION_RATE = 0.1;
+// Sağlayıcı kesintisi: yemek kartı (Multinet/Sodexo/Edenred…) parayı bankaya
+// yatırırken ayrıca %10 keser. Online kart/nakitte sağlayıcı yok → kesinti yok.
+const PROVIDER_COMMISSION_RATE = 0.1;
+const FALLBACK_COMMISSION_RATE = 0.138; // settlement yoksa kullanılacak oran
 
-// Bir yemek kartı paketinin tahmini banka netini hesaplar.
-function estimateMealCardNet(p: TrendyolPackage): number {
-  const gross = p.totalPrice ?? 0;
-  // Satıcı tarafından karşılanan indirim = promosyon + kupon (varsa).
-  const sellerDiscount =
-    (p.promotions ?? []).reduce((s, pr) => s + (pr.totalSellerAmount ?? 0), 0) +
-    (p.coupon?.totalSellerAmount ?? 0);
-  const base = Math.max(gross - sellerDiscount, 0);
+// Satıcının karşıladığı indirim (promosyon + kupon).
+function sellerDiscount(p: TrendyolPackage): number {
   return (
-    base *
-    (1 - MEAL_CARD_TRENDYOL_COMMISSION_RATE) *
-    (1 - MEAL_CARD_PROVIDER_COMMISSION_RATE)
+    (p.promotions ?? []).reduce((s, pr) => s + (pr.totalSellerAmount ?? 0), 0) +
+    (p.coupon?.totalSellerAmount ?? 0)
   );
+}
+
+// Trendyol "Satıcı Hakediş" = (Tutar − İndirim) × (1 − komisyon).
+function estimateTrendyolNet(p: TrendyolPackage, commissionRate: number): number {
+  const base = Math.max((p.totalPrice ?? 0) - sellerDiscount(p), 0);
+  return base * (1 - commissionRate);
 }
 
 
@@ -294,9 +314,14 @@ function emptyStats(
       totalRefund: 0,
       totalCommission: 0,
       netRevenue: 0,
-      mealCardRevenue: 0,
-      mealCardNet: 0,
-      totalNet: 0,
+    },
+    earnings: {
+      commissionRate: 0,
+      creditCard: { count: 0, gross: 0, trendyolNet: 0, bankNet: 0 },
+      ticket: { count: 0, gross: 0, trendyolNet: 0, bankNet: 0 },
+      onDelivery: { count: 0, gross: 0, trendyolNet: 0, bankNet: 0 },
+      totalTrendyolNet: 0,
+      totalBankNet: 0,
     },
     error,
   };
@@ -374,21 +399,13 @@ const TYPE_SIGN: Record<TrendyolSettlementTransactionType, 1 | -1> = {
   ProvisionNegative: -1,
 };
 
-// aggregateFinance yalnızca settlement'tan türeyen alanları döndürür; yemek kartı
-// tahmini (mealCardRevenue/mealCardNet/totalNet) packages verisi gerektirdiği için
-// ana fonksiyonda eklenir.
-type SettlementFinance = Omit<
-  TrendyolDashboardStats["finance"],
-  "mealCardRevenue" | "mealCardNet" | "totalNet"
->;
-
 async function aggregateFinance(
   apiStart: number,
   apiEnd: number,
   targetStart: number,
   targetEnd: number,
 ): Promise<{
-  finance: SettlementFinance;
+  finance: TrendyolDashboardStats["finance"];
   netByOrder: Map<string, number>;
   ok: boolean;
   error?: string;
@@ -541,14 +558,14 @@ function isReferenceToday(referenceDate?: number): boolean {
 const cachedComputeToday = unstable_cache(
   async (period: TrendyolPeriod, _key: string, refTs: number) =>
     computeTrendyolDashboardStats(period, refTs),
-  ["trendyol-dashboard-today-v3"],
+  ["trendyol-dashboard-today-v10"],
   { revalidate: 60 },
 );
 
 const cachedComputePast = unstable_cache(
   async (period: TrendyolPeriod, _key: string, refTs: number) =>
     computeTrendyolDashboardStats(period, refTs),
-  ["trendyol-dashboard-past-v3"],
+  ["trendyol-dashboard-past-v10"],
   { revalidate: 600 },
 );
 
@@ -623,47 +640,98 @@ async function computeTrendyolDashboardStats(
     }))
     .sort((a, b) => b.revenue - a.revenue);
 
-  // Yemek kartı brüt cirosu (settlement'a düşmeyen) → tahmini net hakediş.
-  // Net, paket bazında gerçek indirim düşülerek hesaplanır (estimateMealCardNet).
-  let mealCardRevenue = 0;
-  let mealCardNet = 0;
+  // ─── Hakediş kategorileri (Trendyol ödeme yöntemleri) ───────────────────
+  // Komisyon oranını online kartın GERÇEK netinden tersine çöz:
+  //   oran = 1 − (gerçek net / baz),  baz = Tutar − İndirim.
+  // (finance.totalCommission kullanılamaz — Sale+Discount'ta çifte sayılıyor.)
+  // Türetilen oran ticket/kapıda tahminlerinde kullanılır (oran kanala göre
+  // değişmez, aynı dönem oranı). Settlement yoksa FALLBACK.
+  let ocNet = 0;
+  let ocBase = 0;
   for (const p of completed) {
-    if (paymentKey(p) !== "meal_card") continue;
-    mealCardRevenue += p.totalPrice ?? 0;
-    mealCardNet += estimateMealCardNet(p);
+    if (p.payment?.paymentType !== "PAY_WITH_CARD") continue;
+    const real = financeResult.netByOrder.get(p.orderNumber);
+    if (real === undefined) continue; // sadece settlement'a düşmüş kartlar oranı belirler
+    ocNet += real;
+    ocBase += Math.max((p.totalPrice ?? 0) - sellerDiscount(p), 0);
+  }
+  const commissionRate =
+    ocBase > 0
+      ? Math.min(Math.max(1 - ocNet / ocBase, 0), 0.5)
+      : FALLBACK_COMMISSION_RATE;
+
+  const mkCat = (): TrendyolCategoryEarning => ({
+    count: 0,
+    gross: 0,
+    trendyolNet: 0,
+    bankNet: 0,
+  });
+  const creditCard = mkCat(); // Kredi Kartı (PAY_WITH_CARD) — net settlement'tan GERÇEK
+  const ticket = mkCat();      // Yemek Kartı (PAY_WITH_MEAL_CARD)
+  const onDelivery = mkCat();  // Kapıda Ödeme (PAY_WITH_ON_DELIVERY) — toplamlara DAHİL DEĞİL
+
+  for (const p of completed) {
+    const t = p.payment?.paymentType;
+    const gross = p.totalPrice ?? 0;
+    if (t === "PAY_WITH_CARD") {
+      creditCard.count++;
+      creditCard.gross += gross;
+      // Online kartın neti settlement'ta GERÇEK var; yoksa (henüz oluşmadıysa) tahmin.
+      const real = financeResult.netByOrder.get(p.orderNumber);
+      const net = real ?? estimateTrendyolNet(p, commissionRate);
+      creditCard.trendyolNet += net;
+      creditCard.bankNet += net; // online kartta sağlayıcı kesintisi yok
+    } else if (t === "PAY_WITH_MEAL_CARD") {
+      const net = estimateTrendyolNet(p, commissionRate);
+      ticket.count++;
+      ticket.gross += gross;
+      ticket.trendyolNet += net;
+      ticket.bankNet += net * (1 - PROVIDER_COMMISSION_RATE);
+    } else if (t === "PAY_WITH_ON_DELIVERY") {
+      const net = estimateTrendyolNet(p, commissionRate);
+      onDelivery.count++;
+      onDelivery.gross += gross;
+      onDelivery.trendyolNet += net;
+      // "kod ile" yemek kartı → sağlayıcı %10; gerçek nakit/kart → kesinti yok.
+      const isCode = normalizeMealCardBrand(p.payment?.onDelivery?.paymentType) !== null;
+      onDelivery.bankNet += isCode ? net * (1 - PROVIDER_COMMISSION_RATE) : net;
+    }
   }
 
-  // Yemek kartı marka dağılımı (online + kapıda kod birleşik)
+  // Toplamlar YALNIZ kart + yemek kartı. Kapıda ödeme işletme içi ciroda
+  // ayrıca sayıldığı için hakediş toplamına eklenmez (mükerrer kayıt önlenir).
+  const earnings = {
+    commissionRate,
+    creditCard,
+    ticket,
+    onDelivery,
+    totalTrendyolNet: creditCard.trendyolNet + ticket.trendyolNet,
+    totalBankNet: creditCard.bankNet + ticket.bankNet,
+  };
+
+  // Yemek kartı marka dağılımı — marka+kaynak bazında AYRI satır (online vs kapıda).
+  // Böylece online Multinet ile kapıda Multinet karışmaz; modal kaynağa göre süzer.
   const mealCardMap = new Map<
     string,
-    { count: number; revenue: number; sources: Set<"online" | "on_delivery"> }
+    { brand: string; source: "online" | "on_delivery"; count: number; revenue: number }
   >();
   for (const p of completed) {
     const info = mealCardInfo(p);
     if (!info) continue;
-    const cur = mealCardMap.get(info.brand) ?? {
+    const key = `${info.brand}|${info.source}`;
+    const cur = mealCardMap.get(key) ?? {
+      brand: info.brand,
+      source: info.source,
       count: 0,
       revenue: 0,
-      sources: new Set<"online" | "on_delivery">(),
     };
     cur.count++;
     cur.revenue += p.totalPrice ?? 0;
-    cur.sources.add(info.source);
-    mealCardMap.set(info.brand, cur);
+    mealCardMap.set(key, cur);
   }
-  const mealCardBreakdown: MealCardBreakdownItem[] = [...mealCardMap.entries()]
-    .map(([brand, v]) => ({
-      brand,
-      count: v.count,
-      revenue: v.revenue,
-      source:
-        v.sources.size === 2
-          ? ("mixed" as const)
-          : v.sources.has("online")
-            ? ("online" as const)
-            : ("on_delivery" as const),
-    }))
-    .sort((a, b) => b.revenue - a.revenue);
+  const mealCardBreakdown: MealCardBreakdownItem[] = [...mealCardMap.values()].sort(
+    (a, b) => b.revenue - a.revenue,
+  );
 
   // Durum dağılımı
   const statusMap = new Map<string, number>();
@@ -774,11 +842,7 @@ async function computeTrendyolDashboardStats(
     recentOrders,
     settlementsAvailable: financeResult.ok,
     settlementsError: financeResult.error,
-    finance: {
-      ...financeResult.finance,
-      mealCardRevenue,
-      mealCardNet,
-      totalNet: financeResult.finance.netRevenue + mealCardNet,
-    },
+    finance: financeResult.finance,
+    earnings,
   };
 }

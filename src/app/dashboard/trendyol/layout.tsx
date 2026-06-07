@@ -8,6 +8,7 @@ import { usePathname } from "next/navigation";
 // sadece "Trendyol › X" şeklinde bağlam verir).
 const CRUMBS: Record<string, string> = {
   "/dashboard/trendyol":           "Genel Bakış",
+  "/dashboard/trendyol/gun-sonu":  "Gün Sonu",
   "/dashboard/trendyol/sales":     "Satış Analitiği",
   "/dashboard/trendyol/customers": "Müşteri Analizi",
   "/dashboard/trendyol/regions":   "Bölgeler",

@@ -19,6 +19,7 @@ import {
   type TrendyolRecentOrder,
 } from "@/actions/trendyolDashboard";
 import { TrendyolOrderDetailDialog } from "./TrendyolOrderDetailDialog";
+import Link from "next/link";
 import {
   AlertTriangle,
   CreditCard,
@@ -27,9 +28,9 @@ import {
   TrendingUp,
   Receipt,
   RefreshCw,
-  Download,
   ArrowUpRight,
   Info,
+  Landmark,
 } from "lucide-react";
 import { PaymentBreakdown } from "@/components/dashboard/PaymentBreakdown";
 import { EmptyState } from "@/components/dashboard/EmptyState";
@@ -145,7 +146,13 @@ export function OverviewTab() {
   );
 
   const paymentRecord = useMemo<Record<string, number>>(() => {
-    const out: Record<string, number> = { cash: 0, card: 0, online: 0, meal_card: 0 };
+    // Görüntü sırası: önce bankaya gelen (online kart + yemek kartı), sonra kapıda.
+    const out: Record<string, number> = {
+      online: 0,
+      meal_card: 0,
+      cash: 0,
+      card: 0,
+    };
     for (const p of stats?.paymentBreakdown ?? []) out[p.key] = (out[p.key] ?? 0) + p.revenue;
     return out;
   }, [stats?.paymentBreakdown]);
@@ -217,14 +224,11 @@ export function OverviewTab() {
             <span className="hidden sm:inline">Yenile</span>
           </Button>
 
-          <Button
-            size="sm"
-            variant="outline"
-            disabled
-            className="hidden sm:inline-flex h-8 gap-1.5"
-          >
-            <Download className="size-3.5" />
-            <span className="hidden md:inline">Dışa Aktar</span>
+          <Button asChild size="sm" className="h-8 gap-1.5">
+            <Link href="/dashboard/trendyol/gun-sonu">
+              <Landmark className="size-3.5" />
+              <span className="hidden sm:inline">Gün Sonu</span>
+            </Link>
           </Button>
         </div>
       </div>
@@ -266,13 +270,13 @@ export function OverviewTab() {
             footer={periodLabel}
           />
           <KpiCard
-            label="Tahmini Toplam Hakediş"
-            value={stats?.finance.totalNet}
+            label="Tahmini Banka Neti"
+            value={stats?.earnings.totalBankNet}
             valueFormat="currency"
             isLoading={isLoading && !stats}
             icon={TrendingUp}
-            footer="Online net + yemek kartı (tahmini)"
-            info="Gün sonu banka hesabına geçen tahmini net. İki kalem: (1) Online siparişlerin settlement bazlı GERÇEK neti; (2) Yemek kartı siparişlerinin tahmini neti — bunlar Trendyol settlement'ına düşmediği için (brüt − gerçek indirim) × (1−%12,6 Trendyol) × (1−%10 sağlayıcı) formülüyle hesaplanır. Kalemleri Finansal Akış kartında görebilirsiniz."
+            footer="Kart + yemek kartı · kapıda hariç"
+            info="Trendyol/sağlayıcıdan bankana gelen tahmini toplam: Kredi Kartı (settlement'tan GERÇEK) + Yemek Kartı (tahmini, sağlayıcı %10 düşülmüş). Komisyon oranı online kartın gerçek settlement verisinden türetilir. KAPIDA ödemeler bu tutara DAHİL DEĞİLDİR — onları işletme içi cironuzda saydığınız için mükerrer kayıt olmasın diye hariç tutulur. Dağılımı Para Akışı kartında görebilirsiniz."
           />
           <KpiCard
             label="Ortalama Sepet"
@@ -381,14 +385,14 @@ export function OverviewTab() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Finansal Akış</CardTitle>
-              <CardDescription>Brüt → Net</CardDescription>
+              <CardTitle>Gün Sonu Hakediş</CardTitle>
+              <CardDescription>Kanal bazında · kapıda dahil/hariç</CardDescription>
             </CardHeader>
             <CardContent>
               {isLoading && !stats ? (
                 <Skeleton className="h-48 w-full" />
               ) : (
-                <FinanceFlow finance={stats!.finance} />
+                <MoneyFlow earnings={stats!.earnings} />
               )}
             </CardContent>
           </Card>
@@ -418,8 +422,8 @@ export function OverviewTab() {
           <DialogHeader>
             <DialogTitle>Yemek Kartı Kırılımı</DialogTitle>
             <DialogDescription>
-              {periodLabel} dönemindeki yemek kartı ödemelerinin marka bazlı
-              dağılımı.
+              {periodLabel} · Yemek kartı ödemelerinin marka bazlı dağılımı.
+              Tümü sağlayıcıdan bankaya gelir (online + kod ile).
             </DialogDescription>
           </DialogHeader>
           <MealCardList items={stats?.mealCardBreakdown ?? []} />
@@ -788,67 +792,116 @@ function TopProductsBlock({
   );
 }
 
-// ─── Finance flow ──────────────────────────────────────────────────
+// ─── Money flow (ödeme yöntemine göre hakediş) ─────────────────────
+// 3 kategori (Trendyol Satışlar sayfası ile birebir): Kredi Kartı / Yemek
+// Kartı / Kapıda Ödeme. Her satır: brüt, Trendyol hakediş, banka neti (−%10).
 
-function FinanceFlow({ finance }: { finance: TrendyolDashboardStats["finance"] }) {
-  const rows: {
-    label: string;
-    value: number;
-    cssVar: string;
-    negative?: boolean;
-    highlight?: boolean;
-    separatorBefore?: boolean;
-  }[] = [
-    { label: "Brüt Satış (online)",       value: finance.grossSales,      cssVar: "var(--chart-1)" },
-    { label: "İndirim",                   value: finance.totalDiscount,   cssVar: "var(--chart-3)", negative: true },
-    { label: "Kupon",                     value: finance.totalCoupon,     cssVar: "var(--chart-4)", negative: true },
-    { label: "İade",                      value: finance.totalRefund,     cssVar: "var(--destructive)", negative: true },
-    { label: "Komisyon",                  value: finance.totalCommission, cssVar: "var(--chart-2)", negative: true },
-    { label: "Net Hakediş (online)",      value: finance.netRevenue,      cssVar: "var(--chart-5)", separatorBefore: true },
-    { label: "Yemek Kartı Net (tahmini)", value: finance.mealCardNet,     cssVar: "var(--chart-4)" },
-    { label: "Tahmini Toplam Hakediş",    value: finance.totalNet,        cssVar: "var(--chart-5)", highlight: true, separatorBefore: true },
-  ];
-  const max = Math.max(...rows.map((r) => r.value), 1);
-
+function CategoryRow({
+  label,
+  cat,
+  tag,
+  muted,
+}: {
+  label: string;
+  cat: TrendyolDashboardStats["earnings"]["creditCard"];
+  tag: string;
+  muted?: boolean;
+}) {
+  if (cat.count === 0) return null;
+  const hasProviderCut = cat.bankNet < cat.trendyolNet - 0.5;
   return (
-    <ul className="space-y-3">
-      {rows.map((r) => {
-        const pct = (r.value / max) * 100;
-        return (
-          <li key={r.label} className="space-y-1.5">
-            {r.separatorBefore && <Separator className="my-1" />}
-            <div className="flex items-center justify-between gap-2 text-sm">
-              <span
-                className={`text-xs font-medium ${
-                  r.highlight ? "text-foreground" : "text-muted-foreground"
-                }`}
-              >
-                {r.label}
-              </span>
-              <span
-                className={`tabular-nums ${
-                  r.highlight
-                    ? "text-base font-bold text-foreground"
-                    : "text-sm font-semibold"
-                }`}
-              >
-                {r.negative && r.value > 0 ? "−" : ""}
-                {formatCurrency(r.value)}
-              </span>
-            </div>
-            <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full rounded-full transition-all"
-                style={{
-                  width: `${Math.max(pct, 2)}%`,
-                  background: r.cssVar,
-                }}
-              />
-            </div>
-          </li>
-        );
-      })}
-    </ul>
+    <div className="space-y-0.5">
+      <div className="flex items-center justify-between gap-2 text-sm">
+        <span
+          className={`flex items-center gap-1.5 font-medium ${muted ? "text-muted-foreground" : ""}`}
+        >
+          {label}
+          <span className="rounded bg-muted px-1 py-px text-[10px] font-normal text-muted-foreground">
+            {tag}
+          </span>
+        </span>
+        <span
+          className={`font-semibold tabular-nums ${muted ? "text-muted-foreground" : ""}`}
+        >
+          {formatCurrency(cat.bankNet)}
+        </span>
+      </div>
+      <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+        <span>
+          {cat.count} sipariş · brüt {formatCurrency(cat.gross)}
+        </span>
+        {/* Kapıda (muted) satırında ara hesabı gizle — sadeleşsin, tek net görünsün. */}
+        {!muted && (
+          <span className="tabular-nums">
+            {hasProviderCut
+              ? `Trendyol ${formatCurrency(cat.trendyolNet)} → −%10`
+              : "hakediş"}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MoneyFlow({
+  earnings,
+}: {
+  earnings: TrendyolDashboardStats["earnings"];
+}) {
+  const ratePct = (earnings.commissionRate * 100).toFixed(1);
+  const hasDoor = earnings.onDelivery.count > 0;
+  const withDoor = earnings.totalBankNet + earnings.onDelivery.bankNet;
+  return (
+    <div className="space-y-3">
+      <p className="text-[11px] text-muted-foreground">
+        Komisyon ~%{ratePct} (online karttan türetildi)
+      </p>
+
+      {/* Hakedişe DAHİL kanallar */}
+      <CategoryRow label="Kredi Kartı" cat={earnings.creditCard} tag="gerçek" />
+      <CategoryRow label="Yemek Kartı (ticket)" cat={earnings.ticket} tag="tahmini" />
+
+      <Separator />
+
+      {/* Ana sonuç: kapıda HARİÇ banka neti */}
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+          Banka Neti
+          <span className="ml-1 font-normal normal-case text-muted-foreground">
+            (kapıda hariç)
+          </span>
+        </span>
+        <span className="text-lg font-bold tabular-nums text-emerald-700">
+          {formatCurrency(earnings.totalBankNet)}
+        </span>
+      </div>
+
+      {/* Kapıda — ayrı, hakedişe dahil değil */}
+      {hasDoor && (
+        <>
+          <div className="border-t border-dashed pt-2">
+            <CategoryRow
+              label="Kapıda Ödeme"
+              cat={earnings.onDelivery}
+              tag="işletme ciron"
+              muted
+            />
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-medium text-muted-foreground">
+              Kapıda dahil toplam
+            </span>
+            <span className="text-sm font-semibold tabular-nums text-muted-foreground">
+              {formatCurrency(withDoor)}
+            </span>
+          </div>
+          <p className="text-[10px] leading-snug text-muted-foreground/80">
+            Kapıda ödemeler işletme cironuzda ayrıca sayıldığı için banka netine
+            dahil edilmez (mükerrer kayıt olmasın). Yalnız referans.
+          </p>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -866,9 +919,14 @@ function MealCardList({ items }: { items: MealCardItem[] }) {
       {items.map((i, idx) => {
         const pct = total > 0 ? (i.revenue / total) * 100 : 0;
         return (
-          <li key={i.brand} className="space-y-1.5">
+          <li key={`${i.brand}|${i.source}`} className="space-y-1.5">
             <div className="flex items-center justify-between gap-2 text-sm">
-              <span className="font-medium">{i.brand}</span>
+              <span className="flex items-center gap-1.5 font-medium">
+                {i.brand}
+                <span className="rounded bg-muted px-1 py-px text-[10px] font-normal text-muted-foreground">
+                  {i.source === "on_delivery" ? "kod ile" : "online"}
+                </span>
+              </span>
               <span className="font-semibold tabular-nums">
                 {formatCurrency(i.revenue)}
               </span>
