@@ -1,7 +1,8 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
 import AppShell from "@/components/layout/AppShell";
+import ServiceWorkerRegister from "@/components/pwa/ServiceWorkerRegister";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -12,6 +13,20 @@ const geistSans = Geist({
 export const metadata: Metadata = {
   title: "Paket Sipariş Sistemi",
   description: "Telefon siparişi takip ve yönetim sistemi",
+  // manifest.ts otomatik <link rel="manifest"> ekler; apple-touch-icon ve iOS
+  // standalone meta'larını burada belirtiyoruz (iOS manifest'i tam desteklemez).
+  appleWebApp: {
+    capable: true,
+    title: "Paket Sipariş",
+    statusBarStyle: "default",
+  },
+  icons: {
+    apple: "/icons/apple-touch-icon.png",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#059669",
 };
 
 export default function RootLayout({
@@ -26,6 +41,7 @@ export default function RootLayout({
       >
         <AppShell>{children}</AppShell>
         <Toaster richColors position="top-right" />
+        <ServiceWorkerRegister />
       </body>
     </html>
   );

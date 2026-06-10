@@ -4,8 +4,9 @@
   "private": true,
   "scripts": {
     "images:manifest": "node scripts/generate-product-images-manifest.mjs",
-    "predev": "node scripts/generate-product-images-manifest.mjs",
-    "prebuild": "node scripts/generate-product-images-manifest.mjs",
+    "pwa:icons": "node scripts/generate-pwa-icons.mjs",
+    "predev": "node scripts/generate-product-images-manifest.mjs && node scripts/generate-pwa-icons.mjs",
+    "prebuild": "node scripts/generate-product-images-manifest.mjs && node scripts/generate-pwa-icons.mjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
