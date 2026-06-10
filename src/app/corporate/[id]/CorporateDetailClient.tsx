@@ -39,6 +39,7 @@ function paymentSourceLabel(source: PaymentSource): string {
 import { formatPeriodLabel } from "@/lib/period";
 import VoucherReceipt from "@/components/receipt/VoucherReceipt";
 import MonthlyStatement from "@/components/receipt/MonthlyStatement";
+import ProductSummaryReceipt from "@/components/receipt/ProductSummaryReceipt";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -80,6 +81,7 @@ import {
   ListChecks,
   X,
   Trash2,
+  Package,
 } from "lucide-react";
 import { toast } from "sonner";
 import { StatCard } from "@/components/corporate/detail/StatCard";
@@ -116,6 +118,7 @@ export default function CorporateDetailClient({
   const [confirmingPeriodPaid, setConfirmingPeriodPaid] = useState(false);
   const [printingVoucher, setPrintingVoucher] = useState<Voucher | null>(null);
   const [showStatement, setShowStatement] = useState(false);
+  const [showProductSummary, setShowProductSummary] = useState(false);
   const [collectOpen, setCollectOpen] = useState(false);
   const [collectInput, setCollectInput] = useState("");
   const [collectSubmitting, setCollectSubmitting] = useState(false);
@@ -481,6 +484,15 @@ export default function CorporateDetailClient({
             <Button
               variant="outline"
               size="sm"
+              onClick={() => setShowProductSummary(true)}
+              title="Ürün Özeti"
+            >
+              <Package className="h-4 w-4 sm:mr-2" />
+              <span className="hidden sm:inline">Ürün Özeti</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               disabled={stats.unpaid === 0}
               onClick={openCollectDialog}
               className="border-cyan-500/40 text-cyan-700 dark:text-cyan-400 hover:bg-cyan-500/10"
@@ -783,6 +795,19 @@ export default function CorporateDetailClient({
         title={`${formatPeriodLabel(period)} Ekstresi`}
       >
         <MonthlyStatement
+          corporate={corporate}
+          vouchers={vouchers}
+          stats={stats}
+          period={period}
+        />
+      </PrintReceiptDialog>
+
+      <PrintReceiptDialog
+        open={showProductSummary}
+        onOpenChange={setShowProductSummary}
+        title={`${formatPeriodLabel(period)} Ürün Özeti`}
+      >
+        <ProductSummaryReceipt
           corporate={corporate}
           vouchers={vouchers}
           stats={stats}
