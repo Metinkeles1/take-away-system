@@ -1,0 +1,17 @@
+{
+  "name": "Kurye Teslimat",
+  "short_name": "Kurye",
+  "description": "Kurye teslimat ekranı",
+  "start_url": "/kurye",
+  "scope": "/kurye",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "lang": "tr",
+  "icons": [
+    { "src": "/icons/kurye-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/kurye-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/kurye-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
