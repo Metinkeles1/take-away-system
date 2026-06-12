@@ -17,6 +17,7 @@ import {
   collectOpenAccount as dbCollectOpenAccount,
   setOrderPaymentStatus as dbSetPaymentStatus,
   getOrders,
+  type OrdersPeriod,
 } from "@/actions/orders";
 import { updateOrderDetails } from "@/actions/orderEdit";
 import { getSavedCustomers, upsertCustomer } from "@/actions/customers";
@@ -32,6 +33,9 @@ interface OrderStore {
 
   // Tamamlanmış siparişler (geçmiş)
   orders: Order[];
+
+  // Seçili liste dönemi (today/week/month/all). Sessiz yenilemeler bunu kullanır.
+  ordersPeriod: OrdersPeriod;
 
   // Kayıtlı müşteriler
   savedCustomers: SavedCustomer[];
@@ -70,7 +74,8 @@ interface OrderStore {
   // ── Geçmiş ───────────────────────────────────────────────────────────────
   // silent: arka plan yenilemesi (Pusher echo / focus) — skeleton gösterme,
   // listeyi yerinde güncelle. Sadece ilk yüklemede isLoading açılır.
-  loadOrders: (opts?: { silent?: boolean }) => Promise<void>;
+  // period: verilirse seçili dönem değişir; verilmezse mevcut dönem kullanılır.
+  loadOrders: (opts?: { silent?: boolean; period?: OrdersPeriod }) => Promise<void>;
   loadSavedCustomers: () => Promise<void>;
   updateOrderStatus: (orderId: string, status: OrderStatus) => Promise<void>;
   updateOrderPayment: (orderId: string, payment: PaymentInfo) => Promise<void>;
@@ -92,6 +97,7 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
   draft: initialDraft,
   editingOrderId: null,
   orders: [],
+  ordersPeriod: "week",
   savedCustomers: [],
   isLoading: false,
   pendingStatus: {},
@@ -378,10 +384,15 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
 
   // ── DB'den siparişleri yükle ───────────────────────────────────────────
   loadOrders: async (opts) => {
+    // Dönem değiştiyse kaydet; sessiz yenilemeler mevcut dönemi kullanır.
+    const period = opts?.period ?? get().ordersPeriod;
+    if (opts?.period && opts.period !== get().ordersPeriod) {
+      set({ ordersPeriod: opts.period });
+    }
     // Sessiz (arka plan) yenilemede skeleton'a geçme — liste yerinde güncellenir.
     if (!opts?.silent) set({ isLoading: true });
     try {
-      const fresh = await getOrders();
+      const fresh = await getOrders(period);
       set((state) => {
         const pending = state.pendingStatus;
         // Teyit bekleyen yoksa düz değiştir (sık yol).

@@ -56,28 +56,50 @@ async function syncStatusToTrendyol(packageId: string, status: OrderStatus) {
 
 // Siparişler listesi penceresi: canlı operasyon panelinde tüm geçmişi taşımak
 // gereksiz (her focus/echo'da koleksiyonun tamamı aktarılır). Aktif siparişler
-// ve açık hesaplar daima gelir; tamamlanmış/iptal geçmişi son ORDERS_WINDOW_DAYS
-// gün ile sınırlı, güvenlik için ORDERS_MAX tavanı var. Daha eski kayıtlar
-// rapor/settlement sayfalarından okunur.
-const ORDERS_WINDOW_DAYS = 14;
+// ve açık hesaplar daima gelir; tamamlanmış/iptal geçmişi seçilen döneme göre
+// sınırlanır, güvenlik için tavan vardır. Daha eski kayıtlar rapor/settlement
+// sayfalarından okunur.
+export type OrdersPeriod = "today" | "week" | "month" | "all";
+
+// Liste payload tavanı: günlük operasyon için 500 yeterli; "Tümü" seçilince
+// daha geniş arama yapılabilsin diye tavan yükseltilir (yine de sınırsız değil).
 const ORDERS_MAX = 500;
+const ORDERS_MAX_ALL = 2000;
 const ACTIVE_STATUSES = ["pending", "preparing", "on-the-way"];
 
+// Seçilen döneme göre "geçmiş" kesme tarihi. "all" → kesme yok (tüm kayıtlar).
+function periodCutoff(period: OrdersPeriod): Date | null {
+  if (period === "all") return null;
+  if (period === "today") {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+  const days = period === "week" ? 7 : 30;
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+}
+
 // ─── Siparişleri getir (canlı pencere) ─────────────────────────────────────────
-export async function getOrders(): Promise<Order[]> {
+export async function getOrders(period: OrdersPeriod = "week"): Promise<Order[]> {
   await connectDB();
 
-  const cutoff = new Date(Date.now() - ORDERS_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+  const cutoff = periodCutoff(period);
 
-  const docs = await OrderModel.find({
-    $or: [
-      { status: { $in: ACTIVE_STATUSES } }, // aktif iş daima görünür
-      { paymentStatus: "open" }, // açık hesaplar daima görünür
-      { createdAt: { $gte: cutoff } }, // son N günün geçmişi
-    ],
-  })
+  // "all" → tüm siparişler (tavanla). Aksi halde aktif iş + açık hesaplar daima
+  // görünür, üstüne seçilen dönemin geçmişi eklenir.
+  const query = cutoff
+    ? {
+        $or: [
+          { status: { $in: ACTIVE_STATUSES } }, // aktif iş daima görünür
+          { paymentStatus: "open" }, // açık hesaplar daima görünür
+          { createdAt: { $gte: cutoff } }, // seçilen dönemin geçmişi
+        ],
+      }
+    : {};
+
+  const docs = await OrderModel.find(query)
     .sort({ createdAt: -1 })
-    .limit(ORDERS_MAX)
+    .limit(cutoff ? ORDERS_MAX : ORDERS_MAX_ALL)
     .lean();
 
   // Bu penceredeki müşterilerin açık hesaplarını tek sorguda çek; her siparişe

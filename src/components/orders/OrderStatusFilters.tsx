@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { cn } from "@/lib/utils";
 import { type OrderStatus } from "@/types";
 import { ORDER_STATUS_CONFIG } from "@/lib/orderStatus";
@@ -19,7 +20,9 @@ interface OrderStatusFiltersProps {
   onChange: (filter: OrderFilter) => void;
 }
 
-export function OrderStatusFilters({
+// memo: counts (memoized) ve onChange (stabil) sabit kaldığında arama yazılırken
+// yeniden render olmaz — yalnızca filtre/sayılar gerçekten değişince render eder.
+function OrderStatusFiltersImpl({
   filter,
   counts,
   onChange,
@@ -65,3 +68,5 @@ export function OrderStatusFilters({
     </div>
   );
 }
+
+export const OrderStatusFilters = memo(OrderStatusFiltersImpl);

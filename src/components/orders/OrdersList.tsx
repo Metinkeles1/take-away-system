@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRef } from "react";
+import { memo, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -25,7 +25,10 @@ interface OrdersListProps {
 const ESTIMATE_HEIGHT = 180;
 const OVERSCAN = 4;
 
-export function OrdersList({
+// memo: props stabil tutulduğunda (page'te useCallback'li handler'lar +
+// deferred filteredOrders) arama yazılırken liste yeniden render olmaz; yalnızca
+// filtrelenmiş sonuç gerçekten değişince render eder.
+function OrdersListImpl({
   isLoading,
   orders,
   filter,
@@ -145,3 +148,5 @@ export function OrdersList({
     </div>
   );
 }
+
+export const OrdersList = memo(OrdersListImpl);

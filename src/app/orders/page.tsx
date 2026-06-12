@@ -1,52 +1,53 @@
 "use client";
 
-import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useCallback, useDeferredValue, useMemo, useState } from "react";
 import Link from "next/link";
 import { useOrderStore } from "@/store/orderStore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PlusCircle, Search, X } from "lucide-react";
-import { type OrderStatus } from "@/types";
+import { type Order, type OrderStatus } from "@/types";
+import { type OrdersPeriod } from "@/actions/orders";
 import {
   OrderStatusFilters,
   type OrderFilter,
 } from "@/components/orders/OrderStatusFilters";
+import { OrderPeriodFilter } from "@/components/orders/OrderPeriodFilter";
 import { OrdersList } from "@/components/orders/OrdersList";
-import { subscribeOrders } from "@/lib/pusher/client";
+import { useOrdersSync } from "@/hooks/useOrdersSync";
 
-// Pusher yedeği — periyodik sessiz yenileme aralığı (kurye sayfasıyla aynı).
-const REFRESH_MS = 20_000;
+// Başlıktaki dönem etiketi (orders.ts'teki OrdersPeriod ile eşleşir).
+const PERIOD_LABEL: Record<OrdersPeriod, string> = {
+  today: "Bugün",
+  week: "Son 7 gün",
+  month: "Son 30 gün",
+  all: "Tüm zamanlar",
+};
+
+// Bir siparişin aranabilir metnini kurar. Ağır olan kısım (join + Türkçe
+// lower-case); arama indeksinde sipariş başına bir kez hesaplanır.
+function buildHaystack(o: Order): string {
+  return [
+    String(o.orderNumber),
+    o.customer.name,
+    o.customer.phone,
+    o.customer.address,
+    o.externalRef,
+    ...o.items.map((i) => i.product.name),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLocaleLowerCase("tr");
+}
 
 export default function OrdersPage() {
-  const { orders, updateOrderStatus, loadOrders, isLoading } = useOrderStore();
+  const { orders, ordersPeriod, updateOrderStatus, loadOrders, isLoading } =
+    useOrderStore();
   const [filter, setFilter] = useState<OrderFilter>("all");
   const [search, setSearch] = useState("");
   const [bootstrapping, setBootstrapping] = useState(orders.length === 0);
 
-  useEffect(() => {
-    loadOrders().finally(() => setBootstrapping(false));
-
-    // Sessiz arka plan yenilemesi: skeleton'a geçmeden listeyi yerinde günceller.
-    // (Kendi durum değişikliğinin Pusher echo'su tüm listeyi flush etmesin.)
-    const refresh = () => void loadOrders({ silent: true });
-
-    // Asıl mekanizma Pusher (anlık). Polling yalnızca yedek: Pusher env yoksa ya
-    // da bir mesaj kaçarsa nihai tutarlılığı garanti eder. Sekme gizliyken iş
-    // yapmaz (boşa istek atmaz). Kurye sayfasıyla aynı desen.
-    const poll = setInterval(() => {
-      if (!document.hidden) refresh();
-    }, REFRESH_MS);
-    const onFocus = () => refresh();
-    window.addEventListener("focus", onFocus);
-    const unsubscribe = subscribeOrders(refresh);
-
-    return () => {
-      clearInterval(poll);
-      window.removeEventListener("focus", onFocus);
-      unsubscribe();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  useOrdersSync(() => setBootstrapping(false));
 
   const counts = useMemo<Record<OrderFilter, number>>(() => {
     const acc: Record<OrderFilter, number> = {
@@ -63,40 +64,43 @@ export default function OrdersPage() {
     return acc;
   }, [orders]);
 
+  // Arama indeksi: normalize edilmiş metinler yalnızca orders değişince kurulur.
+  // Her tuş vuruşunda 2000 siparişin string'i yeniden üretilmez (hot path).
+  const searchIndex = useMemo(() => orders.map(buildHaystack), [orders]);
+
   const deferredFilter = useDeferredValue(filter);
   const deferredSearch = useDeferredValue(search);
   const filteredOrders = useMemo(() => {
-    const byStatus =
-      deferredFilter === "all"
-        ? orders
-        : orders.filter((o) => o.status === deferredFilter);
-
     const q = deferredSearch.trim().toLocaleLowerCase("tr");
-    if (!q) return byStatus;
+    if (deferredFilter === "all" && !q) return orders;
 
-    return byStatus.filter((o) => {
-      const haystack = [
-        String(o.orderNumber),
-        o.customer.name,
-        o.customer.phone,
-        o.customer.address,
-        o.externalRef,
-        ...o.items.map((i) => i.product.name),
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLocaleLowerCase("tr");
-      return haystack.includes(q);
-    });
-  }, [orders, deferredFilter, deferredSearch]);
+    // Tek geçiş: durum filtresi + arama indeksi üzerinden includes.
+    const result: Order[] = [];
+    for (let i = 0; i < orders.length; i++) {
+      const o = orders[i];
+      if (deferredFilter !== "all" && o.status !== deferredFilter) continue;
+      if (q && !searchIndex[i].includes(q)) continue;
+      result.push(o);
+    }
+    return result;
+  }, [orders, searchIndex, deferredFilter, deferredSearch]);
 
-  // Stabil referans — OrderListCard memo'sunun çalışması için şart.
+  // Stabil referanslar — memo'lu alt bileşenler (kart/filtre çubukları) hot
+  // path'te (arama yazarken) gereksiz yeniden render olmasın.
   const handleStatusChange = useCallback(
     (id: string, status: OrderStatus) => {
       updateOrderStatus(id, status);
     },
     [updateOrderStatus],
   );
+  const handlePeriodChange = useCallback(
+    (p: OrdersPeriod) => void loadOrders({ period: p }),
+    [loadOrders],
+  );
+  const handleResetFilter = useCallback(() => {
+    setFilter("all");
+    setSearch("");
+  }, []);
 
   return (
     <main className="h-full flex flex-col px-3 pt-3 pb-6 sm:px-4 sm:pt-4 md:px-6 md:pt-5 lg:px-8 lg:pt-6 lg:pb-8 overflow-hidden">
@@ -104,7 +108,7 @@ export default function OrdersPage() {
         <div className="min-w-0">
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Siparişler</h1>
           <p className="mt-0.5 text-xs sm:text-sm text-muted-foreground">
-            Toplam {orders.length} sipariş
+            {PERIOD_LABEL[ordersPeriod]} · {orders.length} sipariş
             {(filter !== "all" || search.trim()) && (
               <>
                 {" · "}
@@ -121,27 +125,44 @@ export default function OrdersPage() {
         </Link>
       </div>
 
-      <div className="relative mb-3 shrink-0">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          type="search"
-          inputMode="search"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Sipariş no, müşteri, telefon, adres veya ürün ara…"
-          className="pl-9 pr-9"
-        />
-        {search && (
+      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center shrink-0">
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            type="search"
+            inputMode="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Sipariş no, müşteri, telefon, adres veya ürün ara…"
+            className="pl-9 pr-9"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch("")}
+              aria-label="Aramayı temizle"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+        <OrderPeriodFilter period={ordersPeriod} onChange={handlePeriodChange} />
+      </div>
+
+      {search.trim() && ordersPeriod !== "all" && (
+        <p className="-mt-1 mb-2 text-xs text-muted-foreground shrink-0">
+          Arama yalnızca {PERIOD_LABEL[ordersPeriod].toLocaleLowerCase("tr")}{" "}
+          içinde.{" "}
           <button
             type="button"
-            onClick={() => setSearch("")}
-            aria-label="Aramayı temizle"
-            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+            onClick={() => handlePeriodChange("all")}
+            className="font-medium text-foreground underline underline-offset-2"
           >
-            <X className="h-4 w-4" />
+            Tüm siparişlerde ara
           </button>
-        )}
-      </div>
+        </p>
+      )}
 
       <OrderStatusFilters filter={filter} counts={counts} onChange={setFilter} />
 
@@ -151,10 +172,7 @@ export default function OrdersPage() {
           orders={filteredOrders}
           filter={filter}
           hasSearch={Boolean(search.trim())}
-          onResetFilter={() => {
-            setFilter("all");
-            setSearch("");
-          }}
+          onResetFilter={handleResetFilter}
           onStatusChange={handleStatusChange}
         />
       </div>
