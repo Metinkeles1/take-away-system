@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Dashboard Revize — Mockup</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = { theme: { extend: { fontFamily: { sans: ['Inter','system-ui','sans-serif'] } } } };
+</script>
+<style>
+  body{font-family:Inter,system-ui,sans-serif}
+  .tabbtn[data-active="true"]{color:#0f172a;border-color:#0f172a}
+  .tabbtn[data-active="true"] .dot{opacity:1}
+  ::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:8px}
+</style>
+</head>
+<body class="bg-slate-100 text-slate-800">
+<div class="flex h-screen overflow-hidden">
+
+  <!-- Sidebar (mevcut proje stili) -->
+  <aside class="w-56 shrink-0 bg-slate-900 text-white flex flex-col">
+    <div class="h-14 px-4 flex items-center gap-2.5 border-b border-white/10">
+      <span class="text-2xl">🛵</span><span class="text-sm font-bold">PaketSipariş</span>
+    </div>
+    <nav class="flex-1 py-4 px-2 space-y-0.5 text-sm">
+      <p class="px-3 mb-2 text-[10px] font-semibold uppercase tracking-widest text-slate-500">Menü</p>
+      <a class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-slate-400 hover:bg-white/5">🏠 <span>Panel</span></a>
+      <a class="flex items-center gap-3 rounded-lg px-3 py-2.5 bg-blue-500/15 text-white">📊 <span>Dashboard</span></a>
+      <a class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-slate-400 hover:bg-white/5">🏪 <span>Trendyol</span></a>
+      <a class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-slate-400 hover:bg-white/5">🛒 <span>Yeni Sipariş</span></a>
+      <a class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-slate-400 hover:bg-white/5">📋 <span>Siparişler</span><span class="ml-auto text-[10px] bg-emerald-500 rounded-full px-1.5 font-bold">5</span></a>
+      <a class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-slate-400 hover:bg-white/5">👛 <span>Açık Hesaplar</span></a>
+      <a class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-slate-400 hover:bg-white/5">🧾 <span>Gün Sonu</span></a>
+      <a class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-slate-400 hover:bg-white/5">👥 <span>Müşteriler</span></a>
+      <a class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-slate-400 hover:bg-white/5">🍽️ <span>Menü</span></a>
+    </nav>
+    <div class="border-t border-white/10 p-3 text-[11px] text-slate-500">mockup · sekmeli düzen</div>
+  </aside>
+
+  <!-- Main -->
+  <main class="flex-1 overflow-y-auto">
+    <div class="p-4 sm:p-6 lg:p-8 max-w-[1200px] space-y-5">
+
+      <!-- Header + global filtre -->
+      <header class="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h1 class="text-2xl font-semibold tracking-tight">İşletme Paneli</h1>
+          <p class="mt-1 text-sm text-slate-500">Tarih ve kanal filtresi tüm sekmeleri birlikte etkiler</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <!-- gün gezgini -->
+          <div class="flex items-center gap-1 rounded-lg border bg-white px-1 py-1 shadow-sm">
+            <button class="size-7 grid place-items-center rounded-md hover:bg-slate-100">‹</button>
+            <input type="date" value="2026-06-12" class="h-7 rounded-md px-2 text-sm tabular-nums outline-none">
+            <button class="size-7 grid place-items-center rounded-md text-slate-300 cursor-not-allowed">›</button>
+          </div>
+          <select class="h-9 rounded-lg border bg-white px-3 text-sm shadow-sm">
+            <option>Tüm Kanallar</option><option>Trendyol</option><option>Getir</option><option>Yemeksepeti</option><option>Manuel</option>
+          </select>
+          <button class="h-9 rounded-lg border bg-white px-3 text-sm shadow-sm hover:bg-slate-50">⟳ Yenile</button>
+          <button class="h-9 rounded-lg bg-orange-500 px-3 text-sm font-medium text-white shadow-sm hover:bg-orange-600">+ Yeni Sipariş</button>
+        </div>
+      </header>
+
+      <!-- Sekme şeridi -->
+      <div class="border-b">
+        <div class="flex gap-1 overflow-x-auto">
+          <button class="tabbtn flex items-center gap-1.5 border-b-2 border-transparent px-4 py-2.5 text-sm font-medium text-slate-500 hover:text-slate-800" data-tab="ozet" data-active="true"><span class="dot size-1.5 rounded-full bg-orange-500 opacity-0"></span>Özet</button>
+          <button class="tabbtn flex items-center gap-1.5 border-b-2 border-transparent px-4 py-2.5 text-sm font-medium text-slate-500 hover:text-slate-800" data-tab="satis"><span class="dot size-1.5 rounded-full bg-orange-500 opacity-0"></span>Satışlar</button>
+          <button class="tabbtn flex items-center gap-1.5 border-b-2 border-transparent px-4 py-2.5 text-sm font-medium text-slate-500 hover:text-slate-800" data-tab="tahsilat"><span class="dot size-1.5 rounded-full bg-orange-500 opacity-0"></span>Tahsilat</button>
+          <button class="tabbtn flex items-center gap-1.5 border-b-2 border-transparent px-4 py-2.5 text-sm font-medium text-slate-500 hover:text-slate-800" data-tab="urun"><span class="dot size-1.5 rounded-full bg-orange-500 opacity-0"></span>Ürünler</button>
+          <button class="tabbtn flex items-center gap-1.5 border-b-2 border-transparent px-4 py-2.5 text-sm font-medium text-slate-500 hover:text-slate-800" data-tab="kanal"><span class="dot size-1.5 rounded-full bg-orange-500 opacity-0"></span>Kanallar</button>
+        </div>
+      </div>
+
+      <!-- KPI şeridi (tüm sekmelerde sabit) -->
+      <section class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div class="rounded-xl border bg-white p-4 shadow-sm">
+          <p class="text-xs text-slate-500">Bugünkü Ciro</p>
+          <p class="mt-1 text-2xl font-semibold tabular-nums">₺18.450</p>
+          <p class="mt-1 text-xs text-emerald-600">▲ %12 düne göre</p>
+        </div>
+        <div class="rounded-xl border bg-white p-4 shadow-sm">
+          <p class="text-xs text-slate-500">Sipariş</p>
+          <p class="mt-1 text-2xl font-semibold tabular-nums">94</p>
+          <p class="mt-1 text-xs text-emerald-600">▲ %8 düne göre</p>
+        </div>
+        <div class="rounded-xl border bg-white p-4 shadow-sm">
+          <p class="text-xs text-slate-500">Ort. Sepet</p>
+          <p class="mt-1 text-2xl font-semibold tabular-nums">₺196</p>
+          <p class="mt-1 text-xs text-rose-500">▼ %3 düne göre</p>
+        </div>
+        <div class="rounded-xl border bg-white p-4 shadow-sm">
+          <p class="text-xs text-slate-500">Aktif Sipariş</p>
+          <p class="mt-1 text-2xl font-semibold tabular-nums">5</p>
+          <p class="mt-1 text-xs text-slate-400">şu an mutfakta</p>
+        </div>
+      </section>
+
+      <!-- ============ ÖZET ============ -->
+      <section data-panel="ozet" class="space-y-4">
+        <div class="grid lg:grid-cols-3 gap-4">
+          <div class="lg:col-span-2 rounded-xl border bg-white p-5 shadow-sm">
+            <div class="flex items-center justify-between mb-4">
+              <div><h3 class="font-semibold">Satış Performansı</h3><p class="text-xs text-slate-500">Son 7 gün</p></div>
+              <span class="text-xs text-slate-400">₺ / gün</span>
+            </div>
+            <div class="flex items-end gap-3 h-40">
+              <div class="flex-1 flex flex-col items-center gap-1"><div class="w-full rounded-t bg-orange-200" style="height:45%"></div><span class="text-[10px] text-slate-400">Pzt</span></div>
+              <div class="flex-1 flex flex-col items-center gap-1"><div class="w-full rounded-t bg-orange-300" style="height:62%"></div><span class="text-[10px] text-slate-400">Sal</span></div>
+              <div class="flex-1 flex flex-col items-center gap-1"><div class="w-full rounded-t bg-orange-200" style="height:50%"></div><span class="text-[10px] text-slate-400">Çar</span></div>
+              <div class="flex-1 flex flex-col items-center gap-1"><div class="w-full rounded-t bg-orange-300" style="height:70%"></div><span class="text-[10px] text-slate-400">Per</span></div>
+              <div class="flex-1 flex flex-col items-center gap-1"><div class="w-full rounded-t bg-orange-400" style="height:88%"></div><span class="text-[10px] text-slate-400">Cum</span></div>
+              <div class="flex-1 flex flex-col items-center gap-1"><div class="w-full rounded-t bg-orange-500" style="height:100%"></div><span class="text-[10px] font-medium text-slate-600">Cmt</span></div>
+              <div class="flex-1 flex flex-col items-center gap-1"><div class="w-full rounded-t bg-orange-300" style="height:58%"></div><span class="text-[10px] text-slate-400">Paz</span></div>
+            </div>
+          </div>
+          <div class="rounded-xl border bg-white p-5 shadow-sm">
+            <h3 class="font-semibold mb-1">Gelir Kaynağı</h3>
+            <p class="text-xs text-slate-500 mb-4">Ödeme yöntemine göre</p>
+            <div class="relative mx-auto h-32 w-32 rounded-full" style="background:conic-gradient(#10b981 0 40%,#3b82f6 40% 65%,#a855f7 65% 80%,#f97316 80% 93%,#06b6d4 93% 100%)">
+              <div class="absolute inset-4 rounded-full bg-white grid place-items-center"><div class="text-center"><div class="text-sm font-semibold">₺18.4K</div><div class="text-[10px] text-slate-400">Ciro</div></div></div>
+            </div>
+            <ul class="mt-4 space-y-1 text-xs">
+              <li class="flex justify-between"><span>🟢 Nakit</span><span class="tabular-nums">%40</span></li>
+              <li class="flex justify-between"><span>🔵 Kredi Kartı</span><span class="tabular-nums">%25</span></li>
+              <li class="flex justify-between"><span>🟣 Online</span><span class="tabular-nums">%15</span></li>
+              <li class="flex justify-between"><span>🟠 Yemek Kartı</span><span class="tabular-nums">%13</span></li>
+              <li class="flex justify-between"><span>🩵 IBAN</span><span class="tabular-nums">%7</span></li>
+            </ul>
+          </div>
+        </div>
+        <div class="rounded-xl border bg-white p-5 shadow-sm">
+          <div class="flex items-center justify-between mb-3"><h3 class="font-semibold">Son Siparişler</h3><a class="text-xs text-orange-600">Tümünü Gör →</a></div>
+          <table class="w-full text-sm">
+            <thead class="text-xs text-slate-400 text-left"><tr><th class="py-1.5 font-medium">#</th><th class="font-medium">Müşteri</th><th class="font-medium">Durum</th><th class="font-medium">Ödeme</th><th class="font-medium text-right">Tutar</th></tr></thead>
+            <tbody class="divide-y">
+              <tr><td class="py-2 tabular-nums">1042</td><td>Ahmet Y.</td><td><span class="rounded-full bg-blue-50 text-blue-700 px-2 py-0.5 text-xs">Hazırlanıyor</span></td><td class="text-slate-500">Nakit</td><td class="text-right font-medium tabular-nums">₺245</td></tr>
+              <tr><td class="py-2 tabular-nums">1041</td><td>Trendyol</td><td><span class="rounded-full bg-violet-50 text-violet-700 px-2 py-0.5 text-xs">Yolda</span></td><td class="text-slate-500">Online</td><td class="text-right font-medium tabular-nums">₺180</td></tr>
+              <tr><td class="py-2 tabular-nums">1040</td><td>Zeynep K.</td><td><span class="rounded-full bg-emerald-50 text-emerald-700 px-2 py-0.5 text-xs">Teslim</span></td><td class="text-slate-500">Yemek Kartı</td><td class="text-right font-medium tabular-nums">₺320</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ============ SATIŞLAR ============ -->
+      <section data-panel="satis" class="hidden space-y-4">
+        <div class="rounded-xl border bg-white p-5 shadow-sm">
+          <h3 class="font-semibold mb-1">Saatlik Trafik</h3><p class="text-xs text-slate-500 mb-4">12 Haziran · gün içi yoğunluk</p>
+          <div class="flex items-end gap-1 h-32">
+            <script>document.write(Array.from({length:18},(_,i)=>{const h=10+i;const v=[12,18,30,55,80,95,60,35,28,22,40,70,92,100,75,50,30,15][i];return `<div class='flex-1 flex flex-col items-center gap-1'><div class='w-full rounded-t bg-blue-400' style='height:${v}%'></div><span class='text-[9px] text-slate-400'>${h}</span></div>`}).join(''))</script>
+          </div>
+        </div>
+        <div class="grid lg:grid-cols-2 gap-4">
+          <div class="rounded-xl border bg-white p-5 shadow-sm">
+            <div class="flex items-center justify-between mb-3"><h3 class="font-semibold">12 Haz Satılan Ürünler</h3><span class="text-xs text-slate-400">adet bazlı</span></div>
+            <ul class="space-y-2 text-sm">
+              <li class="flex items-center gap-3"><span class="size-7 grid place-items-center rounded bg-slate-100 text-xs font-semibold">#1</span><span class="flex-1">Lahmacun</span><span class="text-slate-400 text-xs">120 ad</span><span class="font-medium tabular-nums">₺4.200</span></li>
+              <li class="flex items-center gap-3"><span class="size-7 grid place-items-center rounded bg-slate-100 text-xs font-semibold">#2</span><span class="flex-1">Adana Kebap</span><span class="text-slate-400 text-xs">80 ad</span><span class="font-medium tabular-nums">₺6.400</span></li>
+              <li class="flex items-center gap-3"><span class="size-7 grid place-items-center rounded bg-slate-100 text-xs font-semibold">#3</span><span class="flex-1">Kuşbaşı Pide</span><span class="text-slate-400 text-xs">60 ad</span><span class="font-medium tabular-nums">₺3.600</span></li>
+            </ul>
+          </div>
+          <div class="rounded-xl border bg-white p-5 shadow-sm">
+            <h3 class="font-semibold mb-3">Günlük Trend (30 gün)</h3>
+            <div class="flex items-end gap-0.5 h-32">
+              <script>document.write(Array.from({length:30},()=>`<div class='flex-1 rounded-t bg-emerald-300' style='height:${30+Math.random()*70}%'></div>`).join(''))</script>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ TAHSİLAT (yeni merkez) ============ -->
+      <section data-panel="tahsilat" class="hidden space-y-4">
+        <div class="grid lg:grid-cols-3 gap-3">
+          <div class="rounded-xl border bg-white p-4 shadow-sm">
+            <p class="text-xs text-slate-500">Nakit (kasada)</p><p class="mt-1 text-xl font-semibold tabular-nums text-emerald-600">₺7.380</p>
+          </div>
+          <div class="rounded-xl border bg-white p-4 shadow-sm">
+            <p class="text-xs text-slate-500">Online / Kart (hesaba)</p><p class="mt-1 text-xl font-semibold tabular-nums text-blue-600">₺8.640</p>
+          </div>
+          <div class="rounded-xl border bg-white p-4 shadow-sm ring-1 ring-orange-200">
+            <p class="text-xs text-slate-500">Yemek Kartı <span class="text-orange-600">· settlement dışı</span></p><p class="mt-1 text-xl font-semibold tabular-nums text-orange-600">₺2.430</p>
+          </div>
+        </div>
+
+        <div class="rounded-xl border bg-white p-5 shadow-sm">
+          <h3 class="font-semibold mb-4">Ödeme Yöntemi Dağılımı — 12 Haziran</h3>
+          <div class="space-y-3 text-sm">
+            <div><div class="flex justify-between mb-1"><span>🟢 Nakit</span><span class="font-medium tabular-nums">₺7.380 · %40</span></div><div class="h-2 rounded-full bg-slate-100"><div class="h-full rounded-full bg-emerald-500" style="width:40%"></div></div></div>
+            <div><div class="flex justify-between mb-1"><span>🔵 Kredi Kartı</span><span class="font-medium tabular-nums">₺4.610 · %25</span></div><div class="h-2 rounded-full bg-slate-100"><div class="h-full rounded-full bg-blue-500" style="width:25%"></div></div></div>
+            <div><div class="flex justify-between mb-1"><span>🟣 Online</span><span class="font-medium tabular-nums">₺2.770 · %15</span></div><div class="h-2 rounded-full bg-slate-100"><div class="h-full rounded-full bg-violet-500" style="width:15%"></div></div></div>
+            <div><div class="flex justify-between mb-1"><span>🟠 Yemek Kartı</span><span class="font-medium tabular-nums">₺2.430 · %13</span></div><div class="h-2 rounded-full bg-slate-100"><div class="h-full rounded-full bg-orange-500" style="width:13%"></div></div></div>
+            <div><div class="flex justify-between mb-1"><span>🩵 IBAN/Havale</span><span class="font-medium tabular-nums">₺1.260 · %7</span></div><div class="h-2 rounded-full bg-slate-100"><div class="h-full rounded-full bg-cyan-500" style="width:7%"></div></div></div>
+          </div>
+          <div class="mt-4 flex items-center justify-between border-t pt-3"><span class="font-semibold">Gün Toplamı</span><span class="font-bold tabular-nums">₺18.450</span></div>
+        </div>
+
+        <div class="grid sm:grid-cols-2 gap-3">
+          <a class="flex items-center justify-between rounded-xl border bg-white p-4 shadow-sm hover:bg-slate-50">
+            <div><p class="font-medium">🧾 Gün Sonu Kapanışı</p><p class="text-xs text-slate-500">Kasa sayımı + hakediş snapshot</p></div><span class="text-slate-400">→</span>
+          </a>
+          <a class="flex items-center justify-between rounded-xl border bg-white p-4 shadow-sm hover:bg-slate-50">
+            <div><p class="font-medium">👛 Açık Hesaplar</p><p class="text-xs text-slate-500">Veresiye / tahsil edilmemiş <span class="text-amber-600 font-medium">3 hesap · ₺1.840</span></p></div><span class="text-slate-400">→</span>
+          </a>
+        </div>
+      </section>
+
+      <!-- ============ ÜRÜNLER ============ -->
+      <section data-panel="urun" class="hidden space-y-4">
+        <div class="grid lg:grid-cols-2 gap-4">
+          <div class="rounded-xl border bg-white p-5 shadow-sm">
+            <h3 class="font-semibold mb-3">En Çok Satan (bu ay)</h3>
+            <ul class="space-y-2 text-sm">
+              <li class="flex items-center gap-3"><span class="size-7 grid place-items-center rounded bg-slate-100 text-xs font-semibold">#1</span><span class="flex-1">Adana Kebap <span class="text-[10px] rounded border px-1 ml-1">Kebap</span></span><span class="font-medium tabular-nums">₺142K</span></li>
+              <li class="flex items-center gap-3"><span class="size-7 grid place-items-center rounded bg-slate-100 text-xs font-semibold">#2</span><span class="flex-1">Lahmacun <span class="text-[10px] rounded border px-1 ml-1">Lahmacun</span></span><span class="font-medium tabular-nums">₺98K</span></li>
+              <li class="flex items-center gap-3"><span class="size-7 grid place-items-center rounded bg-slate-100 text-xs font-semibold">#3</span><span class="flex-1">Kuşbaşı Pide <span class="text-[10px] rounded border px-1 ml-1">Pide</span></span><span class="font-medium tabular-nums">₺76K</span></li>
+            </ul>
+          </div>
+          <div class="rounded-xl border bg-white p-5 shadow-sm">
+            <h3 class="font-semibold mb-3">Kategori Kırılımı</h3>
+            <div class="space-y-3 text-sm">
+              <div><div class="flex justify-between mb-1"><span>Kebap</span><span class="tabular-nums">%38</span></div><div class="h-2 rounded-full bg-slate-100"><div class="h-full rounded-full bg-red-500" style="width:38%"></div></div></div>
+              <div><div class="flex justify-between mb-1"><span>Lahmacun</span><span class="tabular-nums">%26</span></div><div class="h-2 rounded-full bg-slate-100"><div class="h-full rounded-full bg-orange-500" style="width:26%"></div></div></div>
+              <div><div class="flex justify-between mb-1"><span>Pide</span><span class="tabular-nums">%20</span></div><div class="h-2 rounded-full bg-slate-100"><div class="h-full rounded-full bg-amber-500" style="width:20%"></div></div></div>
+              <div><div class="flex justify-between mb-1"><span>İçecek</span><span class="tabular-nums">%16</span></div><div class="h-2 rounded-full bg-slate-100"><div class="h-full rounded-full bg-cyan-500" style="width:16%"></div></div></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ KANALLAR ============ -->
+      <section data-panel="kanal" class="hidden space-y-4">
+        <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div class="rounded-xl border bg-white p-4 shadow-sm"><div class="flex items-center gap-2 mb-2"><span class="size-2.5 rounded-full bg-orange-500"></span><span class="font-medium text-sm">Trendyol</span></div><p class="text-xl font-semibold tabular-nums">₺8.200</p><p class="text-xs text-slate-500">44 sipariş · %44</p></div>
+          <div class="rounded-xl border bg-white p-4 shadow-sm"><div class="flex items-center gap-2 mb-2"><span class="size-2.5 rounded-full bg-violet-500"></span><span class="font-medium text-sm">Getir</span></div><p class="text-xl font-semibold tabular-nums">₺3.100</p><p class="text-xs text-slate-500">18 sipariş · %17</p></div>
+          <div class="rounded-xl border bg-white p-4 shadow-sm"><div class="flex items-center gap-2 mb-2"><span class="size-2.5 rounded-full bg-pink-500"></span><span class="font-medium text-sm">Yemeksepeti</span></div><p class="text-xl font-semibold tabular-nums">₺2.650</p><p class="text-xs text-slate-500">14 sipariş · %14</p></div>
+          <div class="rounded-xl border bg-white p-4 shadow-sm"><div class="flex items-center gap-2 mb-2"><span class="size-2.5 rounded-full bg-slate-500"></span><span class="font-medium text-sm">Manuel</span></div><p class="text-xl font-semibold tabular-nums">₺4.500</p><p class="text-xs text-slate-500">18 sipariş · %25</p></div>
+        </div>
+        <div class="rounded-xl border bg-white p-5 shadow-sm">
+          <h3 class="font-semibold mb-4">Kanal Karşılaştırma — Ciro</h3>
+          <div class="space-y-3 text-sm">
+            <div><div class="flex justify-between mb-1"><span>Trendyol</span><span class="tabular-nums">₺8.200</span></div><div class="h-3 rounded-full bg-slate-100"><div class="h-full rounded-full bg-orange-500" style="width:44%"></div></div></div>
+            <div><div class="flex justify-between mb-1"><span>Manuel</span><span class="tabular-nums">₺4.500</span></div><div class="h-3 rounded-full bg-slate-100"><div class="h-full rounded-full bg-slate-500" style="width:25%"></div></div></div>
+            <div><div class="flex justify-between mb-1"><span>Getir</span><span class="tabular-nums">₺3.100</span></div><div class="h-3 rounded-full bg-slate-100"><div class="h-full rounded-full bg-violet-500" style="width:17%"></div></div></div>
+            <div><div class="flex justify-between mb-1"><span>Yemeksepeti</span><span class="tabular-nums">₺2.650</span></div><div class="h-3 rounded-full bg-slate-100"><div class="h-full rounded-full bg-pink-500" style="width:14%"></div></div></div>
+          </div>
+          <p class="mt-4 text-xs text-slate-400">Trendyol satırına tıklayınca → mevcut Trendyol detay ağacı (yorum, kampanya, gün sonu) açılır.</p>
+        </div>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<script>
+  const btns = document.querySelectorAll('.tabbtn');
+  const panels = document.querySelectorAll('[data-panel]');
+  btns.forEach(b => b.addEventListener('click', () => {
+    btns.forEach(x => x.dataset.active = 'false');
+    b.dataset.active = 'true';
+    panels.forEach(p => p.classList.toggle('hidden', p.dataset.panel !== b.dataset.tab));
+  }));
+</script>
+</body>
+</html>
