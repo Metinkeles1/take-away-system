@@ -9,9 +9,17 @@ import { toast } from "sonner";
 import type { Order, PaymentInfo } from "@/types";
 import { CollectPaymentDialog } from "@/components/orders/CollectPaymentDialog";
 
+const METHOD_LABEL: Record<string, string> = {
+  cash: "Nakit",
+  card: "Kart",
+  online: "Online",
+  meal_card: "Yemek Kartı",
+  iban: "IBAN",
+};
+
 interface Props {
   order: Order;
-  onCollect: (payment: PaymentInfo) => Promise<void>;
+  onCollect: (payment: PaymentInfo, amount: number, note?: string) => Promise<void>;
   onToggleOpen: (open: boolean) => Promise<void>;
 }
 
@@ -23,9 +31,11 @@ const OpenAccountCard = memo(function OpenAccountCard({
   const [dialogOpen, setDialogOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const isOpen = order.paymentStatus === "open";
+  const paid = order.paidAmount ?? 0;
+  const remaining = Math.max(0, order.total - paid);
 
-  const handleCollect = async (payment: PaymentInfo) => {
-    await onCollect(payment);
+  const handleCollect = async (payment: PaymentInfo, amount: number, note?: string) => {
+    await onCollect(payment, amount, note);
     toast.success("Tahsil edildi");
   };
 
@@ -56,7 +66,12 @@ const OpenAccountCard = memo(function OpenAccountCard({
                   Açık Hesap
                 </p>
                 <p className="text-xs text-amber-700/80 dark:text-amber-300/80">
-                  Alacak: {formatCurrency(order.total)}
+                  Alacak: {formatCurrency(remaining)}
+                  {paid > 0 && (
+                    <span className="opacity-80">
+                      {" "}· {formatCurrency(paid)} ödendi
+                    </span>
+                  )}
                 </p>
               </div>
             </div>
@@ -69,6 +84,26 @@ const OpenAccountCard = memo(function OpenAccountCard({
               Tahsil Et
             </Button>
           </div>
+
+          {/* Kısmi tahsilat geçmişi — her parçanın tutar/yöntem/notu görünsün */}
+          {order.payments && order.payments.length > 0 && (
+            <ul className="mt-3 space-y-1 border-t border-amber-200/60 pt-2 dark:border-amber-800/60">
+              {order.payments.map((p, i) => (
+                <li
+                  key={i}
+                  className="flex items-baseline justify-between gap-2 text-xs text-amber-800/90 dark:text-amber-200/90"
+                >
+                  <span className="truncate">
+                    {METHOD_LABEL[p.method] ?? p.method}
+                    {p.note && <span className="opacity-70"> · {p.note}</span>}
+                  </span>
+                  <span className="shrink-0 font-medium tabular-nums">
+                    {formatCurrency(p.amount)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
 
           <button
             type="button"

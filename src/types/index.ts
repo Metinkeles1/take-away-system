@@ -89,6 +89,18 @@ export interface PaymentInfo {
   ibanNumber?: string; // IBAN numarası
 }
 
+// ─── Tahsilat Kaydı (kısmi ödeme) ─────────────────────────────────────────────
+// Bir açık hesaba yapılan TEK bir tahsilat. Açık hesap parça parça ödenebilir;
+// her parça farklı yöntem/tutar olabilir. payments[] bu parçaların geçmişidir,
+// paidAmount toplamıdır. Hepsi toplanınca paymentStatus "paid" olur.
+export interface PaymentRecord {
+  amount: number; // bu tahsilatta alınan tutar
+  method: PaymentMethod; // nakit / kart / yemek kartı / IBAN
+  mealCardBrand?: MealCardBrand;
+  at: Date; // tahsilat anı
+  note?: string; // serbest not — örn. "2x döner için"
+}
+
 // ─── Sipariş Durumu ───────────────────────────────────────────────────────────
 export type OrderStatus =
   | "pending" // Beklemede
@@ -140,8 +152,12 @@ export interface Order {
   source?: OrderSource;
   externalRef?: string; // örn. Trendyol sipariş kodu
   // Tahsilat durumu — "open" ise açık hesap (henüz ödenmedi). Varsayılan "paid".
+  // Kısmi ödenen sipariş tamamı tahsil edilene kadar "open" kalır (kalan = alacak).
   paymentStatus?: PaymentStatus;
-  paidAt?: Date; // açık hesabın tahsil edildiği an
+  paidAt?: Date; // açık hesabın tamamen tahsil edildiği an
+  // Açık hesaba yapılan parça parça tahsilatlar ve toplamı. paidAmount yoksa 0.
+  payments?: PaymentRecord[];
+  paidAmount?: number; // şimdiye dek tahsil edilen toplam (kalan = total − paidAmount)
   // Aynı müşterinin diğer açık hesapları — okuma sırasında türetilir (kalıcı değil).
   customerOpenAccounts?: CustomerOpenAccounts;
 }

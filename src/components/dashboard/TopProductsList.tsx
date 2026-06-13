@@ -17,9 +17,18 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { formatCurrency } from "@/lib/utils";
 import { type DashboardStats } from "@/actions/dashboard";
 
+type ProductRow = DashboardStats["menuPreferences"][number];
+
 interface Props {
   stats: DashboardStats | null;
   isLoading: boolean;
+  /** Verilirse bu liste gösterilir; verilmezse stats.menuPreferences (tüm zaman). */
+  products?: ProductRow[];
+  title?: string;
+  description?: string;
+  emptyText?: string;
+  /** "Tümünü Gör" linkini göster (varsayılan açık). */
+  showAction?: boolean;
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -33,23 +42,33 @@ const CATEGORY_LABELS: Record<string, string> = {
   icecek: "İçecek",
 };
 
-export function TopProductsList({ stats, isLoading }: Props) {
-  const rows = (stats?.menuPreferences ?? []).slice(0, 5);
+export function TopProductsList({
+  stats,
+  isLoading,
+  products,
+  title = "En Çok Satan Ürünler",
+  description = "Bu ayın en iyi performansı",
+  emptyText = "Henüz ürün satışı yok.",
+  showAction = true,
+}: Props) {
+  const rows = (products ?? stats?.menuPreferences ?? []).slice(0, 5);
   const maxRevenue = rows[0]?.revenue ?? 1;
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>En Çok Satan Ürünler</CardTitle>
-        <CardDescription>Bu ayın en iyi performansı</CardDescription>
-        <CardAction>
-          <Button variant="outline" size="sm" asChild className="gap-1.5">
-            <Link href="/products">
-              <Eye className="size-3.5" />
-              <span className="hidden sm:inline">Tümünü Gör</span>
-            </Link>
-          </Button>
-        </CardAction>
+        <CardTitle>{title}</CardTitle>
+        <CardDescription>{description}</CardDescription>
+        {showAction && (
+          <CardAction>
+            <Button variant="outline" size="sm" asChild className="gap-1.5">
+              <Link href="/products">
+                <Eye className="size-3.5" />
+                <span className="hidden sm:inline">Tümünü Gör</span>
+              </Link>
+            </Button>
+          </CardAction>
+        )}
       </CardHeader>
       <CardContent className="space-y-2">
         {isLoading ? (
@@ -58,7 +77,7 @@ export function TopProductsList({ stats, isLoading }: Props) {
           ))
         ) : rows.length === 0 ? (
           <p className="py-10 text-center text-sm text-muted-foreground">
-            Henüz ürün satışı yok.
+            {emptyText}
           </p>
         ) : (
           rows.map((p, i) => {

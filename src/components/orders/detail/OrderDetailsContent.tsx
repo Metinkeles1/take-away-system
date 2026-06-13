@@ -24,7 +24,7 @@ interface Props {
     ibanName?: string;
     ibanNumber?: string;
   }) => Promise<void>;
-  onCollect: (payment: PaymentInfo) => Promise<void>;
+  onCollect: (payment: PaymentInfo, amount: number, note?: string) => Promise<void>;
   onToggleOpen: (open: boolean) => Promise<void>;
 }
 

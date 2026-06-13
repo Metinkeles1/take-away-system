@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { connectDB } from "@/lib/mongodb";
 import OrderModel from "@/models/Order";
+import CustomerModel from "@/models/Customer";
 import {
   cancelTrendyolPackage,
   deliverTrendyolPackage,
@@ -11,10 +12,12 @@ import {
 } from "@/lib/integrations/trendyol/client";
 import {
   type CustomerOpenAccounts,
+  type GeoPoint,
   type Order,
   type OrderStatus,
   type PaymentInfo,
   type PaymentMethod,
+  type PaymentRecord,
 } from "@/types";
 import { notifyOrdersChanged } from "@/lib/pusher/server";
 import {
@@ -80,6 +83,46 @@ function periodCutoff(period: OrdersPeriod): Date | null {
 }
 
 // ─── Siparişleri getir (canlı pencere) ─────────────────────────────────────────
+// Verilen telefonlara müşteri kaydında kayıtlı pini (geo) tek sorguda çeker.
+// Kurye teslimatta pinlediğinde konum müşteri kaydına da yazılır; böylece aynı
+// kişinin diğer siparişlerinde de pin hazır gelir.
+async function getGeoByPhone(
+  phones: string[],
+): Promise<Map<string, GeoPoint | undefined>> {
+  const unique = [...new Set(phones)];
+  const customers = await CustomerModel.find({ phone: { $in: unique } })
+    .select("phone geo")
+    .lean();
+  const map = new Map<string, GeoPoint | undefined>();
+  for (const c of customers) {
+    const rec = c as unknown as { phone: string; geo?: GeoPoint };
+    map.set(rec.phone, rec.geo);
+  }
+  return map;
+}
+
+// Kısmi tahsilat alanlarını doc'tan çıkarır (DB → Order eşlemesinde tekrarı önler).
+function ledgerFields(doc: unknown): {
+  payments?: PaymentRecord[];
+  paidAmount?: number;
+} {
+  const d = doc as { payments?: PaymentRecord[]; paidAmount?: number };
+  return {
+    payments: d.payments ?? undefined,
+    paidAmount: d.paidAmount ?? undefined,
+  };
+}
+
+// Siparişin kendi pini varsa onu, yoksa müşteriye (telefon) kayıtlı pini kullanır.
+function withFallbackGeo(
+  customer: Order["customer"],
+  geoByPhone: Map<string, GeoPoint | undefined>,
+): Order["customer"] {
+  if (customer.geo) return customer;
+  const geo = geoByPhone.get(customer.phone);
+  return geo ? { ...customer, geo } : customer;
+}
+
 export async function getOrders(period: OrdersPeriod = "week"): Promise<Order[]> {
   await connectDB();
 
@@ -104,15 +147,19 @@ export async function getOrders(period: OrdersPeriod = "week"): Promise<Order[]>
 
   // Bu penceredeki müşterilerin açık hesaplarını tek sorguda çek; her siparişe
   // "aynı müşterinin diğer açık hesapları" uyarısını iliştir (kendisi hariç).
-  const openByPhone = await getOpenAccountsByPhone(
-    docs.map((d) => (d.customer as Order["customer"]).phone),
-  );
+  const phones = docs.map((d) => (d.customer as Order["customer"]).phone);
+  const openByPhone = await getOpenAccountsByPhone(phones);
+
+  // Kurye ekranıyla aynı mantık: siparişin kendi pini yoksa, müşteriye (telefon)
+  // kayıtlı pini kullan. Aksi halde kurye bir önceki teslimatta pinlediği konumu
+  // görürken, bu sipariş henüz pinlenmediği için bilgisayarda konum boş kalıyordu.
+  const geoByPhone = await getGeoByPhone(phones);
 
   return docs.map((doc) => ({
     id: doc.id,
     orderNumber: doc.orderNumber,
     items: doc.items as Order["items"],
-    customer: doc.customer as Order["customer"],
+    customer: withFallbackGeo(doc.customer as Order["customer"], geoByPhone),
     payment: doc.payment as Order["payment"],
     status: doc.status as Order["status"],
     notes: doc.notes ?? undefined,
@@ -123,6 +170,7 @@ export async function getOrders(period: OrdersPeriod = "week"): Promise<Order[]>
     externalRef: doc.externalRef ?? undefined,
     paymentStatus: (doc.paymentStatus as Order["paymentStatus"]) ?? "paid",
     paidAt: (doc as unknown as { paidAt?: Date }).paidAt ?? undefined,
+    ...ledgerFields(doc),
     customerOpenAccounts: openAccountsExcluding(
       openByPhone.get((doc.customer as Order["customer"]).phone),
       doc.id,
@@ -139,11 +187,16 @@ export async function getOrderById(id: string): Promise<Order | null> {
   const doc = await OrderModel.findOne({ id }).lean();
   if (!doc) return null;
 
+  const customer = doc.customer as Order["customer"];
+  // Siparişin kendi pini yoksa müşteriye (telefon) kayıtlı pini kullan — kurye
+  // ekranıyla tutarlı olsun (bkz. getCourierOrders).
+  const geoByPhone = customer.geo ? null : await getGeoByPhone([customer.phone]);
+
   return {
     id: doc.id,
     orderNumber: doc.orderNumber,
     items: doc.items as Order["items"],
-    customer: doc.customer as Order["customer"],
+    customer: geoByPhone ? withFallbackGeo(customer, geoByPhone) : customer,
     payment: doc.payment as Order["payment"],
     status: doc.status as Order["status"],
     notes: doc.notes ?? undefined,
@@ -154,6 +207,7 @@ export async function getOrderById(id: string): Promise<Order | null> {
     externalRef: doc.externalRef ?? undefined,
     paymentStatus: (doc.paymentStatus as Order["paymentStatus"]) ?? "paid",
     paidAt: (doc as unknown as { paidAt?: Date }).paidAt ?? undefined,
+    ...ledgerFields(doc),
     createdAt: (doc as unknown as { createdAt: Date }).createdAt,
     updatedAt: (doc as unknown as { updatedAt: Date }).updatedAt,
   };
@@ -316,6 +370,7 @@ export async function getOpenAccounts(): Promise<Order[]> {
     externalRef: doc.externalRef ?? undefined,
     paymentStatus: (doc.paymentStatus as Order["paymentStatus"]) ?? "paid",
     paidAt: (doc as unknown as { paidAt?: Date }).paidAt ?? undefined,
+    ...ledgerFields(doc),
     createdAt: (doc as unknown as { createdAt: Date }).createdAt,
     updatedAt: (doc as unknown as { updatedAt: Date }).updatedAt,
   }));
@@ -346,19 +401,58 @@ export async function getOpenAccountsCount(): Promise<number> {
   }
 }
 
-// Açık hesabı tahsil et: ödendi olarak işaretle, ödeme yöntemini güncelle, tarihini yaz.
+// Açık hesaba tahsilat işle. Kısmi olabilir: `amount` verilmezse kalanın tamamı
+// tahsil edilir (eski "tümünü tahsil et" davranışı). Her tahsilat payments[]'a
+// eklenir; toplam (paidAmount) sipariş tutarına ulaşınca paymentStatus "paid" olur,
+// aksi halde sipariş "open" kalır ve kalan = total − paidAmount alacak olarak durur.
 export async function collectOpenAccount(
   id: string,
   payment: PaymentInfo,
+  amount?: number,
+  note?: string,
 ): Promise<{ ok: boolean; error?: string }> {
   try {
     await connectDB();
 
-    const doc = await OrderModel.findOneAndUpdate(
-      { id },
-      { payment, paymentStatus: "paid", paidAt: new Date() },
-    );
+    const doc = await OrderModel.findOne({ id })
+      .select("total paidAmount")
+      .lean();
     if (!doc) return { ok: false, error: "Sipariş bulunamadı" };
+
+    const total = (doc as unknown as { total: number }).total;
+    const already = (doc as unknown as { paidAmount?: number }).paidAmount ?? 0;
+    const remaining = Math.max(0, total - already);
+
+    // Tutar verilmediyse kalanın tamamı; verilse de kalanı aşamaz, negatif olamaz.
+    const pay =
+      amount == null ? remaining : Math.min(Math.max(0, amount), remaining);
+    if (pay <= 0) return { ok: false, error: "Geçersiz tahsilat tutarı" };
+
+    const newPaid = already + pay;
+    // Kuruş yuvarlamasına karşı küçük tolerans.
+    const fullyPaid = newPaid >= total - 0.001;
+
+    const record: PaymentRecord = {
+      amount: pay,
+      method: payment.method,
+      mealCardBrand: payment.mealCardBrand,
+      at: new Date(),
+      note: note?.trim() || undefined,
+    };
+
+    // $set sözlüğü: her zaman paidAmount + tahsilat geçmişi; tamamlandıysa ek olarak
+    // durum/yöntem/tarih. Tam ödemede payment'ı güncellemek mevcut davranışı korur.
+    const set: Record<string, unknown> = { paidAmount: newPaid };
+    if (fullyPaid) {
+      set.paymentStatus = "paid";
+      set.paidAt = new Date();
+      set.payment = payment;
+    }
+
+    await OrderModel.updateOne(
+      { id },
+      { $push: { payments: record }, $set: set },
+    );
 
     revalidatePath("/open-accounts");
     revalidatePath(`/orders/${id}`);

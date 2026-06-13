@@ -20,7 +20,7 @@ export async function getOpenAccountsByPhone(
     status: { $ne: "cancelled" }, // iptal edilen sipariş alacak/uyarı sayılmaz
     "customer.phone": { $in: unique },
   })
-    .select("id orderNumber total customer.phone createdAt")
+    .select("id orderNumber total paidAmount customer.phone createdAt")
     .sort({ createdAt: -1 })
     .lean();
 
@@ -29,15 +29,18 @@ export async function getOpenAccountsByPhone(
       id: string;
       orderNumber: number;
       total: number;
+      paidAmount?: number;
       customer?: { phone?: string };
       createdAt: Date;
     };
     const phone = rec.customer?.phone;
     if (!phone) continue;
+    // Alacak = sipariş tutarı − şimdiye dek tahsil edilen (kısmi ödeme düşülür).
+    const remaining = Math.max(0, rec.total - (rec.paidAmount ?? 0));
     const ref: OpenAccountRef = {
       id: rec.id,
       orderNumber: rec.orderNumber,
-      total: rec.total,
+      total: remaining,
       createdAt: rec.createdAt,
     };
     const cur = map.get(phone) ?? { count: 0, total: 0, orders: [] };

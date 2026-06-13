@@ -21,6 +21,9 @@ export const metadata: Metadata = {
     statusBarStyle: "default",
   },
   icons: {
+    // metadata.icons objesi tanımlanınca icon.tsx dosya-konvansiyonunun otomatik
+    // <link rel="icon"> etiketini ezer; favicon'un kaybolmaması için açıkça ekliyoruz.
+    icon: "/icon",
     apple: "/icons/icon-apple-touch.png",
   },
 };

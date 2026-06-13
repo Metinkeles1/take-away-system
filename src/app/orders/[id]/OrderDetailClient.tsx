@@ -77,8 +77,8 @@ export default function OrderDetailClient({ initialOrder }: Props) {
   );
 
   const handleCollect = useCallback(
-    async (payment: PaymentInfo) => {
-      await collectOpenAccount(order.id, payment);
+    async (payment: PaymentInfo, amount: number, note?: string) => {
+      await collectOpenAccount(order.id, payment, amount, note);
     },
     [order.id, collectOpenAccount]
   );

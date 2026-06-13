@@ -65,6 +65,22 @@ const PaymentInfoSchema = new Schema(
   { _id: false },
 );
 
+// Açık hesaba yapılan tek bir kısmi tahsilat. Açık hesap parça parça ödenebilir.
+const PaymentRecordSchema = new Schema(
+  {
+    amount: { type: Number, required: true },
+    method: {
+      type: String,
+      enum: ["cash", "card", "online", "meal_card", "iban"],
+      required: true,
+    },
+    mealCardBrand: String,
+    at: { type: Date, required: true },
+    note: String,
+  },
+  { _id: false },
+);
+
 // ─── Ana Sipariş Şeması ───────────────────────────────────────────────────────
 
 const OrderSchema = new Schema(
@@ -97,7 +113,10 @@ const OrderSchema = new Schema(
       default: "paid",
       index: true,
     },
-    paidAt: Date, // açık hesabın tahsil edildiği an
+    paidAt: Date, // açık hesabın tamamen tahsil edildiği an
+    // Kısmi tahsilat geçmişi ve toplamı. Tamamı tahsil edilince paymentStatus "paid".
+    payments: { type: [PaymentRecordSchema], default: undefined },
+    paidAmount: { type: Number, default: 0 },
   },
   {
     timestamps: true, // createdAt & updatedAt otomatik

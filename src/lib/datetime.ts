@@ -30,6 +30,25 @@ export function istanbulDayStartDaysAgo(
   return new Date(start.getTime() - days * 24 * 60 * 60 * 1000);
 }
 
+// "YYYY-MM-DD" tarihine N gün ekler/çıkarır, yine "YYYY-MM-DD" döner.
+export function isoPlusDays(iso: string, days: number): string {
+  const dt = new Date(`${iso}T00:00:00Z`);
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return dt.toISOString().slice(0, 10);
+}
+
+// Gün gezgini etiketi: offset 0=Bugün, 1=Dün, diğerleri TR tarih (Çar 11 Haz).
+export function dayLabelTR(dateISO: string, offset: number): string {
+  if (offset === 0) return "Bugün";
+  if (offset === 1) return "Dün";
+  const dt = new Date(`${dateISO}T00:00:00Z`);
+  return dt.toLocaleDateString("tr-TR", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
+}
+
 // Istanbul gününü "YYYY-MM-DD" olarak verir (gün sonu snapshot anahtarı).
 // Örn. cron 00:30 IST'de çalışıp dünü dondurmak için:
 //   istanbulDateISO(Date.now() - 24 * 60 * 60 * 1000)

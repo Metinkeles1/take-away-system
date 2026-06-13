@@ -5,7 +5,11 @@ import OrderModel from "@/models/Order";
 import CustomerModel from "@/models/Customer";
 import ProductModel from "@/models/Product";
 import { type OrderSource } from "@/types";
-import { istanbulDayStart, istanbulDayStartDaysAgo } from "@/lib/datetime";
+import {
+  istanbulDateISO,
+  istanbulDayStart,
+  istanbulDayStartDaysAgo,
+} from "@/lib/datetime";
 
 // "all" = filtre yok; OrderSource = sadece o kaynak.
 // "manual" filtresi eski (source alanı olmayan) kayıtları da kapsar.
@@ -242,6 +246,8 @@ export async function getDashboardStats(
     totalOrderCount++;
     totalRevenue += o.total;
 
+    const isToday = dateMs >= todayStartMs;
+
     const method = o.payment?.method as PaymentKey | undefined;
     if (method && method in paymentBreakdownAll) {
       paymentBreakdownAll[method] += o.total;
@@ -312,7 +318,7 @@ export async function getDashboardStats(
     }
 
     // Bugün
-    if (dateMs >= todayStartMs) {
+    if (isToday) {
       todayOrderCount++;
       todayRevenue += o.total;
       if (method && method in paymentBreakdown) {
@@ -483,5 +489,180 @@ export async function getDashboardStats(
     revenueTrend,
     monthlyTrend,
     regionBreakdown,
+  };
+}
+
+// ─── Belirli bir günün satışları (gün gezgini için) ─────────────────────────
+// dayOffset: 0 = bugün, 1 = dün, 2 = evvelsi gün … (Istanbul günü bazlı).
+export interface DaySales {
+  dayOffset: number;
+  dateISO: string; // "YYYY-MM-DD" (Istanbul günü)
+  orderCount: number;
+  revenue: number;
+  products: {
+    name: string;
+    category: string;
+    categoryLabel: string;
+    quantity: number;
+    revenue: number;
+    orderCount: number;
+  }[];
+  payments: Record<PaymentKey, number>;
+}
+
+export async function getDaySales(
+  source: DashboardSource = "all",
+  dayOffset = 0,
+): Promise<DaySales> {
+  await connectDB();
+
+  const safeOffset = Math.max(0, Math.min(365, Math.floor(dayOffset)));
+  const dayStart = istanbulDayStartDaysAgo(safeOffset);
+  const dayStartMs = dayStart.getTime();
+  const dayEndMs = dayStartMs + 24 * 60 * 60 * 1000;
+
+  const orders = await OrderModel.find({
+    ...buildSourceFilter(source),
+    createdAt: { $gte: new Date(dayStartMs), $lt: new Date(dayEndMs) },
+  })
+    .select({
+      id: 1,
+      status: 1,
+      total: 1,
+      "payment.method": 1,
+      "items.quantity": 1,
+      "items.totalPrice": 1,
+      "items.product.name": 1,
+      "items.product.category": 1,
+    })
+    .lean();
+
+  const payments: Record<PaymentKey, number> = {
+    cash: 0, card: 0, online: 0, meal_card: 0, iban: 0,
+  };
+  const productMap = new Map<
+    string,
+    { category: string; quantity: number; revenue: number; orderIds: Set<string> }
+  >();
+  let orderCount = 0;
+  let revenue = 0;
+
+  for (const o of orders) {
+    if ((o.status as string) === "cancelled") continue;
+    orderCount++;
+    revenue += o.total;
+
+    const method = o.payment?.method as PaymentKey | undefined;
+    if (method && method in payments) payments[method] += o.total;
+
+    for (const item of o.items) {
+      const name = item.product.name;
+      const cat = item.product.category;
+      const p = productMap.get(name);
+      if (p) {
+        p.quantity += item.quantity;
+        p.revenue += item.totalPrice;
+        p.orderIds.add(o.id);
+      } else {
+        productMap.set(name, {
+          category: cat,
+          quantity: item.quantity,
+          revenue: item.totalPrice,
+          orderIds: new Set([o.id]),
+        });
+      }
+    }
+  }
+
+  const products = [...productMap.entries()]
+    .map(([name, d]) => ({
+      name,
+      category: d.category,
+      categoryLabel: CATEGORY_LABELS[d.category] ?? d.category,
+      quantity: d.quantity,
+      revenue: d.revenue,
+      orderCount: d.orderIds.size,
+    }))
+    .sort((a, b) => b.quantity - a.quantity)
+    .slice(0, 10);
+
+  return {
+    dayOffset: safeOffset,
+    dateISO: istanbulDateISO(dayStartMs),
+    orderCount,
+    revenue,
+    payments,
+    products,
+  };
+}
+
+// ─── Kanal kıyaslaması (belirli gün) ────────────────────────────────────────
+const CHANNEL_LABELS: Record<OrderSource, string> = {
+  manual: "Manuel",
+  trendyol: "Trendyol",
+  getir: "Getir",
+  yemeksepeti: "Yemeksepeti",
+};
+
+export interface ChannelBreakdown {
+  dayOffset: number;
+  dateISO: string;
+  total: number;
+  channels: {
+    source: OrderSource;
+    label: string;
+    orderCount: number;
+    revenue: number;
+  }[];
+}
+
+export async function getChannelBreakdown(
+  dayOffset = 0,
+): Promise<ChannelBreakdown> {
+  await connectDB();
+
+  const safeOffset = Math.max(0, Math.min(365, Math.floor(dayOffset)));
+  const dayStart = istanbulDayStartDaysAgo(safeOffset);
+  const dayStartMs = dayStart.getTime();
+  const dayEndMs = dayStartMs + 24 * 60 * 60 * 1000;
+
+  const orders = await OrderModel.find({
+    createdAt: { $gte: new Date(dayStartMs), $lt: new Date(dayEndMs) },
+  })
+    .select({ status: 1, total: 1, source: 1 })
+    .lean();
+
+  // source alanı yoksa "manual" sayılır (eski kayıtlar).
+  const map = new Map<OrderSource, { orderCount: number; revenue: number }>();
+  let total = 0;
+
+  for (const o of orders) {
+    if ((o.status as string) === "cancelled") continue;
+    const src = ((o as unknown as { source?: OrderSource }).source ??
+      "manual") as OrderSource;
+    total += o.total;
+    const c = map.get(src);
+    if (c) {
+      c.orderCount++;
+      c.revenue += o.total;
+    } else {
+      map.set(src, { orderCount: 1, revenue: o.total });
+    }
+  }
+
+  const channels = (Object.keys(CHANNEL_LABELS) as OrderSource[])
+    .map((source) => ({
+      source,
+      label: CHANNEL_LABELS[source],
+      orderCount: map.get(source)?.orderCount ?? 0,
+      revenue: map.get(source)?.revenue ?? 0,
+    }))
+    .sort((a, b) => b.revenue - a.revenue);
+
+  return {
+    dayOffset: safeOffset,
+    dateISO: istanbulDateISO(dayStartMs),
+    total,
+    channels,
   };
 }

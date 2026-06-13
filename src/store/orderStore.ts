@@ -79,7 +79,12 @@ interface OrderStore {
   loadSavedCustomers: () => Promise<void>;
   updateOrderStatus: (orderId: string, status: OrderStatus) => Promise<void>;
   updateOrderPayment: (orderId: string, payment: PaymentInfo) => Promise<void>;
-  collectOpenAccount: (orderId: string, payment: PaymentInfo) => Promise<void>;
+  collectOpenAccount: (
+    orderId: string,
+    payment: PaymentInfo,
+    amount?: number,
+    note?: string,
+  ) => Promise<void>;
   setOrderOpenAccount: (orderId: string, open: boolean) => Promise<void>;
   getOrderById: (orderId: string) => Order | undefined;
 }
@@ -460,23 +465,33 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
     await dbUpdatePayment(orderId, payment);
   },
 
-  // ── Açık hesabı tahsil et ──────────────────────────────────────────────
-  collectOpenAccount: async (orderId, payment) => {
-    // Optimistic: ödendi + yöntem güncelle
+  // ── Açık hesabı tahsil et (kısmi olabilir) ─────────────────────────────
+  collectOpenAccount: async (orderId, payment, amount, note) => {
+    // Optimistic: tahsilatı payments'a ekle, paidAmount'u artır; toplam tutara
+    // ulaşıldıysa "paid" yap, aksi halde "open" kalsın (kalan = alacak).
     set((state) => ({
-      orders: state.orders.map((o) =>
-        o.id === orderId
-          ? {
-              ...o,
-              payment,
-              paymentStatus: "paid",
-              paidAt: new Date(),
-              updatedAt: new Date(),
-            }
-          : o,
-      ),
+      orders: state.orders.map((o) => {
+        if (o.id !== orderId) return o;
+        const already = o.paidAmount ?? 0;
+        const remaining = Math.max(0, o.total - already);
+        const pay = amount == null ? remaining : Math.min(Math.max(0, amount), remaining);
+        const newPaid = already + pay;
+        const fullyPaid = newPaid >= o.total - 0.001;
+        return {
+          ...o,
+          payments: [
+            ...(o.payments ?? []),
+            { amount: pay, method: payment.method, mealCardBrand: payment.mealCardBrand, at: new Date(), note: note?.trim() || undefined },
+          ],
+          paidAmount: newPaid,
+          ...(fullyPaid
+            ? { payment, paymentStatus: "paid" as const, paidAt: new Date() }
+            : {}),
+          updatedAt: new Date(),
+        };
+      }),
     }));
-    const res = await dbCollectOpenAccount(orderId, payment);
+    const res = await dbCollectOpenAccount(orderId, payment, amount, note);
     if (!res?.ok) await get().loadOrders();
   },
 

@@ -134,7 +134,7 @@ const OpenAccountRow = memo(function OpenAccountRow({
         <div className="flex items-end md:flex-col md:items-end justify-between gap-2 md:min-w-50">
           <div className="flex flex-col md:items-end">
             <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              Tutar
+              {collected ? "Tutar" : "Kalan"}
             </span>
             <span
               className={cn(
@@ -142,8 +142,19 @@ const OpenAccountRow = memo(function OpenAccountRow({
                 collected && "text-emerald-600 dark:text-emerald-400",
               )}
             >
-              {formatCurrency(order.total)}
+              {formatCurrency(
+                collected
+                  ? order.total
+                  : Math.max(0, order.total - (order.paidAmount ?? 0)),
+              )}
             </span>
+            {/* Kısmi ödeme yapıldıysa ne kadar ödendiğini göster */}
+            {!collected && (order.paidAmount ?? 0) > 0 && (
+              <span className="text-[11px] text-amber-600 tabular-nums">
+                {formatCurrency(order.paidAmount ?? 0)} ödendi /{" "}
+                {formatCurrency(order.total)}
+              </span>
+            )}
           </div>
           {collected ? (
             <Button variant="outline" size="sm" className="h-9" asChild>
@@ -257,8 +268,13 @@ export default function OpenAccountsPage() {
     [orders],
   );
 
+  // Toplam alacak = açık siparişlerin KALANLARI (kısmi ödenenlerde tahsil edilen düşülür).
   const totalDue = useMemo(
-    () => openOrders.reduce((sum, o) => sum + o.total, 0),
+    () =>
+      openOrders.reduce(
+        (sum, o) => sum + Math.max(0, o.total - (o.paidAmount ?? 0)),
+        0,
+      ),
     [openOrders],
   );
 
@@ -302,24 +318,37 @@ export default function OpenAccountsPage() {
   );
 
   const handleCollect = useCallback(
-    async (payment: PaymentInfo) => {
+    async (payment: PaymentInfo, amount: number, note?: string) => {
       if (!target) return;
       const { id, orderNumber } = target;
-      // Optimistic: tahsil edilen sipariş listeden DÜŞMEZ — "Tahsil Edildi" olarak kalır.
+      // Optimistic: kısmi olabilir. Kalanın tamamı tahsil edilirse "Tahsil Edildi"
+      // olarak görünür; değilse açık hesapta kalan tutarla kalır.
       setOrders((prev) =>
-        prev.map((o) =>
-          o.id === id
-            ? { ...o, paymentStatus: "paid", payment, paidAt: new Date() }
-            : o,
-        ),
+        prev.map((o) => {
+          if (o.id !== id) return o;
+          const already = o.paidAmount ?? 0;
+          const newPaid = already + amount;
+          const fullyPaid = newPaid >= o.total - 0.001;
+          return {
+            ...o,
+            payments: [
+              ...(o.payments ?? []),
+              { amount, method: payment.method, mealCardBrand: payment.mealCardBrand, at: new Date(), note: note?.trim() || undefined },
+            ],
+            paidAmount: newPaid,
+            ...(fullyPaid
+              ? { paymentStatus: "paid" as const, payment, paidAt: new Date() }
+              : {}),
+          };
+        }),
       );
-      const res = await collectOpenAccount(id, payment);
+      const res = await collectOpenAccount(id, payment, amount, note);
       if (!res.ok) {
         toast.error(res.error ?? "Tahsilat başarısız");
         void load(); // geri al — taze listeyi çek
         return;
       }
-      toast.success(`#${orderNumber} tahsil edildi`);
+      toast.success(`#${orderNumber} tahsilat işlendi`);
     },
     [target, load],
   );
