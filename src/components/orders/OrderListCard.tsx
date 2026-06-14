@@ -23,6 +23,7 @@ import {
   Loader2,
   Store,
   Wallet,
+  Bike,
 } from "lucide-react";
 
 const SOURCE_BADGE: Record<
@@ -119,6 +120,12 @@ function OrderListCardImpl({ order, onStatusChange }: OrderListCardProps) {
             )}
             {order.customerOpenAccounts && (
               <CustomerOpenAccountsBadge accounts={order.customerOpenAccounts} />
+            )}
+            {order.courier && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-lime-200 bg-lime-100 px-2 py-0.5 text-[11px] font-medium text-lime-800">
+                <Bike className="h-3 w-3" />
+                {order.courier}
+              </span>
             )}
             <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground bg-muted rounded-full px-2 py-0.5">
               <Timer className="h-3 w-3" />

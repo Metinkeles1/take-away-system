@@ -268,6 +268,78 @@ const CorporateTable = memo(function CorporateTable({
   );
 });
 
+// ── Kurye teslimat kırılımı — hangi kurye kaç paket taşıdı, ne kadar tahsilat ──
+const CourierTable = memo(function CourierTable({
+  rows,
+}: {
+  rows: { name: string; count: number; amount: number; openAmount: number }[];
+}) {
+  const total = rows.reduce((s, r) => s + r.amount, 0);
+  const open = rows.reduce((s, r) => s + r.openAmount, 0);
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Bike className="size-4 text-lime-500" />
+          Kurye Teslimat Dökümü
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="overflow-hidden rounded-lg ring-1 ring-foreground/8">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/50 text-xs text-muted-foreground">
+                <th className="px-3 py-2 text-left font-medium">Kurye</th>
+                <th className="px-3 py-2 text-center font-medium">Paket</th>
+                <th className="px-3 py-2 text-right font-medium">Tahsilat</th>
+                <th className="px-3 py-2 text-right font-medium">Açık</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.name} className="border-b last:border-0 hover:bg-muted/30">
+                  <td className="px-3 py-2 font-medium">{r.name}</td>
+                  <td className="px-3 py-2 text-center tabular-nums">{r.count}</td>
+                  <td className="px-3 py-2 text-right font-medium tabular-nums">
+                    {formatCurrency(r.amount)}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {r.openAmount > 0 ? (
+                      <span className="text-amber-600 dark:text-amber-400">
+                        {formatCurrency(r.openAmount)}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="bg-muted/30 font-semibold">
+                <td className="px-3 py-2">Toplam</td>
+                <td className="px-3 py-2 text-center tabular-nums">
+                  {rows.reduce((s, r) => s + r.count, 0)}
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(total)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">
+                  {open > 0 ? (
+                    <span className="text-amber-600 dark:text-amber-400">
+                      {formatCurrency(open)}
+                    </span>
+                  ) : (
+                    "—"
+                  )}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+});
+
 // ── Trendyol hakediş kartı — kredi kartı / yemek kartı / kapıda kırılımı ──────
 // "Net Hakediş" = Tutar−Komisyon−İndirim (Trendyol Satıcı Hakediş).
 // "Bankaya Yatacak" = yemek kartı/kod ile kalemlerde sağlayıcı %10 da düşülmüş hali.
@@ -983,6 +1055,10 @@ export default function EndOfDayPage() {
                   total={report.corporateTotal}
                   open={report.corporateOpen}
                 />
+                {/* Kurye dökümü — yalnızca o gün kurye atanmışsa (eski snapshot'larda yok) */}
+                {report.courierBreakdown && report.courierBreakdown.length > 0 && (
+                  <CourierTable rows={report.courierBreakdown} />
+                )}
               </>
             )}
           </div>

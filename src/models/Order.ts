@@ -117,6 +117,9 @@ const OrderSchema = new Schema(
     // Kısmi tahsilat geçmişi ve toplamı. Tamamı tahsil edilince paymentStatus "paid".
     payments: { type: [PaymentRecordSchema], default: undefined },
     paidAmount: { type: Number, default: 0 },
+    // Siparişi teslim almak için üstlenen kurye adı. Kurye uygulamasında "Tüm
+    // Paketler" listesinden check'lediğinde yazılır; boşsa havuzda (kimse almamış).
+    courier: { type: String, default: undefined },
   },
   {
     timestamps: true, // createdAt & updatedAt otomatik

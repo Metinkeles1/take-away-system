@@ -158,6 +158,8 @@ export interface Order {
   // Açık hesaba yapılan parça parça tahsilatlar ve toplamı. paidAmount yoksa 0.
   payments?: PaymentRecord[];
   paidAmount?: number; // şimdiye dek tahsil edilen toplam (kalan = total − paidAmount)
+  // Siparişi teslim almayı üstlenen kurye adı. Boşsa havuzda (kimse almamış).
+  courier?: string;
   // Aynı müşterinin diğer açık hesapları — okuma sırasında türetilir (kalıcı değil).
   customerOpenAccounts?: CustomerOpenAccounts;
 }

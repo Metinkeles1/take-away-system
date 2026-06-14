@@ -9,6 +9,7 @@ import type {
   PaymentInfo,
 } from "@/types";
 import OrderStatusCard from "./OrderStatusCard";
+import OrderCourierCard from "./OrderCourierCard";
 import OrderItemsCard from "./OrderItemsCard";
 import CustomerInfoCard from "./CustomerInfoCard";
 import PaymentCard from "./PaymentCard";
@@ -26,6 +27,7 @@ interface Props {
   }) => Promise<void>;
   onCollect: (payment: PaymentInfo, amount: number, note?: string) => Promise<void>;
   onToggleOpen: (open: boolean) => Promise<void>;
+  onCourierChange: (courier: string | null) => void;
 }
 
 const OrderDetailsContent = memo(function OrderDetailsContent({
@@ -34,10 +36,13 @@ const OrderDetailsContent = memo(function OrderDetailsContent({
   onPaymentUpdate,
   onCollect,
   onToggleOpen,
+  onCourierChange,
 }: Props) {
   return (
     <div className="flex-1 min-w-0 overflow-y-auto scrollbar-hide pt-px px-px pb-4 space-y-4">
       <OrderStatusCard status={order.status} onStatusChange={onStatusChange} />
+
+      <OrderCourierCard courier={order.courier} onAssign={onCourierChange} />
 
       <OrderItemsCard
         items={order.items}

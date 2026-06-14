@@ -20,6 +20,15 @@ export interface EndOfDayBreakdownRow {
   amount: number; // ciro (₺)
 }
 
+// Kuryeye göre o günün teslimat kırılımı (yalnızca kurye atanmış yerel siparişler;
+// Trendyol siparişlerinde kurye bilgisi yoktur).
+export interface CourierDayRow {
+  name: string;
+  count: number; // taşıdığı paket adedi (iptal hariç)
+  amount: number; // taşıdığı paketlerin toplam tutarı (₺)
+  openAmount: number; // bunların tahsil edilmemiş (açık hesap) kısmı (₺)
+}
+
 // Kurumsal müşteriye o gün giden hesap (voucher) kırılımı
 export interface CorporateDayRow {
   id: string;
@@ -81,6 +90,10 @@ export interface EndOfDayReport {
   sourceBreakdown: EndOfDayBreakdownRow[]; // kanala/ticket'a göre (count desc)
   statusBreakdown: Record<string, number>;
 
+  // Kuryeye göre teslimat kırılımı (kurye atanmış yerel siparişler). Boşsa
+  // kurye sistemi o gün kullanılmamış demektir → UI bölümü gizlenir.
+  courierBreakdown: CourierDayRow[];
+
   // Kurumsal (açık hesap) — o gün kesilen fişler, kuruma göre
   corporateBreakdown: CorporateDayRow[];
   corporateTotal: number; // o gün kurumsallara giden toplam tutar
@@ -139,6 +152,7 @@ export async function getEndOfDayReport(dateStr?: string): Promise<EndOfDayRepor
         source: 1,
         paymentStatus: 1,
         "payment.method": 1,
+        courier: 1,
       })
       .lean(),
     // Kurumsal fişler "date" (hizmet günü) alanına göre filtrelenir.
@@ -170,6 +184,8 @@ export async function getEndOfDayReport(dateStr?: string): Promise<EndOfDayRepor
   for (const k of SOURCE_KEYS) sourceMap[k] = { key: k, count: 0, amount: 0 };
 
   const statusBreakdown: Record<string, number> = {};
+  // Kuryeye göre teslimat kırılımı — iptal hariç, kurye atanmış siparişler.
+  const courierMap = new Map<string, CourierDayRow>();
 
   let packageCount = 0;
   let totalRevenue = 0;
@@ -206,13 +222,36 @@ export async function getEndOfDayReport(dateStr?: string): Promise<EndOfDayRepor
     }
 
     // Tahsilat durumu
-    if (o.paymentStatus === "open") {
+    const isOpen = o.paymentStatus === "open";
+    if (isOpen) {
       openAmount += total;
       openCount++;
     } else {
       paidAmount += total;
     }
+
+    // Kurye kırılımı — yalnızca kurye atanmışsa.
+    const courier = (o as { courier?: string }).courier;
+    if (courier) {
+      const row = courierMap.get(courier);
+      if (row) {
+        row.count++;
+        row.amount += total;
+        if (isOpen) row.openAmount += total;
+      } else {
+        courierMap.set(courier, {
+          name: courier,
+          count: 1,
+          amount: total,
+          openAmount: isOpen ? total : 0,
+        });
+      }
+    }
   }
+
+  const courierBreakdown = [...courierMap.values()].sort(
+    (a, b) => b.count - a.count,
+  );
 
   // ─── Kurumsal fişler — kuruma göre grupla ───────────────────
   const corpMap = new Map<string, CorporateDayRow>();
@@ -327,6 +366,7 @@ export async function getEndOfDayReport(dateStr?: string): Promise<EndOfDayRepor
     localPaymentBreakdown,
     sourceBreakdown,
     statusBreakdown,
+    courierBreakdown,
     corporateBreakdown,
     corporateTotal,
     corporateOpen,

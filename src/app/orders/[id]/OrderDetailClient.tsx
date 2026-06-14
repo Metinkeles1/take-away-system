@@ -28,6 +28,7 @@ export default function OrderDetailClient({ initialOrder }: Props) {
     updateOrderPayment,
     collectOpenAccount,
     setOrderOpenAccount,
+    setOrderCourier,
     orders,
     loadOrders,
   } = useOrderStore();
@@ -90,6 +91,13 @@ export default function OrderDetailClient({ initialOrder }: Props) {
     [order.id, setOrderOpenAccount]
   );
 
+  const handleCourierChange = useCallback(
+    (courier: string | null) => {
+      void setOrderCourier(order.id, courier);
+    },
+    [order.id, setOrderCourier]
+  );
+
   return (
     <main className="h-full flex flex-col px-4 pt-4 pb-4 md:px-6 md:pt-5 lg:px-8 lg:pt-6 overflow-hidden">
       <OrderDetailHeader
@@ -106,6 +114,7 @@ export default function OrderDetailClient({ initialOrder }: Props) {
           onPaymentUpdate={handlePaymentUpdate}
           onCollect={handleCollect}
           onToggleOpen={handleToggleOpen}
+          onCourierChange={handleCourierChange}
         />
 
         <ReceiptPreview ref={receiptRef} order={order} onPrint={() => handlePrint()} />

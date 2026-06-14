@@ -20,6 +20,7 @@ import {
   type OrdersPeriod,
 } from "@/actions/orders";
 import { updateOrderDetails } from "@/actions/orderEdit";
+import { setOrderCourier as dbSetOrderCourier } from "@/actions/courier";
 import { getSavedCustomers, upsertCustomer } from "@/actions/customers";
 import { buildOrderFromDraft, calcSubtotal } from "@/lib/orders/factory";
 
@@ -86,6 +87,7 @@ interface OrderStore {
     note?: string,
   ) => Promise<void>;
   setOrderOpenAccount: (orderId: string, open: boolean) => Promise<void>;
+  setOrderCourier: (orderId: string, courier: string | null) => Promise<void>;
   getOrderById: (orderId: string) => Order | undefined;
 }
 
@@ -511,6 +513,19 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
       ),
     }));
     const res = await dbSetPaymentStatus(orderId, next);
+    if (!res?.ok) await get().loadOrders();
+  },
+
+  // ── Kurye ata / değiştir / kaldır (admin) ──────────────────────────────
+  setOrderCourier: async (orderId, courier) => {
+    set((state) => ({
+      orders: state.orders.map((o) =>
+        o.id === orderId
+          ? { ...o, courier: courier ?? undefined, updatedAt: new Date() }
+          : o,
+      ),
+    }));
+    const res = await dbSetOrderCourier(orderId, courier);
     if (!res?.ok) await get().loadOrders();
   },
 

@@ -18,8 +18,20 @@ import {
   LocateFixed,
   AlertTriangle,
   Check,
+  Package,
+  ListChecks,
+  Lock,
+  UserRound,
+  ChevronRight,
 } from "lucide-react";
-import { getCourierOrders, saveDeliveryLocation } from "@/actions/courier";
+import {
+  getCourierBoard,
+  saveDeliveryLocation,
+  claimOrder,
+  unclaimOrder,
+  claimManyOrders,
+} from "@/actions/courier";
+import { getActiveCouriers, type Courier } from "@/actions/couriers";
 import { setOrderPaymentMethod } from "@/actions/orders";
 import { subscribeOrders } from "@/lib/pusher/client";
 import {
@@ -31,7 +43,13 @@ import {
 import { formatCurrency, formatRelativeTime, cn } from "@/lib/utils";
 import { LocationPicker, type LatLng } from "@/components/kurye/LocationPicker";
 
-const REFRESH_MS = 20_000;
+// Pusher (websocket) anlık güncellemeyi sağlar; bu poll yalnızca emniyet ağı
+// (Pusher devre dışıysa / kaçan olay için). Bu yüzden seyrek tutulur.
+const REFRESH_MS = 60_000;
+
+// Kurye adının cihazda saklandığı anahtar — login yok, kurye uygulamayı ilk
+// açışında listeden adını seçer, sonra hatırlanır ("değiştir" ile sıfırlanır).
+const COURIER_KEY = "kurye:isim";
 
 // Harita hiç GPS/kayıtlı pin yokken bu noktaya ortalanır (kurye oradan kaydırır).
 // NEXT_PUBLIC_DEFAULT_LAT/LNG ile bölgene göre ayarlanabilir; varsayılan İstanbul.
@@ -245,6 +263,17 @@ const PIN_ACCURACY_WARN = 100;
 export default function KuryePage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  // Kurye kimliği (cihazda saklı). null+ready → isim seçme kapısı gösterilir.
+  const [courier, setCourier] = useState<string | null>(null);
+  const [courierReady, setCourierReady] = useState(false);
+  const [couriers, setCouriers] = useState<Courier[]>([]);
+  // Çoklu kurye modu (paneldeki Ayarlar'dan açılır). Kapalıyken tek-kurye sade akış.
+  const [multiCourierMode, setMultiCourierMode] = useState(false);
+  // Sekme: "mine" = Benim Paketlerim (detaylı teslim kartları), "pool" = Tüm
+  // Paketler (kısa liste, check'leyerek üstlen).
+  const [tab, setTab] = useState<"mine" | "pool">("mine");
+  // Üstlenme (claim) işlemi süren sipariş — satırda spinner için.
+  const [claimingId, setClaimingId] = useState<string | null>(null);
   const [active, setActive] = useState(0);
   const [confirming, setConfirming] = useState(false);
   const [deliveringId, setDeliveringId] = useState<string | null>(null);
@@ -267,31 +296,78 @@ export default function KuryePage() {
 
   const load = async () => {
     try {
-      const data = await getCourierOrders();
+      // Tek round-trip: paketler + çoklu kurye modu birlikte gelir.
+      const { orders: data, multiCourierMode: mode } = await getCourierBoard();
       setOrders(data);
+      setMultiCourierMode(mode);
     } finally {
       setLoading(false);
     }
   };
 
+  // Cihazda kayıtlı kurye adını oku + aktif kurye listesini çek (isim seçici için).
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(COURIER_KEY);
+      if (saved) setCourier(saved);
+    } catch {
+      // localStorage erişilemezse isim seçtir.
+    }
+    setCourierReady(true);
+    void getActiveCouriers().then(setCouriers);
+  }, []);
+
+  const pickCourier = (name: string) => {
+    setCourier(name);
+    try {
+      localStorage.setItem(COURIER_KEY, name);
+    } catch {
+      // sessiz geç — bu oturumda state yeterli.
+    }
+  };
+
+  const changeCourier = () => {
+    setCourier(null);
+    setTab("mine");
+    try {
+      localStorage.removeItem(COURIER_KEY);
+    } catch {
+      // sessiz geç
+    }
+    void getActiveCouriers().then(setCouriers);
+  };
+
   useEffect(() => {
     void load();
+    // Pusher (websocket) BİRİNCİL: değişiklikler anında gelir. Poll yalnızca
+    // emniyet ağı (Pusher env yoksa / olay kaçarsa) — bu yüzden seyrek ve sayfa
+    // arka plandayken duruyor.
     const poll = setInterval(() => {
       if (!document.hidden) void load();
     }, REFRESH_MS);
     const onFocus = () => void load();
     window.addEventListener("focus", onFocus);
-    // Gerçek zamanlı: yeni sipariş / durum değişince anında yenile (polling yedek).
-    const unsubscribe = subscribeOrders(() => void load());
+    // Pusher patlamasını tek fetch'e indir: kısa bir pencerede gelen birçok olay
+    // (örn. toplu durum değişikliği) tek bir yenilemede toplanır → refetch fırtınası yok.
+    let burst: ReturnType<typeof setTimeout> | null = null;
+    const coalescedLoad = () => {
+      if (burst) return;
+      burst = setTimeout(() => {
+        burst = null;
+        if (!document.hidden) void load();
+      }, 600);
+    };
+    const unsubscribe = subscribeOrders(coalescedLoad);
     return () => {
       clearInterval(poll);
+      if (burst) clearTimeout(burst);
       window.removeEventListener("focus", onFocus);
       unsubscribe();
     };
   }, []);
 
-  // En eski sipariş ilk sırada (önce gelen önce teslim).
-  const sorted = useMemo(
+  // Tüm aktif paketler, en eski ilk sırada (havuz/checklist görünümü).
+  const allSorted = useMemo(
     () =>
       [...orders].sort(
         (a, b) =>
@@ -299,6 +375,33 @@ export default function KuryePage() {
       ),
     [orders],
   );
+
+  // "Teslimat" akışı:
+  //  • Çoklu kurye modunda SADECE üstlendiğim paketler (Tüm Paketler'den
+  //    check'lediklerim). Boş/havuz paketler buraya karışmaz — onları Tüm
+  //    Paketler'den seçerim, seçince buraya düşer.
+  //  • Tek kurye modunda AYRIM YOK → tüm aktif paketler görünür. Çoklu moddan
+  //    kalan kurye damgaları (Mehmet/Ayşe vb.) yok sayılır ki hiçbir sipariş
+  //    "başka kuryede" diye görünmez kalmasın. Damga silinmez; panel/gün sonunda durur.
+  const sorted = useMemo(
+    () =>
+      multiCourierMode
+        ? allSorted.filter((o) => o.courier === courier)
+        : allSorted,
+    [allSorted, courier, multiCourierMode],
+  );
+  const deliverableCount = sorted.length;
+  // Başka kuryelerin üstlendiği (bana görünmeyen) paket sayısı — boş durum mesajı.
+  const othersCount = allSorted.length - deliverableCount;
+  // Havuz = henüz kimsenin üstlenmediği paketler (rozet için).
+  const poolCount = useMemo(
+    () => allSorted.filter((o) => !o.courier).length,
+    [allSorted],
+  );
+  // Çoklu kurye modu açıkken üstlenme/checklist görünür; kapalıyken sistem sade
+  // kalır: sekme yok, üstlenme yok — tüm paketler doğrudan teslimatta (eski akış).
+  const multiCourier = multiCourierMode;
+  const activeTab = multiCourier ? tab : "mine";
 
   // Aktif indeks her zaman geçerli aralıkta kalsın.
   const idx = Math.min(active, Math.max(0, sorted.length - 1));
@@ -431,6 +534,48 @@ export default function KuryePage() {
     }
   };
 
+  // "Tüm Paketler"de bir siparişi üstlen / bırak (check kutusu). Optimistic:
+  // satır anında güncellenir, sunucu reddederse (örn. başka kurye kapmış) taze
+  // veriyi çekip gerçek duruma döner.
+  const toggleClaim = async (o: Order) => {
+    if (!courier) return;
+    const mine = o.courier === courier;
+    // Başka kurye almışsa kilitli — dokunulmaz.
+    if (o.courier && !mine) return;
+
+    setClaimingId(o.id);
+    // Optimistic
+    setOrders((prev) =>
+      prev.map((x) =>
+        x.id === o.id ? { ...x, courier: mine ? undefined : courier } : x,
+      ),
+    );
+    const res = mine
+      ? await unclaimOrder(o.id, courier)
+      : await claimOrder(o.id, courier);
+    setClaimingId(null);
+    if (!res.ok) {
+      // Çakışma/başarısızlık → sunucudaki gerçek duruma senkronla.
+      await load();
+    }
+  };
+
+  // Havuzdaki tüm boş paketleri tek dokunuşla üstlen (tek kurye / yoğun gün için).
+  // Tek bulk çağrı: sunucuda tek updateMany + tek Pusher bildirimi.
+  const claimAll = async () => {
+    if (!courier) return;
+    const free = allSorted.filter((o) => !o.courier);
+    if (free.length === 0) return;
+    setOrders((prev) =>
+      prev.map((x) => (x.courier ? x : { ...x, courier })),
+    );
+    const res = await claimManyOrders(
+      free.map((o) => o.id),
+      courier,
+    );
+    if (!res.ok) await load(); // çakışma/başarısızlık → gerçek duruma senkronla
+  };
+
   // Hibrit "Konumu Pinle": önce GPS dene. İYİ doğruluk gelirse otomatik kaydet
   // (harita yok). GPS yok / düşük doğruluk olursa haritada elle işaretlemeye düş —
   // yanlış/uzak pin asla sessizce kaydedilmez.
@@ -487,22 +632,70 @@ export default function KuryePage() {
     if (ok) setPickerOrder(null);
   };
 
-  return (
-    <div className="flex h-dvh flex-col bg-linear-to-b from-slate-100 to-slate-200">
-      {/* Üst başlık */}
-      <header className="z-20 shrink-0 border-b border-slate-800 bg-slate-900/95 text-white backdrop-blur">
-        <div className="mx-auto flex max-w-md items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-2.5">
-            <span className="grid h-9 w-9 place-items-center rounded-xl bg-lime-500/20 text-xl">
+  // ─── Kimlik kapısı ─────────────────────────────────────────────────────────
+  // Cihazda kayıtlı kurye yoksa önce isim seçtir. Liste paneldeki "Ayarlar"dan
+  // yönetilir; boşsa kurye admin'e başvurur.
+  if (courierReady && !courier) {
+    return (
+      <div className="flex h-dvh flex-col items-center justify-center bg-linear-to-b from-slate-100 to-slate-200 px-6">
+        <div className="w-full max-w-sm rounded-3xl bg-white p-6 shadow-lg shadow-slate-300/40 ring-1 ring-slate-200">
+          <div className="mb-5 flex items-center gap-3">
+            <span className="grid h-11 w-11 place-items-center rounded-2xl bg-lime-500/15 text-2xl">
               🛵
             </span>
             <div>
-              <h1 className="text-base font-bold leading-tight">Teslimat</h1>
-              <p className="text-[11px] text-slate-400">
-                {sorted.length} aktif paket
-              </p>
+              <h1 className="text-lg font-bold text-slate-900">Kim teslim ediyor?</h1>
+              <p className="text-sm text-slate-500">Adını seç, bu cihazda hatırlanır.</p>
             </div>
           </div>
+          {couriers.length === 0 ? (
+            <div className="rounded-2xl bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800 ring-1 ring-amber-200">
+              Henüz kurye tanımlı değil. Paneldeki <b>Ayarlar → Kuryeler</b>
+              {" "}bölümünden ekleyebilirsin.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {couriers.map((c) => (
+                <button
+                  key={c.id}
+                  onClick={() => pickCourier(c.name)}
+                  className="flex w-full items-center gap-3 rounded-2xl bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-800 ring-1 ring-slate-200 transition active:scale-[0.98] hover:bg-slate-100"
+                >
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-slate-900 text-sm text-white">
+                    {c.name.slice(0, 2).toUpperCase()}
+                  </span>
+                  {c.name}
+                  <ChevronRight className="ml-auto h-5 w-5 text-slate-400" />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-dvh flex-col bg-linear-to-b from-slate-100 to-slate-200">
+      {/* Üst başlık — kurye adı + sekmeler (Benim Paketlerim / Tüm Paketler) */}
+      <header className="z-20 shrink-0 border-b border-slate-800 bg-slate-900/95 text-white backdrop-blur">
+        <div className="mx-auto flex max-w-md items-center justify-between px-4 py-3">
+          <button
+            onClick={changeCourier}
+            className="flex items-center gap-2.5 rounded-xl py-1 pr-2 text-left transition active:scale-95"
+            title="Kuryeyi değiştir"
+          >
+            <span className="grid h-9 w-9 place-items-center rounded-full bg-lime-500/20 text-sm font-bold text-lime-300">
+              {courier ? courier.slice(0, 2).toUpperCase() : "🛵"}
+            </span>
+            <div>
+              <h1 className="flex items-center gap-1 text-base font-bold leading-tight">
+                {courier ?? "Teslimat"}
+                <UserRound className="h-3.5 w-3.5 text-slate-400" />
+              </h1>
+              <p className="text-[11px] text-slate-400">değiştirmek için dokun</p>
+            </div>
+          </button>
           <button
             onClick={() => void load()}
             aria-label="Yenile"
@@ -511,6 +704,57 @@ export default function KuryePage() {
             <RefreshCw className={cn("h-5 w-5", loading && "animate-spin")} />
           </button>
         </div>
+
+        {/* Sekme çubuğu — yalnızca birden fazla kurye tanımlıysa. Tek kuryede
+            sistem sadeleşir, doğrudan teslimat akışı gösterilir. */}
+        {multiCourier && (
+          <div className="mx-auto flex max-w-md gap-1 px-3 pb-2">
+            <button
+              onClick={() => setTab("mine")}
+              className={cn(
+                "flex flex-1 items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-bold transition",
+                activeTab === "mine"
+                  ? "bg-white text-slate-900"
+                  : "bg-white/5 text-slate-300 active:bg-white/10",
+              )}
+            >
+              <Package className="h-4 w-4" />
+              Teslimat
+              {deliverableCount > 0 && (
+                <span
+                  className={cn(
+                    "grid h-5 min-w-5 place-items-center rounded-full px-1 text-[11px]",
+                    activeTab === "mine" ? "bg-slate-900 text-white" : "bg-lime-500 text-slate-900",
+                  )}
+                >
+                  {deliverableCount}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setTab("pool")}
+              className={cn(
+                "flex flex-1 items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-bold transition",
+                activeTab === "pool"
+                  ? "bg-white text-slate-900"
+                  : "bg-white/5 text-slate-300 active:bg-white/10",
+              )}
+            >
+              <ListChecks className="h-4 w-4" />
+              Tüm Paketler
+              {poolCount > 0 && (
+                <span
+                  className={cn(
+                    "grid h-5 min-w-5 place-items-center rounded-full px-1 text-[11px]",
+                    activeTab === "pool" ? "bg-slate-900 text-white" : "bg-amber-400 text-slate-900",
+                  )}
+                >
+                  {poolCount}
+                </span>
+              )}
+            </button>
+          </div>
+        )}
       </header>
 
       {/* Kayan içerik alanı */}
@@ -526,19 +770,53 @@ export default function KuryePage() {
             <Loader2 className="h-7 w-7 animate-spin" />
             <p className="text-sm">Paketler yükleniyor…</p>
           </div>
+        ) : activeTab === "pool" ? (
+          <PoolList
+            orders={allSorted}
+            courier={courier}
+            claimingId={claimingId}
+            onToggle={(o) => void toggleClaim(o)}
+            onClaimAll={() => void claimAll()}
+          />
         ) : sorted.length === 0 || !current ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
-            <div className="grid h-16 w-16 place-items-center rounded-full bg-emerald-100">
-              <CheckCircle2 className="h-9 w-9 text-emerald-500" />
+            <div
+              className={cn(
+                "grid h-16 w-16 place-items-center rounded-full",
+                multiCourier && poolCount > 0 ? "bg-slate-200" : "bg-emerald-100",
+              )}
+            >
+              {multiCourier && poolCount > 0 ? (
+                <Package className="h-9 w-9 text-slate-500" />
+              ) : (
+                <CheckCircle2 className="h-9 w-9 text-emerald-500" />
+              )}
             </div>
             <div>
               <p className="font-semibold text-slate-700">
-                Teslim edilecek paket yok
+                {multiCourier
+                  ? poolCount > 0
+                    ? "Henüz paket üstlenmedin"
+                    : "Sana ait paket yok"
+                  : "Teslim edilecek paket yok"}
               </p>
               <p className="text-sm text-slate-500">
-                Tüm siparişler teslim edildi 🎉
+                {multiCourier
+                  ? poolCount > 0
+                    ? `Havuzda ${poolCount} paket var — "Tüm Paketler"den seç.`
+                    : "Tüm paketler dağıtıldı 🎉"
+                  : "Tüm siparişler teslim edildi 🎉"}
               </p>
             </div>
+            {multiCourier && (poolCount > 0 || othersCount > 0) && (
+              <button
+                onClick={() => setTab("pool")}
+                className="mt-1 inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-5 py-3 text-sm font-bold text-white shadow-sm transition active:scale-95"
+              >
+                <ListChecks className="h-4 w-4" />
+                Tüm Paketler
+              </button>
+            )}
           </div>
         ) : (
           <>
@@ -598,8 +876,8 @@ export default function KuryePage() {
         )}
       </main>
 
-      {/* Sabit alt aksiyon barı — sadece teslim edilecek paket varken */}
-      {current && (
+      {/* Sabit alt aksiyon barı — yalnızca teslimat akışında, paket varken */}
+      {activeTab === "mine" && current && (
         <footer className="z-20 shrink-0 border-t border-slate-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">
           {deliverError && (
             <div className="mx-auto flex max-w-md items-start gap-2 px-3 pt-2 text-sm font-medium text-rose-700">
@@ -738,6 +1016,135 @@ export default function KuryePage() {
         onConfirm={(geo) => void handlePickerConfirm(geo)}
         onCancel={() => setPickerOrder(null)}
       />
+    </div>
+  );
+}
+
+// Havuz listesinde kısa adres (kart başlığını şişirmeden).
+function shortAddress(o: Order): string {
+  return [o.customer.address, o.customer.district].filter(Boolean).join(", ");
+}
+
+// ─── Tüm Paketler (havuz / checklist) ────────────────────────────────────────
+// Bütün aktif paketler alt alta, kısaca: #no · adres · ödeme. Kurye kendi
+// aldıklarını check'ler → "Benim Paketlerim"e geçer. Başka kuryenin aldığı satır
+// kilitli ve onun adıyla görünür (ikisi aynı paketi almasın).
+function PoolList({
+  orders,
+  courier,
+  claimingId,
+  onToggle,
+  onClaimAll,
+}: {
+  orders: Order[];
+  courier: string | null;
+  claimingId: string | null;
+  onToggle: (o: Order) => void;
+  onClaimAll: () => void;
+}) {
+  const freeCount = orders.filter((o) => !o.courier).length;
+
+  if (orders.length === 0) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+        <div className="grid h-16 w-16 place-items-center rounded-full bg-emerald-100">
+          <CheckCircle2 className="h-9 w-9 text-emerald-500" />
+        </div>
+        <p className="font-semibold text-slate-700">Aktif paket yok 🎉</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2 px-3 py-3">
+      {/* Yoğun gün / tek kurye: tek dokunuşla tüm boş paketleri üstlen. */}
+      {freeCount > 1 && (
+        <button
+          onClick={onClaimAll}
+          className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 py-3 text-sm font-bold text-white shadow-sm transition active:scale-[0.98]"
+        >
+          <ListChecks className="h-4 w-4" />
+          Hepsini Al ({freeCount})
+        </button>
+      )}
+
+      {orders.map((o) => {
+        const mine = o.courier === courier;
+        const claimedByOther = !!o.courier && !mine;
+        const busy = claimingId === o.id;
+        const pay = PAYMENT_LABEL[o.payment.method];
+        const itemCount = o.items.reduce((s, i) => s + i.quantity, 0);
+        return (
+          <button
+            key={o.id}
+            onClick={() => onToggle(o)}
+            disabled={claimedByOther || busy}
+            className={cn(
+              "flex w-full items-center gap-3 rounded-2xl px-3.5 py-3 text-left ring-1 transition active:scale-[0.99]",
+              mine
+                ? "bg-lime-50 ring-lime-300"
+                : claimedByOther
+                  ? "bg-slate-50 ring-slate-200 opacity-70"
+                  : "bg-white ring-slate-200",
+            )}
+          >
+            {/* Check durumu */}
+            <span
+              className={cn(
+                "grid h-6 w-6 shrink-0 place-items-center rounded-lg ring-1 transition",
+                mine
+                  ? "bg-lime-500 text-white ring-lime-500"
+                  : claimedByOther
+                    ? "bg-slate-200 text-slate-400 ring-slate-200"
+                    : "bg-white ring-slate-300",
+              )}
+            >
+              {busy ? (
+                <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+              ) : mine ? (
+                <Check className="h-4 w-4" />
+              ) : claimedByOther ? (
+                <Lock className="h-3.5 w-3.5" />
+              ) : null}
+            </span>
+
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-bold text-slate-900">
+                  #{o.orderNumber}
+                </span>
+                {pay && (
+                  <span
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-semibold",
+                      pay.tone,
+                    )}
+                  >
+                    <pay.icon className="h-3 w-3" />
+                    {pay.label}
+                  </span>
+                )}
+                <span className="ml-auto inline-flex items-center gap-1 text-[10px] text-slate-400">
+                  <Clock className="h-3 w-3" />
+                  {formatRelativeTime(o.createdAt)}
+                </span>
+              </div>
+              <p className="mt-0.5 truncate text-sm font-medium text-slate-600">
+                {shortAddress(o)}
+              </p>
+              <div className="mt-0.5 flex items-center gap-2 text-[11px] text-slate-400">
+                <span>{itemCount} ürün · {formatCurrency(o.total)}</span>
+                {claimedByOther && (
+                  <span className="inline-flex items-center gap-1 font-semibold text-slate-500">
+                    <UserRound className="h-3 w-3" />
+                    {o.courier}
+                  </span>
+                )}
+              </div>
+            </div>
+          </button>
+        );
+      })}
     </div>
   );
 }

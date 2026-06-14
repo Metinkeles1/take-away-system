@@ -171,6 +171,7 @@ export async function getOrders(period: OrdersPeriod = "week"): Promise<Order[]>
     paymentStatus: (doc.paymentStatus as Order["paymentStatus"]) ?? "paid",
     paidAt: (doc as unknown as { paidAt?: Date }).paidAt ?? undefined,
     ...ledgerFields(doc),
+    courier: (doc as unknown as { courier?: string }).courier ?? undefined,
     customerOpenAccounts: openAccountsExcluding(
       openByPhone.get((doc.customer as Order["customer"]).phone),
       doc.id,
@@ -208,6 +209,7 @@ export async function getOrderById(id: string): Promise<Order | null> {
     paymentStatus: (doc.paymentStatus as Order["paymentStatus"]) ?? "paid",
     paidAt: (doc as unknown as { paidAt?: Date }).paidAt ?? undefined,
     ...ledgerFields(doc),
+    courier: (doc as unknown as { courier?: string }).courier ?? undefined,
     createdAt: (doc as unknown as { createdAt: Date }).createdAt,
     updatedAt: (doc as unknown as { updatedAt: Date }).updatedAt,
   };
