@@ -38,6 +38,7 @@ import {
   type Order,
   type GeoPoint,
   type PaymentMethod,
+  type MealCardBrand,
   type CustomerOpenAccounts,
 } from "@/types";
 import { formatCurrency, formatRelativeTime, cn } from "@/lib/utils";
@@ -97,6 +98,19 @@ const PAYMENT_METHODS: PaymentMethod[] = [
   "meal_card",
   "iban",
 ];
+
+// Yemek kartı markaları — kurye "Yemek Kartı" seçince modalde bunlardan birini seçer.
+const MEAL_CARD_BRANDS: { value: MealCardBrand; label: string }[] = [
+  { value: "multinet", label: "Multinet" },
+  { value: "setcard", label: "Setcard" },
+  { value: "pluxee", label: "Pluxee" },
+  { value: "edenred", label: "Edenred" },
+  { value: "tokenflex", label: "Tokenflex" },
+  { value: "metropol", label: "Metropol" },
+];
+const MEAL_CARD_BRAND_LABEL: Record<string, string> = Object.fromEntries(
+  MEAL_CARD_BRANDS.map((b) => [b.value, b.label]),
+);
 
 function fullAddress(o: Order): string {
   return [o.customer.address, o.customer.addressDetail, o.customer.district]
@@ -288,6 +302,8 @@ export default function KuryePage() {
   const [pinErrors, setPinErrors] = useState<Record<string, string>>({});
   // Ödeme yöntemi değiştirme hatası (sipariş bazında) — chip'lerin altında gösterilir.
   const [payErrors, setPayErrors] = useState<Record<string, string>>({});
+  // Yemek kartı marka seçme modalı: hangi siparişin markası seçiliyor.
+  const [brandOrder, setBrandOrder] = useState<Order | null>(null);
   // Harita seçici (manuel pinleme): hangi sipariş + harita merkezi.
   const [pickerOrder, setPickerOrder] = useState<Order | null>(null);
   const [pickerCenter, setPickerCenter] = useState<LatLng>(DEFAULT_MAP_CENTER);
@@ -478,33 +494,58 @@ export default function KuryePage() {
     }
   };
 
-  // Ödeme yöntemini anında değiştir (kurye kapıda gerçek yöntemi düzeltir).
-  // Optimistic: kart hemen güncellenir; sunucu reddederse eski yönteme dönülür.
-  const handleSetPayment = async (o: Order, method: PaymentMethod) => {
-    if (o.payment.method === method) return;
-    const prev = o.payment.method;
-    setOrders((list) =>
-      list.map((x) =>
-        x.id === o.id ? { ...x, payment: { ...x.payment, method } } : x,
-      ),
-    );
+  const clearPayError = (id: string) =>
     setPayErrors((e) => {
       const next = { ...e };
-      delete next[o.id];
+      delete next[id];
       return next;
     });
-    const res = await setOrderPaymentMethod(o.id, method);
-    if (!res.ok) {
+
+  // Ödeme yöntemini optimistic güncelle + sunucuya yaz; sunucu reddederse geri al.
+  // Tek yer: hem yöntem değişimi hem yemek kartı markası bunu kullanır (tekrar yok).
+  const savePayment = async (
+    o: Order,
+    next: { method: PaymentMethod; mealCardBrand?: MealCardBrand },
+  ) => {
+    const prev = {
+      method: o.payment.method,
+      mealCardBrand: o.payment.mealCardBrand,
+    };
+    const patch = (p: { method: PaymentMethod; mealCardBrand?: MealCardBrand }) =>
       setOrders((list) =>
         list.map((x) =>
-          x.id === o.id ? { ...x, payment: { ...x.payment, method: prev } } : x,
+          x.id === o.id ? { ...x, payment: { ...x.payment, ...p } } : x,
         ),
       );
+    patch(next);
+    clearPayError(o.id);
+    const res = await setOrderPaymentMethod(o.id, next.method, next.mealCardBrand);
+    if (!res.ok) {
+      patch(prev); // geri al
       setPayErrors((e) => ({
         ...e,
         [o.id]: res.error ?? "Ödeme yöntemi güncellenemedi",
       }));
     }
+  };
+
+  // Kurye kapıda gerçek yöntemi seçer. Yemek kartı → marka seçtirme modalını açar
+  // (zaten yemek kartı olsa bile markayı değiştirebilmek için).
+  const handleSetPayment = (o: Order, method: PaymentMethod) => {
+    if (method === "meal_card") {
+      setBrandOrder(o);
+      return;
+    }
+    if (o.payment.method === method) return;
+    void savePayment(o, { method, mealCardBrand: undefined });
+  };
+
+  // Modalden marka seçilince: meal_card + marka olarak kaydet.
+  const applyMealCardBrand = (brand: MealCardBrand) => {
+    const o = brandOrder;
+    if (!o) return;
+    setBrandOrder(null);
+    void savePayment(o, { method: "meal_card", mealCardBrand: brand });
   };
 
   const clearPinError = (id: string) =>
@@ -1016,6 +1057,56 @@ export default function KuryePage() {
         onConfirm={(geo) => void handlePickerConfirm(geo)}
         onCancel={() => setPickerOrder(null)}
       />
+
+      {/* Yemek kartı marka seçici (bottom-sheet) — "Yemek Kartı" seçilince açılır,
+          marka seçmeden geçilmez. Böylece hangi kart olduğu net kaydedilir. */}
+      {brandOrder && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40"
+          onClick={() => setBrandOrder(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-t-3xl bg-white p-5 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center gap-2">
+              <WalletCards className="h-5 w-5 text-orange-600" />
+              <h3 className="text-base font-bold text-slate-900">
+                Hangi yemek kartı?
+              </h3>
+              <button
+                onClick={() => setBrandOrder(null)}
+                aria-label="Kapat"
+                className="ml-auto grid h-8 w-8 place-items-center rounded-full text-slate-400 transition active:scale-90 hover:bg-slate-100"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-2.5">
+              {MEAL_CARD_BRANDS.map((b) => {
+                const active =
+                  brandOrder.payment.method === "meal_card" &&
+                  brandOrder.payment.mealCardBrand === b.value;
+                return (
+                  <button
+                    key={b.value}
+                    onClick={() => void applyMealCardBrand(b.value)}
+                    className={cn(
+                      "flex items-center justify-center gap-2 rounded-2xl py-4 text-sm font-bold ring-1 transition active:scale-[0.97]",
+                      active
+                        ? "bg-orange-500 text-white ring-orange-500"
+                        : "bg-white text-slate-700 ring-slate-200 active:bg-slate-50",
+                    )}
+                  >
+                    {active && <Check className="h-4 w-4" />}
+                    {b.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1195,6 +1286,11 @@ function OrderCard({
           <span className="inline-flex items-center gap-1 rounded-lg bg-white/10 px-2 py-0.5 text-xs font-semibold text-white">
             <pay.icon className="h-3.5 w-3.5" />
             {pay.label}
+            {o.payment.method === "meal_card" && o.payment.mealCardBrand && (
+              <span className="text-orange-300">
+                · {MEAL_CARD_BRAND_LABEL[o.payment.mealCardBrand]}
+              </span>
+            )}
           </span>
         )}
         <span className="ml-auto inline-flex items-center gap-1 text-xs text-slate-400">
@@ -1379,6 +1475,19 @@ function OrderCard({
             );
           })}
         </div>
+        {/* Seçili yemek kartı markası + değiştir — modalı yeniden açar. */}
+        {o.payment.method === "meal_card" && (
+          <button
+            onClick={() => onSetPayment("meal_card")}
+            className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-orange-50 px-2.5 py-1.5 text-xs font-semibold text-orange-700 ring-1 ring-orange-200 transition active:scale-95"
+          >
+            <WalletCards className="h-3.5 w-3.5" />
+            {o.payment.mealCardBrand
+              ? MEAL_CARD_BRAND_LABEL[o.payment.mealCardBrand]
+              : "Marka seç"}
+            <span className="text-orange-400">· değiştir</span>
+          </button>
+        )}
         {payError && (
           <p className="mt-2 text-xs font-medium text-rose-600">{payError}</p>
         )}

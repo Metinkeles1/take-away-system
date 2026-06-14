@@ -13,6 +13,7 @@ import {
 import {
   type CustomerOpenAccounts,
   type GeoPoint,
+  type MealCardBrand,
   type Order,
   type OrderStatus,
   type PaymentInfo,
@@ -305,14 +306,27 @@ export async function updateOrderPayment(
 export async function setOrderPaymentMethod(
   id: string,
   method: PaymentMethod,
+  mealCardBrand?: MealCardBrand,
 ): Promise<{ ok: boolean; error?: string }> {
   try {
     await connectDB();
 
-    const doc = await OrderModel.findOneAndUpdate(
-      { id },
-      { $set: { "payment.method": method } },
-    );
+    // Yemek kartı: markayı da yaz (kurye kapıda hangi kart olduğunu seçer).
+    // Diğer yöntemlerde marka anlamsız → varsa temizle ki eski marka takılı kalmasın.
+    const update =
+      method === "meal_card" && mealCardBrand
+        ? {
+            $set: {
+              "payment.method": method,
+              "payment.mealCardBrand": mealCardBrand,
+            },
+          }
+        : {
+            $set: { "payment.method": method },
+            $unset: { "payment.mealCardBrand": "" },
+          };
+
+    const doc = await OrderModel.findOneAndUpdate({ id }, update);
     if (!doc) return { ok: false, error: "Sipariş bulunamadı" };
 
     await notifyOrdersChanged("payment-changed");
