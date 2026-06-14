@@ -75,6 +75,9 @@ export interface EndOfDayReport {
   openCount: number;
 
   paymentBreakdown: EndOfDayBreakdownRow[]; // ödeme yöntemine göre (amount desc)
+  // Yöntem bazında YEREL kırılım (Trendyol HARİÇ) — kasa sayımı mutabakatı için.
+  // paymentBreakdown'a Trendyol merge edildiği için ayrı tutulur.
+  localPaymentBreakdown: EndOfDayBreakdownRow[];
   sourceBreakdown: EndOfDayBreakdownRow[]; // kanala/ticket'a göre (count desc)
   statusBreakdown: Record<string, number>;
 
@@ -238,6 +241,13 @@ export async function getEndOfDayReport(dateStr?: string): Promise<EndOfDayRepor
   }
   const corporateBreakdown = [...corpMap.values()].sort((a, b) => b.amount - a.amount);
 
+  // Yöntem bazında YEREL kırılımı, Trendyol merge'inden ÖNCE dondur (kasa
+  // sayımı mutabakatında "sistemde ne kadar X yöntemiyle satış var" için).
+  const localPaymentBreakdown = Object.values(paymentMap)
+    .filter((r) => r.count > 0)
+    .map((r) => ({ key: r.key, count: r.count, amount: r.amount }))
+    .sort((a, b) => b.amount - a.amount);
+
   // ─── Trendyol — o günün özetini rapora birleştir ───────────────
   // Yerel siparişlerde Trendyol yok; canlı API'dan gelen ciroyu toplam ciroya,
   // kanal kırılımına ("trendyol") ve ödeme kırılımına (online/meal_card/...) ekle.
@@ -314,6 +324,7 @@ export async function getEndOfDayReport(dateStr?: string): Promise<EndOfDayRepor
     openAmount,
     openCount,
     paymentBreakdown,
+    localPaymentBreakdown,
     sourceBreakdown,
     statusBreakdown,
     corporateBreakdown,

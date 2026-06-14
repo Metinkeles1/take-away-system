@@ -136,9 +136,9 @@ const EndOfDayReceipt = React.forwardRef<HTMLDivElement, EndOfDayReceiptProps>(
     const tyBankNet = tyAvailable
       ? tyEarnings?.totalBankNet ?? ty!.netRevenue
       : 0;
-    // Genel toplam = elle girilen kasa + Trendyol net satış.
-    const grandTotal = kasaTotal + tyBankNet;
-    const showGrandTotal = kasaRows.length > 0 || tyAvailable;
+    // Genel toplam = elle girilen kasa + Trendyol net satış + kurumsal satış.
+    const grandTotal = kasaTotal + tyBankNet + report.corporateTotal;
+    const showGrandTotal = kasaRows.length > 0 || tyAvailable || report.corporateTotal > 0;
 
     return (
       <>
@@ -217,7 +217,12 @@ const EndOfDayReceipt = React.forwardRef<HTMLDivElement, EndOfDayReceiptProps>(
             {/* Özet — yalnızca paket adedi + toplam ciro */}
             <Row left="Toplam Paket" right={`${report.packageCount}`} />
             <div style={{ borderTop: "2px solid #000", marginTop: "4px", paddingTop: "4px" }}>
-              <Row left="TOPLAM CİRO" right={formatCurrency(report.totalRevenue)} bold large />
+              <Row
+                left="TOPLAM CİRO"
+                right={formatCurrency(report.totalRevenue + report.corporateTotal)}
+                bold
+                large
+              />
             </div>
 
             <Divider dashed />

@@ -399,7 +399,10 @@ const CashCountCard = memo(function CashCountCard({
   onCardChange,
   onIbanChange,
   onTicketChange,
-  localRevenue,
+  localPayments,
+  openAmount,
+  openCount,
+  corporateTotal,
   trendyolBankNet,
   closed,
   disabled,
@@ -412,7 +415,10 @@ const CashCountCard = memo(function CashCountCard({
   onCardChange: (v: string) => void;
   onIbanChange: (v: string) => void;
   onTicketChange: (v: string) => void;
-  localRevenue: number; // sistemdeki yerel paket cirosu (Trendyol hariç)
+  localPayments: Record<string, number>; // sistemdeki yerel satış, yönteme göre (Trendyol hariç)
+  openAmount: number; // açık hesap (tahsil edilmemiş) — ciroya dahil değil, bilgi amaçlı
+  openCount: number;
+  corporateTotal: number; // o gün kurumsallara giden toplam — Genel Toplam'a dahil
   trendyolBankNet: number | null; // Trendyol'dan bankaya gelen net (otomatik)
   closed: boolean;
   disabled: boolean;
@@ -423,21 +429,59 @@ const CashCountCard = memo(function CashCountCard({
   const ticket = parseAmount(ticketValue);
   const total = (cash ?? 0) + (card ?? 0) + (iban ?? 0) + (ticket ?? 0);
   const hasAny = cash != null || card != null || iban != null || ticket != null;
-  const diff = total - localRevenue; // + → kasa fazla (beklenen); − → eksik (uyarı)
-  // Genel toplam = elle girilen kasa + Trendyol'dan bankaya gelen net satış.
-  const grandTotal = total + (trendyolBankNet ?? 0);
+  // Sistemdeki yerel satış (sadece kasa alanlarının kapsadığı 4 yöntem).
+  const systemTotal =
+    (localPayments.cash ?? 0) +
+    (localPayments.card ?? 0) +
+    (localPayments.iban ?? 0) +
+    (localPayments.meal_card ?? 0);
+  const diff = total - systemTotal; // + → kasa fazla; − → eksik (uyarı)
+  // Genel toplam = elle girilen kasa + Trendyol net satış + kurumsal satış.
+  const grandTotal = total + (trendyolBankNet ?? 0) + corporateTotal;
 
   const field = (
     icon: React.ComponentType<{ className?: string }>,
     label: string,
     value: string,
     onChange: (v: string) => void,
+    systemAmount: number, // sistemde bu yöntemle yapılan yerel satış
   ) => {
     const Icon = icon;
+    const counted = parseAmount(value);
+    const d = (counted ?? 0) - systemAmount; // girilen − sistem
+    const showCmp = systemAmount > 0.5 || counted != null;
     return (
       <label className="flex items-center gap-3 rounded-lg border px-3 py-2.5">
         <Icon className="size-4 shrink-0 text-muted-foreground" />
-        <span className="flex-1 text-sm font-medium">{label}</span>
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="text-sm font-medium">{label}</span>
+          {showCmp && (
+            <span className="text-[11px] tabular-nums text-muted-foreground">
+              Sistem {formatCurrency(systemAmount)}
+              {counted != null && (
+                <>
+                  {" · "}
+                  <span
+                    className={cn(
+                      "font-medium",
+                      d < -0.5
+                        ? "text-rose-600 dark:text-rose-400"
+                        : d > 0.5
+                          ? "text-amber-600 dark:text-amber-400"
+                          : "text-emerald-600 dark:text-emerald-400",
+                    )}
+                  >
+                    {d < -0.5
+                      ? `eksik ${formatCurrency(d)}`
+                      : d > 0.5
+                        ? `fazla +${formatCurrency(d)}`
+                        : "uyumlu"}
+                  </span>
+                </>
+              )}
+            </span>
+          )}
+        </span>
         <span className="flex items-center gap-1">
           <input
             inputMode="decimal"
@@ -465,10 +509,10 @@ const CashCountCard = memo(function CashCountCard({
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-2.5">
-        {field(Banknote, "Nakit", cashValue, onCashChange)}
-        {field(CreditCard, "Kredi Kartı (POS)", cardValue, onCardChange)}
-        {field(ArrowRightLeft, "IBAN / Havale", ibanValue, onIbanChange)}
-        {field(Ticket, "Yemek Kartı (Ticket)", ticketValue, onTicketChange)}
+        {field(Banknote, "Nakit", cashValue, onCashChange, localPayments.cash ?? 0)}
+        {field(CreditCard, "Kredi Kartı (POS)", cardValue, onCardChange, localPayments.card ?? 0)}
+        {field(ArrowRightLeft, "IBAN / Havale", ibanValue, onIbanChange, localPayments.iban ?? 0)}
+        {field(Ticket, "Yemek Kartı (Ticket)", ticketValue, onTicketChange, localPayments.meal_card ?? 0)}
 
         <div className="flex items-center justify-between gap-2 rounded-lg bg-muted/40 px-3 py-2.5">
           <span className="flex items-center gap-1.5 text-sm font-medium">
@@ -497,8 +541,22 @@ const CashCountCard = memo(function CashCountCard({
           </div>
         )}
 
-        {/* Genel toplam — kasa + Trendyol (günün tüm net geliri) */}
-        {(hasAny || trendyolBankNet != null) && (
+        {/* Kurumsal satış — o gün giden kurumsal fişler, otomatik */}
+        {corporateTotal > 0.5 && (
+          <div className="flex items-center justify-between gap-2 rounded-lg border px-3 py-2.5">
+            <span className="flex items-center gap-1.5 text-sm font-medium">
+              <Building2 className="size-4 text-cyan-500" />
+              Kurumsal Satış
+              <span className="text-[11px] font-normal text-muted-foreground">otomatik</span>
+            </span>
+            <span className="text-sm font-semibold tabular-nums">
+              {formatCurrency(corporateTotal)}
+            </span>
+          </div>
+        )}
+
+        {/* Genel toplam — kasa + Trendyol + kurumsal (günün tüm net geliri) */}
+        {(hasAny || trendyolBankNet != null || corporateTotal > 0.5) && (
           <div className="flex items-center justify-between gap-2 rounded-lg bg-emerald-500/10 px-3 py-3 ring-1 ring-emerald-500/20">
             <span className="flex items-center gap-1.5 text-sm font-semibold text-emerald-700 dark:text-emerald-400">
               <Coins className="size-4" />
@@ -510,12 +568,28 @@ const CashCountCard = memo(function CashCountCard({
           </div>
         )}
 
-        {/* Mutabakat — kasa toplamı vs sistemdeki yerel paket cirosu */}
+        {/* Açık hesap — tahsil edilmemiş, ciroya/kasaya dahil DEĞİL; bilgi amaçlı */}
+        {openAmount > 0.5 && (
+          <div className="flex items-center justify-between gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2.5">
+            <span className="flex items-center gap-1.5 text-sm font-medium text-amber-700 dark:text-amber-400">
+              <Receipt className="size-4" />
+              Açık Hesap
+              <span className="text-[11px] font-normal text-muted-foreground">
+                {openCount} sipariş · tahsil edilmedi
+              </span>
+            </span>
+            <span className="text-sm font-semibold tabular-nums text-amber-700 dark:text-amber-400">
+              {formatCurrency(openAmount)}
+            </span>
+          </div>
+        )}
+
+        {/* Mutabakat — kasa toplamı vs sistemdeki yöntem bazlı yerel satış */}
         {hasAny && (
           <div className="space-y-1.5 rounded-lg border px-3 py-2.5 text-sm">
             <div className="flex items-center justify-between gap-2 text-muted-foreground">
-              <span>Sistem yerel ciro (Trendyol hariç)</span>
-              <span className="tabular-nums">{formatCurrency(localRevenue)}</span>
+              <span>Sistem yerel satış (yöntem bazlı)</span>
+              <span className="tabular-nums">{formatCurrency(systemTotal)}</span>
             </div>
             <div
               className={cn(
@@ -738,12 +812,12 @@ export default function EndOfDayPage() {
     () => report?.paymentBreakdown.reduce((s, r) => s + r.amount, 0) ?? 0,
     [report],
   );
-  // Kasa mutabakatı için yerel paket cirosu: toplam ciro − Trendyol (Trendyol
-  // parası bankaya gider, kasaya değil; kasa sayımı yerel tahsilatları kapsar).
-  const localRevenue = useMemo(() => {
-    if (!report) return 0;
-    const ty = report.trendyol?.available ? report.trendyol.revenue : 0;
-    return Math.max(report.totalRevenue - ty, 0);
+  // Kasa mutabakatı için yöntem bazlı yerel satış (Trendyol hariç). Her kasa
+  // alanı, sistemdeki aynı yöntemin yerel satışıyla karşılaştırılır.
+  const localPayments = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const r of report?.localPaymentBreakdown ?? []) map[r.key] = r.amount;
+    return map;
   }, [report]);
 
   return (
@@ -825,7 +899,12 @@ export default function EndOfDayPage() {
               <StatCard
                 icon={Wallet}
                 label="Toplam Ciro"
-                value={formatCurrency(report.totalRevenue)}
+                value={formatCurrency(report.totalRevenue + report.corporateTotal)}
+                sub={
+                  report.corporateTotal > 0
+                    ? `+ Kurumsal ${formatCurrency(report.corporateTotal)} dahil`
+                    : undefined
+                }
                 accent="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
               />
               <StatCard
@@ -919,7 +998,10 @@ export default function EndOfDayPage() {
               onCardChange={setCardCounted}
               onIbanChange={setIbanCounted}
               onTicketChange={setTicketCounted}
-              localRevenue={localRevenue}
+              localPayments={localPayments}
+              openAmount={report?.openAmount ?? 0}
+              openCount={report?.openCount ?? 0}
+              corporateTotal={report?.corporateTotal ?? 0}
               trendyolBankNet={
                 report?.trendyol?.available
                   ? report.trendyol.earnings?.totalBankNet ?? null
