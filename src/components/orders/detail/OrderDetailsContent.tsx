@@ -8,11 +8,9 @@ import type {
   MealCardBrand,
   PaymentInfo,
 } from "@/types";
-import OrderStatusCard from "./OrderStatusCard";
-import OrderCourierCard from "./OrderCourierCard";
+import OrderControlsCard from "./OrderControlsCard";
 import OrderItemsCard from "./OrderItemsCard";
 import CustomerInfoCard from "./CustomerInfoCard";
-import PaymentCard from "./PaymentCard";
 import OpenAccountCard from "./OpenAccountCard";
 import OrderNotesCard from "./OrderNotesCard";
 
@@ -40,19 +38,15 @@ const OrderDetailsContent = memo(function OrderDetailsContent({
 }: Props) {
   return (
     <div className="flex-1 min-w-0 overflow-y-auto scrollbar-hide pt-px px-px pb-4 space-y-4">
-      <OrderStatusCard status={order.status} onStatusChange={onStatusChange} />
-
-      <OrderCourierCard courier={order.courier} onAssign={onCourierChange} />
-
-      <OrderItemsCard
-        items={order.items}
-        subtotal={order.subtotal}
-        total={order.total}
+      {/* Durum + Kurye + Ödeme — tek kompakt şerit */}
+      <OrderControlsCard
+        order={order}
+        onStatusChange={onStatusChange}
+        onCourierChange={onCourierChange}
+        onPaymentUpdate={onPaymentUpdate}
       />
 
-      <CustomerInfoCard customer={order.customer} />
-
-      {/* Açık hesap yalnızca manuel siparişlerde (veya zaten açıksa tahsilat için) */}
+      {/* Açık hesap uyarısı/tahsilat — yalnızca manuel siparişlerde (veya açıksa) */}
       {(!order.source ||
         order.source === "manual" ||
         order.paymentStatus === "open") && (
@@ -63,7 +57,13 @@ const OrderDetailsContent = memo(function OrderDetailsContent({
         />
       )}
 
-      <PaymentCard payment={order.payment} onPaymentUpdate={onPaymentUpdate} />
+      <OrderItemsCard
+        items={order.items}
+        subtotal={order.subtotal}
+        total={order.total}
+      />
+
+      <CustomerInfoCard customer={order.customer} />
 
       <OrderNotesCard notes={order.notes} />
     </div>

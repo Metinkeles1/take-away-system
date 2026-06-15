@@ -11,6 +11,7 @@ import {
   Bike,
   XCircle,
   Wallet,
+  Receipt,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -57,12 +58,16 @@ interface Props {
   order: Order;
   onPrint: () => void;
   onToggleOpen: (open: boolean) => Promise<void>;
+  showReceipt?: boolean;
+  onToggleReceipt?: () => void;
 }
 
 const OrderDetailHeader = memo(function OrderDetailHeader({
   order,
   onPrint,
   onToggleOpen,
+  showReceipt,
+  onToggleReceipt,
 }: Props) {
   const router = useRouter();
   const config = statusConfig[order.status];
@@ -119,6 +124,16 @@ const OrderDetailHeader = memo(function OrderDetailHeader({
         >
           <Wallet className="mr-2 h-4 w-4" />
           {marking ? "İşleniyor..." : "Açık Hesaba Al"}
+        </Button>
+      )}
+      {onToggleReceipt && (
+        <Button
+          variant="outline"
+          onClick={onToggleReceipt}
+          className="hidden lg:inline-flex"
+        >
+          <Receipt className="mr-2 h-4 w-4" />
+          {showReceipt ? "Fişi Gizle" : "Fiş Önizle"}
         </Button>
       )}
       <Button variant="outline" onClick={onPrint}>

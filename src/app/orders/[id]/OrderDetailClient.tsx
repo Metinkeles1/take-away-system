@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useCallback, useEffect } from "react";
+import { useRef, useCallback, useEffect, useState } from "react";
 import { useOrderStore } from "@/store/orderStore";
 import { useReactToPrint } from "react-to-print";
 import type {
@@ -33,6 +33,9 @@ export default function OrderDetailClient({ initialOrder }: Props) {
     loadOrders,
   } = useOrderStore();
   const receiptRef = useRef<HTMLDivElement>(null);
+  // Fiş önizleme aç/kapa — varsayılan gizli ki içerik tam genişlik alsın. Fiş
+  // DOM'da kalır (yalnızca CSS ile gizlenir) → "Fişi Yazdır" her durumda çalışır.
+  const [showReceipt, setShowReceipt] = useState(false);
 
   // Store'da varsa güncel hali, yoksa server'dan gelen initial veriyi kullan
   const order = orders.find((o) => o.id === initialOrder.id) ?? initialOrder;
@@ -104,9 +107,11 @@ export default function OrderDetailClient({ initialOrder }: Props) {
         order={order}
         onPrint={() => handlePrint()}
         onToggleOpen={handleToggleOpen}
+        showReceipt={showReceipt}
+        onToggleReceipt={() => setShowReceipt((v) => !v)}
       />
 
-      {/* İki sütun: Sol scroll, Sağ fiş sabit */}
+      {/* İki sütun: Sol içerik, Sağ fiş (aç/kapa). Fiş gizliyken içerik tam genişlik. */}
       <div className="flex-1 min-h-0 flex gap-6">
         <OrderDetailsContent
           order={order}
@@ -117,7 +122,12 @@ export default function OrderDetailClient({ initialOrder }: Props) {
           onCourierChange={handleCourierChange}
         />
 
-        <ReceiptPreview ref={receiptRef} order={order} onPrint={() => handlePrint()} />
+        <ReceiptPreview
+          ref={receiptRef}
+          order={order}
+          onPrint={() => handlePrint()}
+          collapsed={!showReceipt}
+        />
       </div>
     </main>
   );

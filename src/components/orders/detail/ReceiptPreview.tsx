@@ -7,21 +7,30 @@ import ThermalReceipt from "@/components/receipt/ThermalReceipt";
 import type { Order } from "@/types";
 import { forwardRef, memo } from "react";
 import { orderToReceiptDraft } from "@/lib/orderToReceiptDraft";
+import { cn } from "@/lib/utils";
 
 interface Props {
   order: Order;
   onPrint: () => void;
+  // Gizliyken DOM'da kalır (yalnızca CSS ile gizlenir) → yazdırma ref'i çalışmaya
+  // devam eder; içerik alanı tam genişlik kazanır.
+  collapsed?: boolean;
 }
 
 const ReceiptPreview = memo(
   forwardRef<HTMLDivElement, Props>(function ReceiptPreview(
-    { order, onPrint },
+    { order, onPrint, collapsed = false },
     ref
   ) {
     const receiptDraft = orderToReceiptDraft(order);
 
     return (
-      <div className="hidden lg:flex flex-col w-72 shrink-0 pt-px pb-4">
+      <div
+        className={cn(
+          "flex-col w-72 shrink-0 pt-px pb-4",
+          collapsed ? "hidden" : "hidden lg:flex",
+        )}
+      >
         <Card className="flex flex-col flex-1 min-h-0">
           <CardHeader className="pb-2 shrink-0">
             <CardTitle className="text-base flex items-center gap-2">
