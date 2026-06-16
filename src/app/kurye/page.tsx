@@ -461,7 +461,14 @@ export default function KuryePage() {
       const res = await fetch("/api/orders/deliver", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id: o.id, openAccount, settleOpenAccounts }),
+        body: JSON.stringify({
+          id: o.id,
+          openAccount,
+          settleOpenAccounts,
+          // Teslim eden kurye (cihazda seçili isim) — tek-kurye modunda sipariş
+          // üstlenilmediği için kim teslim ettiği ancak burada damgalanır.
+          courier: courier ?? undefined,
+        }),
       });
       const data = (await res.json().catch(() => null)) as {
         ok?: boolean;
@@ -1277,23 +1284,29 @@ function OrderCard({
 
   return (
     <article className="w-full overflow-hidden rounded-3xl bg-white shadow-lg shadow-slate-300/40 ring-1 ring-slate-200">
-      {/* Başlık şeridi — sipariş no + ödeme rozeti + süre */}
-      <div className="flex items-center gap-3 bg-slate-900 px-5 py-3 text-white">
-        <span className="flex items-center gap-2 text-lg font-bold">
+      {/* Başlık şeridi — sipariş no + ödeme rozeti + süre.
+          # ve saat sabit (shrink-0); uzayabilen tek öğe ödeme rozeti, o da
+          küçülüp truncate olur → yemek kartı markası uzun olsa bile satır
+          taşmaz, kart yatay bozulmaz. */}
+      <div className="flex items-center gap-2.5 bg-slate-900 px-5 py-3 text-white">
+        <span className="flex shrink-0 items-center gap-2 text-lg font-bold">
           <span className="h-5 w-1 rounded-full bg-lime-400" />#{o.orderNumber}
         </span>
         {pay && (
-          <span className="inline-flex items-center gap-1 rounded-lg bg-white/10 px-2 py-0.5 text-xs font-semibold text-white">
-            <pay.icon className="h-3.5 w-3.5" />
-            {pay.label}
-            {o.payment.method === "meal_card" && o.payment.mealCardBrand && (
-              <span className="text-orange-300">
-                · {MEAL_CARD_BRAND_LABEL[o.payment.mealCardBrand]}
-              </span>
-            )}
+          <span className="inline-flex min-w-0 items-center gap-1 rounded-lg bg-white/10 px-2 py-0.5 text-xs font-semibold text-white">
+            <pay.icon className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">
+              {pay.label}
+              {o.payment.method === "meal_card" && o.payment.mealCardBrand && (
+                <span className="text-orange-300">
+                  {" · "}
+                  {MEAL_CARD_BRAND_LABEL[o.payment.mealCardBrand]}
+                </span>
+              )}
+            </span>
           </span>
         )}
-        <span className="ml-auto inline-flex items-center gap-1 text-xs text-slate-400">
+        <span className="ml-auto inline-flex shrink-0 items-center gap-1 text-xs text-slate-400">
           <Clock className="h-3.5 w-3.5" /> {formatRelativeTime(o.createdAt)}
         </span>
       </div>

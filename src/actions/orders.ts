@@ -256,11 +256,20 @@ export async function createOrder(
 export async function updateOrderStatus(
   id: string,
   status: OrderStatus,
+  courier?: string,
 ): Promise<{ ok: boolean; error?: string }> {
   try {
     await connectDB();
 
-    const doc = await OrderModel.findOneAndUpdate({ id }, { status });
+    // Teslim eden kuryeyi damgala: tek-kurye modunda sipariş üstlenilmediği için
+    // courier boş kalıyordu → geçmişte "kim teslim etti" kaydı oluşmuyordu. İsim
+    // geldiyse durum ile aynı atomik güncellemede yazılır. Çoklu modda zaten
+    // üstlenen kurye = teslim eden olduğu için çelişmez (en fazla aynı ismi yazar).
+    const stampCourier = courier?.trim();
+    const update: Record<string, unknown> = { status };
+    if (stampCourier) update.courier = stampCourier;
+
+    const doc = await OrderModel.findOneAndUpdate({ id }, update);
     if (!doc) return { ok: false, error: "Sipariş bulunamadı" };
 
     // Trendyol kaynaklıysa durum değişikliğini Trendyol'a da bildir (best-effort).

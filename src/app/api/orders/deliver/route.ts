@@ -16,15 +16,17 @@ import {
 // TÜM açık hesapları kapatılır. openAccount ile birlikte gelmez (çelişki: ödeme yok).
 export async function POST(req: Request) {
   try {
-    const { id, openAccount, settleOpenAccounts } = (await req.json()) as {
+    const { id, openAccount, settleOpenAccounts, courier } = (await req.json()) as {
       id?: string;
       openAccount?: boolean;
       settleOpenAccounts?: boolean;
+      courier?: string;
     };
     if (!id) {
       return NextResponse.json({ ok: false, error: "id gerekli" }, { status: 400 });
     }
-    const res = await updateOrderStatus(id, "delivered");
+    // Teslim eden kuryeyi siparişe damgala (geçmişte "kim teslim etti" görünsün).
+    const res = await updateOrderStatus(id, "delivered", courier);
     if (res.ok && openAccount) {
       const acc = await setOrderPaymentStatus(id, "open");
       if (!acc.ok) return NextResponse.json(acc, { status: 400 });
