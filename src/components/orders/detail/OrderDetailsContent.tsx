@@ -13,6 +13,7 @@ import OrderItemsCard from "./OrderItemsCard";
 import CustomerInfoCard from "./CustomerInfoCard";
 import OpenAccountCard from "./OpenAccountCard";
 import OrderNotesCard from "./OrderNotesCard";
+import OrderTimelineCard from "./OrderTimelineCard";
 
 interface Props {
   order: Order;
@@ -66,6 +67,8 @@ const OrderDetailsContent = memo(function OrderDetailsContent({
       <CustomerInfoCard customer={order.customer} />
 
       <OrderNotesCard notes={order.notes} />
+
+      <OrderTimelineCard order={order} />
     </div>
   );
 });

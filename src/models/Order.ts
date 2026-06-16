@@ -114,6 +114,12 @@ const OrderSchema = new Schema(
       index: true,
     },
     paidAt: Date, // açık hesabın tamamen tahsil edildiği an
+    // Teslim metrikleri — sipariş İLK kez "delivered" olduğunda damgalanır.
+    // deliveredAt: teslim anı. deliveryDurationMin: sipariş alındığından (createdAt)
+    // teslim edildiğine kadar geçen TOPLAM süre (dakika). Şimdilik sadece kayıt
+    // amaçlı; ileride teslim süresi analizleri bu alandan türetilir.
+    deliveredAt: Date,
+    deliveryDurationMin: Number,
     // Kısmi tahsilat geçmişi ve toplamı. Tamamı tahsil edilince paymentStatus "paid".
     payments: { type: [PaymentRecordSchema], default: undefined },
     paidAmount: { type: Number, default: 0 },

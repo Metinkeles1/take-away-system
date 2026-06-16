@@ -160,6 +160,10 @@ export interface Order {
   paidAmount?: number; // şimdiye dek tahsil edilen toplam (kalan = total − paidAmount)
   // Siparişi teslim almayı üstlenen kurye adı. Boşsa havuzda (kimse almamış).
   courier?: string;
+  // Teslim metrikleri — sipariş ilk kez "delivered" olduğunda yazılır.
+  deliveredAt?: Date; // teslim anı
+  deliveryDurationMin?: number; // sipariş alındığından teslime kadar toplam dakika
+
   // Aynı müşterinin diğer açık hesapları — okuma sırasında türetilir (kalıcı değil).
   customerOpenAccounts?: CustomerOpenAccounts;
 }

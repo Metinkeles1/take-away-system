@@ -114,6 +114,18 @@ function ledgerFields(doc: unknown): {
   };
 }
 
+// Teslim metriklerini doc'tan çıkarır (okuma mapper'larında tekrarı önler).
+function deliveryFields(doc: unknown): {
+  deliveredAt?: Date;
+  deliveryDurationMin?: number;
+} {
+  const d = doc as { deliveredAt?: Date; deliveryDurationMin?: number };
+  return {
+    deliveredAt: d.deliveredAt ?? undefined,
+    deliveryDurationMin: d.deliveryDurationMin ?? undefined,
+  };
+}
+
 // Siparişin kendi pini varsa onu, yoksa müşteriye (telefon) kayıtlı pini kullanır.
 function withFallbackGeo(
   customer: Order["customer"],
@@ -173,6 +185,7 @@ export async function getOrders(period: OrdersPeriod = "week"): Promise<Order[]>
     paidAt: (doc as unknown as { paidAt?: Date }).paidAt ?? undefined,
     ...ledgerFields(doc),
     courier: (doc as unknown as { courier?: string }).courier ?? undefined,
+    ...deliveryFields(doc),
     customerOpenAccounts: openAccountsExcluding(
       openByPhone.get((doc.customer as Order["customer"]).phone),
       doc.id,
@@ -211,6 +224,7 @@ export async function getOrderById(id: string): Promise<Order | null> {
     paidAt: (doc as unknown as { paidAt?: Date }).paidAt ?? undefined,
     ...ledgerFields(doc),
     courier: (doc as unknown as { courier?: string }).courier ?? undefined,
+    ...deliveryFields(doc),
     createdAt: (doc as unknown as { createdAt: Date }).createdAt,
     updatedAt: (doc as unknown as { updatedAt: Date }).updatedAt,
   };
@@ -269,8 +283,28 @@ export async function updateOrderStatus(
     const update: Record<string, unknown> = { status };
     if (stampCourier) update.courier = stampCourier;
 
+    // findOneAndUpdate güncelleme ÖNCESİ doc'u döner → createdAt ve önceki
+    // deliveredAt elimizde olur (teslim süresini hesaplamak ve mükerrer
+    // damgalamayı önlemek için).
     const doc = await OrderModel.findOneAndUpdate({ id }, update);
     if (!doc) return { ok: false, error: "Sipariş bulunamadı" };
+
+    // Teslim süresi: sipariş İLK kez "delivered" olduğunda, alındığından
+    // (createdAt) teslime kadar geçen toplam süreyi dakika olarak damgala.
+    // Zaten damgalıysa dokunma (yanlışlıkla tekrar "delivered" seçilirse ilk
+    // teslim süresi korunur).
+    const prevDoc = doc as unknown as { createdAt?: Date; deliveredAt?: Date };
+    if (status === "delivered" && !prevDoc.deliveredAt && prevDoc.createdAt) {
+      const now = new Date();
+      const durationMin = Math.max(
+        0,
+        Math.round((now.getTime() - prevDoc.createdAt.getTime()) / 60000),
+      );
+      await OrderModel.updateOne(
+        { id },
+        { $set: { deliveredAt: now, deliveryDurationMin: durationMin } },
+      );
+    }
 
     // Trendyol kaynaklıysa durum değişikliğini Trendyol'a da bildir (best-effort).
     // MOCK-DEV-* lokal simülatör siparişleridir; outbound atlanır.

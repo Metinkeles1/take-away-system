@@ -4,5 +4,6 @@ export { default as OrderControlsCard } from "./OrderControlsCard";
 export { default as OrderItemsCard } from "./OrderItemsCard";
 export { default as CustomerInfoCard } from "./CustomerInfoCard";
 export { default as OrderNotesCard } from "./OrderNotesCard";
+export { default as OrderTimelineCard } from "./OrderTimelineCard";
 export { default as OrderDetailsContent } from "./OrderDetailsContent";
 export { default as ReceiptPreview } from "./ReceiptPreview";
