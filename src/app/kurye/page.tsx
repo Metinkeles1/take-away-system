@@ -1266,10 +1266,13 @@ function OrderCard({
   onSetPayment: (method: PaymentMethod) => void;
 }) {
   const [itemsOpen, setItemsOpen] = useState(false);
-  const [debtOpen, setDebtOpen] = useState(false);
+  // Birleşik tahsilat fişi (bottom-sheet) — açık hesap varsa "Fişi gör" ile açılır.
+  const [receiptOpen, setReceiptOpen] = useState(false);
   const debt = o.customerOpenAccounts;
   const pay = PAYMENT_LABEL[o.payment.method];
   const itemCount = o.items.reduce((s, i) => s + i.quantity, 0);
+  // Kapıda toplanacak toplam = bu sipariş + müşterinin eski açık hesapları.
+  const grandTotal = o.total + (debt?.total ?? 0);
   // Pinlenmiş konum varsa kesin koordinata git; yoksa metin adresini geocode et.
   const geo = o.customer.geo;
   const hasPin = !!geo;
@@ -1283,6 +1286,7 @@ function OrderCard({
     .join(" · ");
 
   return (
+    <>
     <article className="w-full overflow-hidden rounded-3xl bg-white shadow-lg shadow-slate-300/40 ring-1 ring-slate-200">
       {/* Başlık şeridi — sipariş no + ödeme rozeti + süre.
           # ve saat sabit (shrink-0); uzayabilen tek öğe ödeme rozeti, o da
@@ -1310,49 +1314,6 @@ function OrderCard({
           <Clock className="h-3.5 w-3.5" /> {formatRelativeTime(o.createdAt)}
         </span>
       </div>
-
-      {/* Açık hesap uyarısı — bu müşterinin ÖNCEKİ ödenmemiş siparişleri.
-          Kurye kapıda görsün ki eski borcu da tahsil etmeyi deneyebilsin. */}
-      {debt && (
-        <div className="border-b border-red-100 bg-red-50">
-          <button
-            onClick={() => setDebtOpen((v) => !v)}
-            aria-expanded={debtOpen}
-            className="flex w-full items-center gap-2 px-5 py-2.5 text-left"
-          >
-            <AlertTriangle className="h-5 w-5 shrink-0 text-red-600" />
-            <span className="text-sm font-bold text-red-700">
-              {debt.count} ödenmemiş sipariş · {formatCurrency(debt.total)}
-            </span>
-            <ChevronDown
-              className={cn(
-                "ml-auto h-4 w-4 text-red-400 transition-transform",
-                debtOpen && "rotate-180",
-              )}
-            />
-          </button>
-          {debtOpen && (
-            <ul className="space-y-1 px-5 pb-3">
-              {debt.orders.map((d) => (
-                <li
-                  key={d.id}
-                  className="flex items-center justify-between gap-2 rounded-lg bg-white px-3 py-1.5 text-sm ring-1 ring-red-100"
-                >
-                  <span className="font-semibold text-slate-700">
-                    #{d.orderNumber}
-                    <span className="ml-2 text-xs font-normal text-slate-400">
-                      {formatRelativeTime(d.createdAt)}
-                    </span>
-                  </span>
-                  <span className="font-bold tabular-nums text-red-700">
-                    {formatCurrency(d.total)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
 
       {/* Adres — kartın kahramanı */}
       <div className="px-5 pt-5">
@@ -1441,24 +1402,45 @@ function OrderCard({
         )}
       </div>
 
-      {/* Müşteri + tutar */}
-      <div className="mt-4 flex items-end justify-between gap-3 border-t border-slate-100 px-5 py-4">
-        <div className="min-w-0">
-          <p className="text-[11px] font-semibold tracking-wide text-slate-400 uppercase">
-            Müşteri
-          </p>
-          <p className="truncate text-base font-bold text-slate-900">
-            {o.customer.name}
-          </p>
+      {/* Müşteri + tahsilat. Açık hesap varsa tutar = bu sipariş + eski borç
+          (kapıda toplanacak toplam) ve altında fişi açan tek satır görünür. */}
+      <div className="mt-4 border-t border-slate-100 px-5 py-4">
+        <div className="flex items-end justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold tracking-wide text-slate-400 uppercase">
+              Müşteri
+            </p>
+            <p className="truncate text-base font-bold text-slate-900">
+              {o.customer.name}
+            </p>
+          </div>
+          <div className="shrink-0 text-right">
+            <p className="text-[11px] font-semibold tracking-wide text-slate-400 uppercase">
+              {debt ? "Toplam tahsilat" : "Tahsilat"}
+            </p>
+            <p className="text-2xl leading-none font-extrabold tracking-tight text-slate-900 tabular-nums">
+              {formatCurrency(grandTotal)}
+            </p>
+          </div>
         </div>
-        <div className="shrink-0 text-right">
-          <p className="text-[11px] font-semibold tracking-wide text-slate-400 uppercase">
-            Tahsilat
-          </p>
-          <p className="text-2xl leading-none font-extrabold tracking-tight text-slate-900">
-            {formatCurrency(o.total)}
-          </p>
-        </div>
+
+        {/* Açık hesap varsa: birleşik fişi açan kesikli satır. */}
+        {debt && (
+          <button
+            onClick={() => setReceiptOpen(true)}
+            className="mt-3 flex w-full items-center justify-between rounded-2xl border border-dashed border-slate-300 px-4 py-2.5 text-left transition active:scale-[0.99]"
+          >
+            <span className="flex items-center gap-2 text-sm font-medium text-slate-500">
+              <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-red-500 text-[10px] font-bold text-white">
+                {debt.count}
+              </span>
+              eski açık hesap dahil
+            </span>
+            <span className="flex shrink-0 items-center gap-0.5 text-xs font-bold text-slate-600">
+              Fişi gör <ChevronRight className="h-3.5 w-3.5" />
+            </span>
+          </button>
+        )}
       </div>
 
       {/* Ödeme yöntemi — kurye kapıda gerçek yöntemi seçer; anında kaydedilir.
@@ -1569,5 +1551,166 @@ function OrderCard({
         </div>
       )}
     </article>
+
+    {/* Birleşik tahsilat fişi — bu sipariş + eski açık hesaplar tek dökümde.
+        Kurye kapıda "neyin parasını topluyorum"u tek ekranda görür. */}
+    {debt && (
+      <ReceiptSheet
+        open={receiptOpen}
+        onClose={() => setReceiptOpen(false)}
+        o={o}
+        debt={debt}
+        grandTotal={grandTotal}
+      />
+    )}
+    </>
+  );
+}
+
+// ─── Birleşik tahsilat fişi (bottom-sheet) ───────────────────────────────────
+// Bu siparişin ürünleri (yeşil) + müşterinin eski açık hesapları (kırmızı, her
+// biri kendi ürünleriyle), altta sabit duran toplam tahsilat. Açık hesap varken
+// karttaki "Fişi gör" satırından açılır.
+function ReceiptSheet({
+  open,
+  onClose,
+  o,
+  debt,
+  grandTotal,
+}: {
+  open: boolean;
+  onClose: () => void;
+  o: Order;
+  debt: CustomerOpenAccounts;
+  grandTotal: number;
+}) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40">
+      {/* arka plana dokununca kapat */}
+      <button
+        aria-label="Kapat"
+        onClick={onClose}
+        className="absolute inset-0 cursor-default"
+      />
+      <div className="relative flex max-h-[88vh] w-full max-w-md flex-col rounded-t-3xl bg-white shadow-2xl">
+        {/* başlık */}
+        <div className="shrink-0 px-5 pt-3">
+          <div className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-slate-200" />
+          <div className="flex items-center gap-2 pb-3">
+            <h3 className="text-base font-bold text-slate-900">
+              Tahsilat dökümü
+            </h3>
+            <span className="truncate text-sm font-medium text-slate-400">
+              · {o.customer.name}
+            </span>
+            <button
+              onClick={onClose}
+              aria-label="Kapat"
+              className="ml-auto grid h-8 w-8 shrink-0 place-items-center rounded-full text-slate-400 transition active:scale-90 hover:bg-slate-100"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+
+        {/* fiş gövdesi */}
+        <div className="min-h-0 flex-1 overflow-y-auto px-5">
+          {/* Bölüm: bu sipariş */}
+          <div className="flex items-center gap-2 pt-1 pb-2">
+            <span className="h-2 w-2 rounded-full bg-emerald-500" />
+            <span className="text-xs font-bold tracking-wide text-emerald-700 uppercase">
+              Bu sipariş · #{o.orderNumber}
+            </span>
+            <span className="ml-auto text-sm font-bold tabular-nums text-slate-900">
+              {formatCurrency(o.total)}
+            </span>
+          </div>
+          <ul className="space-y-1.5 border-l-2 border-emerald-100 pl-3 text-sm">
+            {o.items.map((item, i) => (
+              <li
+                key={`${o.id}-cur-${i}`}
+                className="flex justify-between gap-2 text-slate-600"
+              >
+                <span>
+                  <span className="font-semibold text-slate-800">
+                    {item.quantity}×
+                  </span>{" "}
+                  {item.product.name}
+                  {item.portion && (
+                    <span className="text-xs text-slate-400">
+                      {" "}
+                      ({item.portion.label})
+                    </span>
+                  )}
+                </span>
+                <span className="shrink-0 tabular-nums">
+                  {formatCurrency(item.totalPrice)}
+                </span>
+              </li>
+            ))}
+          </ul>
+
+          {/* Bölüm: eski açık hesap */}
+          <div className="mt-5 flex items-center gap-2 pb-2">
+            <span className="h-2 w-2 rounded-full bg-red-500" />
+            <span className="text-xs font-bold tracking-wide text-red-700 uppercase">
+              Eski açık hesap · {debt.count} sipariş
+            </span>
+            <span className="ml-auto text-sm font-bold tabular-nums text-red-700">
+              {formatCurrency(debt.total)}
+            </span>
+          </div>
+          <div className="space-y-3 border-l-2 border-red-100 pl-3">
+            {debt.orders.map((d) => (
+              <div key={d.id}>
+                <div className="flex justify-between gap-2 text-xs font-semibold text-slate-400">
+                  <span>
+                    #{d.orderNumber} · {formatRelativeTime(d.createdAt)}
+                  </span>
+                  <span className="tabular-nums">{formatCurrency(d.total)}</span>
+                </div>
+                <ul className="mt-0.5 space-y-1 text-sm text-slate-600">
+                  {d.items.length === 0 ? (
+                    <li className="text-xs text-slate-400">Ürün bilgisi yok</li>
+                  ) : (
+                    d.items.map((item, i) => (
+                      <li
+                        key={`${d.id}-${i}`}
+                        className="flex justify-between gap-2"
+                      >
+                        <span>
+                          <span className="font-semibold text-slate-800">
+                            {item.quantity}×
+                          </span>{" "}
+                          {item.name}
+                        </span>
+                        <span className="shrink-0 tabular-nums">
+                          {formatCurrency(item.totalPrice)}
+                        </span>
+                      </li>
+                    ))
+                  )}
+                </ul>
+              </div>
+            ))}
+          </div>
+
+          <div className="h-4" />
+        </div>
+
+        {/* sabit alt toplam */}
+        <div className="shrink-0 border-t border-slate-100 bg-white px-5 py-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
+          <div className="flex items-center justify-between rounded-2xl bg-slate-900 px-4 py-3 text-white">
+            <span className="text-sm font-bold text-lime-300">
+              Toplam tahsilat
+            </span>
+            <span className="text-2xl font-extrabold tabular-nums text-lime-300">
+              {formatCurrency(grandTotal)}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

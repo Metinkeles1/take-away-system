@@ -121,11 +121,20 @@ export type PaymentStatus = "paid" | "open";
 // Bir siparişe iliştirilen, AYNI müşterinin (telefon) DİĞER ödenmemiş siparişleri.
 // Kurye ve admin sipariş listesinde "bu müşterinin açık hesabı var" uyarısı için
 // hesaplanır (kalıcı alan değil; okuma sırasında türetilir, siparişin kendisi hariç).
+// Açık hesap dökümünde gösterilecek hafif ürün satırı (tam OrderItem değil —
+// kurye fişinde sadece "ne sipariş edilmişti" görünsün diye ad/adet/tutar yeter).
+export interface OpenAccountItem {
+  name: string;
+  quantity: number;
+  totalPrice: number;
+}
+
 export interface OpenAccountRef {
   id: string;
   orderNumber: number;
   total: number;
   createdAt: Date;
+  items: OpenAccountItem[];
 }
 
 export interface CustomerOpenAccounts {

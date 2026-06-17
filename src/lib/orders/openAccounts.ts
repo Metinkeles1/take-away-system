@@ -1,7 +1,11 @@
 import "server-only";
 import { connectDB } from "@/lib/mongodb";
 import OrderModel from "@/models/Order";
-import type { CustomerOpenAccounts, OpenAccountRef } from "@/types";
+import type {
+  CustomerOpenAccounts,
+  OpenAccountItem,
+  OpenAccountRef,
+} from "@/types";
 
 // Verilen telefonlara ait açık hesapları (ödenmemiş siparişleri) TEK sorguda çeker
 // ve telefon → özet (adet, toplam, sipariş listesi) eşlemesi döner. Kurye ve admin
@@ -20,7 +24,9 @@ export async function getOpenAccountsByPhone(
     status: { $ne: "cancelled" }, // iptal edilen sipariş alacak/uyarı sayılmaz
     "customer.phone": { $in: unique },
   })
-    .select("id orderNumber total paidAmount customer.phone createdAt")
+    .select(
+      "id orderNumber total paidAmount customer.phone createdAt items.product.name items.quantity items.totalPrice",
+    )
     .sort({ createdAt: -1 })
     .lean();
 
@@ -32,16 +38,28 @@ export async function getOpenAccountsByPhone(
       paidAmount?: number;
       customer?: { phone?: string };
       createdAt: Date;
+      items?: {
+        product?: { name?: string };
+        quantity?: number;
+        totalPrice?: number;
+      }[];
     };
     const phone = rec.customer?.phone;
     if (!phone) continue;
     // Alacak = sipariş tutarı − şimdiye dek tahsil edilen (kısmi ödeme düşülür).
     const remaining = Math.max(0, rec.total - (rec.paidAmount ?? 0));
+    // Kurye fişinde "ne sipariş edilmişti" görünsün diye hafif ürün listesi.
+    const items: OpenAccountItem[] = (rec.items ?? []).map((it) => ({
+      name: it.product?.name ?? "Ürün",
+      quantity: it.quantity ?? 1,
+      totalPrice: it.totalPrice ?? 0,
+    }));
     const ref: OpenAccountRef = {
       id: rec.id,
       orderNumber: rec.orderNumber,
       total: remaining,
       createdAt: rec.createdAt,
+      items,
     };
     const cur = map.get(phone) ?? { count: 0, total: 0, orders: [] };
     cur.count += 1;
