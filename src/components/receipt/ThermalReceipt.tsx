@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useId, useMemo, useSyncExternalStore } from "react";
-import { type OrderDraft } from "@/types";
+import { type CustomerOpenAccounts, type OrderDraft } from "@/types";
 import { formatCurrency, formatPhone } from "@/lib/utils";
 
 interface ThermalReceiptProps {
@@ -9,7 +9,16 @@ interface ThermalReceiptProps {
   total: number;
   subtotal: number;
   orderNumber?: number;
+  // Müşterinin ÖNCEKİ ödenmemiş siparişleri. Doluysa fişe "Eski Açık Hesap"
+  // bölümü (tam dökümlü) + GENEL TOPLAM eklenir; kurye kapıda toplam alacağı
+  // tek kâğıttan görür. Boş/undefined ise fiş bugünküyle birebir aynı kalır.
+  openAccounts?: CustomerOpenAccounts | null;
 }
+
+// Eski açık hesap satırlarındaki tarih — sadece geçmiş createdAt formatlanır
+// (new Date() yok), bu yüzden hydration güvenli. "12 Haz" gibi kısa biçim.
+const formatDebtDate = (d: Date | string) =>
+  new Date(d).toLocaleDateString("tr-TR", { day: "2-digit", month: "short" });
 
 const paymentLabels: Record<string, string> = {
   cash: "NAKİT",
@@ -105,7 +114,9 @@ const SectionTitle = ({ children }: { children: React.ReactNode }) => (
 );
 
 const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptProps>(
-  ({ draft, total, subtotal, orderNumber }, ref) => {
+  ({ draft, total, subtotal, orderNumber, openAccounts }, ref) => {
+    const hasDebt = !!openAccounts && openAccounts.orders.length > 0;
+    const grandTotal = total + (openAccounts?.total ?? 0);
     const uniqueId = useId();
     const receiptId = `thermal-receipt-${uniqueId.replace(/:/g, "")}`;
 
@@ -343,6 +354,132 @@ const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptProps>(
             >
               <Row left="TOPLAM" right={formatCurrency(total)} bold large />
             </div>
+
+            {/* Eski Açık Hesap — müşterinin önceki ödenmemiş siparişleri, her biri
+                kendi ürün dökümüyle. Kesik çizgili kutu, o anki siparişle karışmasın.
+                Altında GENEL TOPLAM = bu sipariş + eski borç (kapıda toplanacak). */}
+            {hasDebt && (
+              <>
+                <div
+                  style={{
+                    border: "1px dashed #000",
+                    borderRadius: "6px",
+                    padding: "6px 8px",
+                    marginTop: "6px",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "baseline",
+                      fontSize: FONT_SIZE_XSMALL,
+                      fontWeight: 700,
+                      letterSpacing: "0.5px",
+                      textTransform: "uppercase",
+                      marginBottom: "4px",
+                    }}
+                  >
+                    <span>Eski Açık Hesap ({openAccounts!.count})</span>
+                    <span style={{ fontVariantNumeric: "tabular-nums" }}>
+                      {formatCurrency(openAccounts!.total)}
+                    </span>
+                  </div>
+
+                  {openAccounts!.orders.map((d, oi) => (
+                    <div
+                      key={d.id}
+                      style={{ marginTop: oi === 0 ? 0 : "6px" }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "baseline",
+                          fontSize: FONT_SIZE_XSMALL,
+                          fontWeight: 700,
+                        }}
+                      >
+                        <span>
+                          #{d.orderNumber} · {formatDebtDate(d.createdAt)}
+                        </span>
+                        <span style={{ fontVariantNumeric: "tabular-nums" }}>
+                          {formatCurrency(d.total)}
+                        </span>
+                      </div>
+
+                      {d.items.length === 0 ? (
+                        <div
+                          style={{
+                            fontSize: FONT_SIZE_XSMALL,
+                            paddingLeft: "8px",
+                            color: "#333",
+                          }}
+                        >
+                          Ürün bilgisi yok
+                        </div>
+                      ) : (
+                        d.items.map((it, ii) => (
+                          <div
+                            key={`${d.id}-${ii}`}
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              gap: "4px",
+                              fontSize: FONT_SIZE_XSMALL,
+                              paddingLeft: "8px",
+                              lineHeight: 1.3,
+                            }}
+                          >
+                            <span
+                              style={{
+                                minWidth: 0,
+                                overflowWrap: "break-word",
+                              }}
+                            >
+                              {it.quantity}× {it.name}
+                            </span>
+                            <span
+                              style={{
+                                whiteSpace: "nowrap",
+                                fontVariantNumeric: "tabular-nums",
+                              }}
+                            >
+                              {formatCurrency(it.totalPrice)}
+                            </span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <div
+                  style={{
+                    border: "2px solid #000",
+                    borderRadius: "6px",
+                    padding: "6px 8px",
+                    marginTop: "6px",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "baseline",
+                  }}
+                >
+                  <span style={{ fontWeight: 700, fontSize: FONT_SIZE_NORMAL }}>
+                    GENEL TOPLAM
+                  </span>
+                  <span
+                    style={{
+                      fontWeight: 800,
+                      fontSize: FONT_SIZE_LARGE,
+                      fontVariantNumeric: "tabular-nums",
+                    }}
+                  >
+                    {formatCurrency(grandTotal)}
+                  </span>
+                </div>
+              </>
+            )}
 
             <Divider dashed />
 

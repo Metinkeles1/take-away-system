@@ -32,6 +32,7 @@ import {
   claimManyOrders,
 } from "@/actions/courier";
 import { getActiveCouriers, type Courier } from "@/actions/couriers";
+import { type ShopLocation } from "@/actions/settings";
 import { setOrderPaymentMethod } from "@/actions/orders";
 import { subscribeOrders } from "@/lib/pusher/client";
 import {
@@ -41,7 +42,13 @@ import {
   type MealCardBrand,
   type CustomerOpenAccounts,
 } from "@/types";
-import { formatCurrency, formatRelativeTime, cn } from "@/lib/utils";
+import {
+  formatCurrency,
+  formatRelativeTime,
+  haversineMeters,
+  formatDistance,
+  cn,
+} from "@/lib/utils";
 import { LocationPicker, type LatLng } from "@/components/kurye/LocationPicker";
 
 // Pusher (websocket) anlık güncellemeyi sağlar; bu poll yalnızca emniyet ağı
@@ -283,6 +290,9 @@ export default function KuryePage() {
   const [couriers, setCouriers] = useState<Courier[]>([]);
   // Çoklu kurye modu (paneldeki Ayarlar'dan açılır). Kapalıyken tek-kurye sade akış.
   const [multiCourierMode, setMultiCourierMode] = useState(false);
+  // Dükkan konumu (Ayarlar'dan pinlenir). Varsa pini olan siparişlerde kuş uçuşu
+  // uzaklık gösterilir; yoksa rozet hiç çıkmaz.
+  const [shopLocation, setShopLocation] = useState<ShopLocation | null>(null);
   // Sekme: "mine" = Benim Paketlerim (detaylı teslim kartları), "pool" = Tüm
   // Paketler (kısa liste, check'leyerek üstlen).
   const [tab, setTab] = useState<"mine" | "pool">("mine");
@@ -312,10 +322,15 @@ export default function KuryePage() {
 
   const load = async () => {
     try {
-      // Tek round-trip: paketler + çoklu kurye modu birlikte gelir.
-      const { orders: data, multiCourierMode: mode } = await getCourierBoard();
+      // Tek round-trip: paketler + çoklu kurye modu + dükkan konumu birlikte gelir.
+      const {
+        orders: data,
+        multiCourierMode: mode,
+        shopLocation: shop,
+      } = await getCourierBoard();
       setOrders(data);
       setMultiCourierMode(mode);
+      setShopLocation(shop);
     } finally {
       setLoading(false);
     }
@@ -895,6 +910,7 @@ export default function KuryePage() {
               <OrderCard
                 key={current.id}
                 o={current}
+                shopLocation={shopLocation}
                 pinning={pinningId === current.id}
                 pinError={pinErrors[current.id]}
                 payError={payErrors[current.id]}
@@ -1250,6 +1266,7 @@ function PoolList({
 // ─── Tek sipariş kartı ───────────────────────────────────────────────────────
 function OrderCard({
   o,
+  shopLocation,
   pinning,
   pinError,
   onPin,
@@ -1258,6 +1275,7 @@ function OrderCard({
   onSetPayment,
 }: {
   o: Order;
+  shopLocation: ShopLocation | null;
   pinning: boolean;
   pinError?: string;
   payError?: string;
@@ -1278,6 +1296,12 @@ function OrderCard({
   const hasPin = !!geo;
   const acc = geo?.accuracy;
   const lowAccuracy = acc != null && acc > PIN_ACCURACY_WARN;
+  // Dükkana kuş uçuşu uzaklık — yalnızca hem dükkan konumu ayarlı hem müşteri
+  // pini varsa hesaplanır (saf matematik, API/maliyet yok). Yol mesafesi değil.
+  const distanceLabel =
+    shopLocation && geo
+      ? formatDistance(haversineMeters(shopLocation, geo))
+      : null;
   const mapsUrl = hasPin
     ? `https://www.google.com/maps/search/?api=1&query=${geo!.lat},${geo!.lng}`
     : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullAddress(o))}`;
@@ -1353,6 +1377,13 @@ function OrderCard({
               <p className="mt-1 text-sm font-medium text-slate-500">
                 {detail}
               </p>
+            )}
+            {/* Dükkana kuş uçuşu uzaklık — pin + dükkan konumu varsa görünür. */}
+            {distanceLabel && (
+              <span className="mt-1.5 inline-flex items-center gap-1 rounded-lg bg-blue-50 px-2 py-0.5 text-xs font-bold text-blue-700 ring-1 ring-blue-100">
+                <Navigation className="h-3 w-3 fill-blue-700" />
+                Dükkana {distanceLabel}
+              </span>
             )}
           </div>
         </div>

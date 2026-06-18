@@ -5,7 +5,11 @@ import OrderModel from "@/models/Order";
 import CustomerModel from "@/models/Customer";
 import { type GeoPoint, type Order } from "@/types";
 import { notifyOrdersChanged } from "@/lib/pusher/server";
-import { getMultiCourierMode } from "@/actions/settings";
+import {
+  getMultiCourierMode,
+  getShopLocation,
+  type ShopLocation,
+} from "@/actions/settings";
 import {
   getOpenAccountsByPhone,
   openAccountsExcluding,
@@ -206,12 +210,14 @@ export async function claimManyOrders(
 export async function getCourierBoard(): Promise<{
   orders: Order[];
   multiCourierMode: boolean;
+  shopLocation: ShopLocation | null;
 }> {
-  const [orders, multiCourierMode] = await Promise.all([
+  const [orders, multiCourierMode, shopLocation] = await Promise.all([
     getCourierOrders(),
     getMultiCourierMode(),
+    getShopLocation(),
   ]);
-  return { orders, multiCourierMode };
+  return { orders, multiCourierMode, shopLocation };
 }
 
 // Kurye üstlenmeyi bırakır (check'i kaldırır) → sipariş havuza döner. Güvenlik:

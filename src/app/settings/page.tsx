@@ -13,7 +13,10 @@ import {
 import {
   getMultiCourierMode,
   setMultiCourierMode,
+  getShopLocation,
+  setShopLocation,
 } from "@/actions/settings";
+import { LocationPicker, type LatLng } from "@/components/kurye/LocationPicker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -27,7 +30,16 @@ import {
   Pencil,
   Power,
   Users,
+  Store,
+  MapPin,
 } from "lucide-react";
+
+// Dükkan konumu hiç ayarlı değilken haritanın ortalanacağı nokta (env ile bölgeye
+// göre ayarlanabilir; varsayılan İstanbul). Kurye sayfasıyla aynı varsayılan.
+const DEFAULT_MAP_CENTER: LatLng = {
+  lat: Number(process.env.NEXT_PUBLIC_DEFAULT_LAT) || 41.0082,
+  lng: Number(process.env.NEXT_PUBLIC_DEFAULT_LNG) || 28.9784,
+};
 
 export default function SettingsPage() {
   const [couriers, setCouriers] = useState<Courier[]>([]);
@@ -39,17 +51,36 @@ export default function SettingsPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [multiMode, setMultiMode] = useState(false);
   const [modeBusy, setModeBusy] = useState(false);
+  // Dükkan konumu — kurye ekranında müşteriye uzaklık bundan hesaplanır.
+  const [shopLoc, setShopLoc] = useState<LatLng | null>(null);
+  const [shopPickerOpen, setShopPickerOpen] = useState(false);
+  const [shopSaving, setShopSaving] = useState(false);
 
   const load = async () => {
     try {
-      const [list, mode] = await Promise.all([
+      const [list, mode, shop] = await Promise.all([
         getCouriers(),
         getMultiCourierMode(),
+        getShopLocation(),
       ]);
       setCouriers(list);
       setMultiMode(mode);
+      setShopLoc(shop);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveShopLocation = async (geo: LatLng) => {
+    setShopSaving(true);
+    const res = await setShopLocation({ lat: geo.lat, lng: geo.lng });
+    setShopSaving(false);
+    if (res.ok) {
+      setShopLoc(geo);
+      setShopPickerOpen(false);
+      toast.success("Dükkan konumu kaydedildi");
+    } else {
+      toast.error(res.error ?? "Konum kaydedilemedi");
     }
   };
 
@@ -176,6 +207,35 @@ export default function SettingsPage() {
                   }
                 />
               </button>
+            </CardContent>
+          </Card>
+        </section>
+
+        {/* Dükkan konumu — kurye ekranında müşteriye uzaklık hesabı için */}
+        <section className="mb-8">
+          <Card>
+            <CardContent className="flex items-center gap-3 p-4">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-rose-100 text-rose-700">
+                <Store className="h-5 w-5" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold">Dükkan konumu</p>
+                <p className="text-xs text-muted-foreground">
+                  {shopLoc
+                    ? `Ayarlı — kurye kartında müşteriye uzaklık gösterilir. (${shopLoc.lat.toFixed(5)}, ${shopLoc.lng.toFixed(5)})`
+                    : "Ayarlı değil — haritada işaretleyince kurye kartında müşteriye kuş uçuşu uzaklık görünür."}
+                </p>
+              </div>
+              <Button
+                variant={shopLoc ? "outline" : "default"}
+                size="sm"
+                className="shrink-0"
+                disabled={loading}
+                onClick={() => setShopPickerOpen(true)}
+              >
+                <MapPin className="h-4 w-4" />
+                {shopLoc ? "Düzelt" : "İşaretle"}
+              </Button>
             </CardContent>
           </Card>
         </section>
@@ -342,6 +402,16 @@ export default function SettingsPage() {
           </p>
         </section>
       </div>
+
+      {/* Dükkan konumunu haritada işaretle (kuryeyle aynı seçici) */}
+      <LocationPicker
+        open={shopPickerOpen}
+        center={shopLoc ?? DEFAULT_MAP_CENTER}
+        addressLabel="Dükkan konumu"
+        saving={shopSaving}
+        onConfirm={(geo) => void handleSaveShopLocation(geo)}
+        onCancel={() => setShopPickerOpen(false)}
+      />
     </main>
   );
 }

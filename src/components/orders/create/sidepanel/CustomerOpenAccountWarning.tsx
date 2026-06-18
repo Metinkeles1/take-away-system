@@ -1,6 +1,4 @@
-import { useEffect, useState } from "react";
 import { AlertTriangle } from "lucide-react";
-import { getCustomerOpenAccounts } from "@/actions/orders";
 import { formatCurrency, cn } from "@/lib/utils";
 import {
   daysOpen,
@@ -10,37 +8,14 @@ import {
 } from "@/lib/orders/aging";
 import type { CustomerOpenAccounts } from "@/types";
 
-// Yeni sipariş alınırken müşterinin telefonu girilince/seçilince o müşterinin
-// ödenmemiş siparişleri varsa uyarı gösterir. Borç birikmeden önce operatör görür,
-// peşin tahsil etmeyi tercih edebilir. Telefon değişince 400ms debounce ile sorgular.
-export function CustomerOpenAccountWarning({ phone }: { phone: string }) {
-  const [accounts, setAccounts] = useState<CustomerOpenAccounts | null>(null);
-
-  useEffect(() => {
-    const key = phone?.trim() ?? "";
-    let alive = true;
-    // Kısa/boş telefonda hızlı temizle; geçerli telefonda 400ms debounce ile sorgula.
-    const t = setTimeout(
-      async () => {
-        if (key.length < 6) {
-          if (alive) setAccounts(null);
-          return;
-        }
-        try {
-          const res = await getCustomerOpenAccounts(key);
-          if (alive) setAccounts(res);
-        } catch {
-          if (alive) setAccounts(null);
-        }
-      },
-      key.length < 6 ? 0 : 400,
-    );
-    return () => {
-      alive = false;
-      clearTimeout(t);
-    };
-  }, [phone]);
-
+// Yeni sipariş alınırken müşterinin ödenmemiş siparişleri varsa uyarı gösterir.
+// Borç birikmeden önce operatör görür, peşin tahsil etmeyi tercih edebilir.
+// Veri panelden `useCustomerOpenAccounts` ile gelir (fiş ile ortak — tek sorgu).
+export function CustomerOpenAccountWarning({
+  accounts,
+}: {
+  accounts: CustomerOpenAccounts | null;
+}) {
   if (!accounts) return null;
 
   // En eski borcun yaşına göre uyarı tonu — riskli alacak öne çıksın.

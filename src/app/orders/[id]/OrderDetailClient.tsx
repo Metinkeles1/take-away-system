@@ -3,7 +3,9 @@
 import { useRef, useCallback, useEffect, useState } from "react";
 import { useOrderStore } from "@/store/orderStore";
 import { useReactToPrint } from "react-to-print";
+import { getCustomerOpenAccounts } from "@/actions/orders";
 import type {
+  CustomerOpenAccounts,
   Order,
   OrderStatus,
   PaymentMethod,
@@ -39,6 +41,33 @@ export default function OrderDetailClient({ initialOrder }: Props) {
 
   // Store'da varsa güncel hali, yoksa server'dan gelen initial veriyi kullan
   const order = orders.find((o) => o.id === initialOrder.id) ?? initialOrder;
+
+  // Müşterinin DİĞER ödenmemiş siparişleri — fişte "Eski Açık Hesap" dökümü için.
+  // Bu siparişin kendisi açık hesapsa kendini saymamak için id ile filtrelenir.
+  // Tahsilat/ödeme değişince yeniden çekilsin diye paymentStatus de bağımlılıkta.
+  const [openAccounts, setOpenAccounts] = useState<CustomerOpenAccounts | null>(
+    null,
+  );
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      const res = await getCustomerOpenAccounts(order.customer.phone ?? "");
+      if (!alive) return;
+      const others = res?.orders.filter((o) => o.id !== order.id) ?? [];
+      setOpenAccounts(
+        others.length
+          ? {
+              count: others.length,
+              total: others.reduce((s, o) => s + o.total, 0),
+              orders: others,
+            }
+          : null,
+      );
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [order.id, order.customer.phone, order.paymentStatus]);
 
   // Gerçek zamanlı: kurye teslim edince / durum değişince bu sayfa da anında
   // güncellensin. (Liste sayfasında vardı, detayda yoktu — teslim edilen sipariş
@@ -126,6 +155,7 @@ export default function OrderDetailClient({ initialOrder }: Props) {
           ref={receiptRef}
           order={order}
           onPrint={() => handlePrint()}
+          openAccounts={openAccounts}
           collapsed={!showReceipt}
         />
       </div>

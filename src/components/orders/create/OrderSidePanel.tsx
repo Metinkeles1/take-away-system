@@ -24,6 +24,7 @@ import { PaymentPicker } from "./sidepanel/PaymentPicker";
 import { NotesSection } from "./sidepanel/NotesSection";
 import { CheckoutFooter } from "./sidepanel/CheckoutFooter";
 import { useOrderSubmit } from "@/hooks/useOrderSubmit";
+import { useCustomerOpenAccounts } from "@/hooks/useCustomerOpenAccounts";
 
 interface OrderSidePanelProps {
   /** Sticky alt bar ile çalışma modu (mobil Sheet için) */
@@ -53,6 +54,9 @@ export default function OrderSidePanel({
   const total = useOrderStore(selectTotal);
   const canComplete = useOrderStore(selectCanComplete);
   const isEditMode = mode === "edit";
+
+  // Müşterinin açık hesabı — uyarı kutusu + basılan fiş ortak kullanır (tek sorgu).
+  const openAccounts = useCustomerOpenAccounts(draft.customer.phone ?? "");
 
   // Submit/print/cancel orkestrasyonu hook'ta.
   const { isSubmitting, receiptRef, onComplete, onSaveEdit, onCancel } =
@@ -124,7 +128,7 @@ export default function OrderSidePanel({
             onSelectCustomer={handleSelectCustomer}
           />
 
-          <CustomerOpenAccountWarning phone={draft.customer.phone ?? ""} />
+          <CustomerOpenAccountWarning accounts={openAccounts} />
 
           <Separator />
 
@@ -162,7 +166,12 @@ export default function OrderSidePanel({
       {/* Gizli yazdırma fişi */}
       <div className="hidden">
         <div ref={receiptRef}>
-          <ThermalReceipt draft={draft} total={total} subtotal={subtotal} />
+          <ThermalReceipt
+            draft={draft}
+            total={total}
+            subtotal={subtotal}
+            openAccounts={openAccounts}
+          />
         </div>
       </div>
     </div>

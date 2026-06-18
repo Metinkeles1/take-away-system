@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Printer } from "lucide-react";
 import ThermalReceipt from "@/components/receipt/ThermalReceipt";
-import type { Order } from "@/types";
+import type { CustomerOpenAccounts, Order } from "@/types";
 import { forwardRef, memo } from "react";
 import { orderToReceiptDraft } from "@/lib/orderToReceiptDraft";
 import { cn } from "@/lib/utils";
@@ -12,6 +12,9 @@ import { cn } from "@/lib/utils";
 interface Props {
   order: Order;
   onPrint: () => void;
+  // Müşterinin DİĞER ödenmemiş siparişleri (bu sipariş hariç) — varsa fişe
+  // "Eski Açık Hesap" dökümü + GENEL TOPLAM eklenir.
+  openAccounts?: CustomerOpenAccounts | null;
   // Gizliyken DOM'da kalır (yalnızca CSS ile gizlenir) → yazdırma ref'i çalışmaya
   // devam eder; içerik alanı tam genişlik kazanır.
   collapsed?: boolean;
@@ -19,7 +22,7 @@ interface Props {
 
 const ReceiptPreview = memo(
   forwardRef<HTMLDivElement, Props>(function ReceiptPreview(
-    { order, onPrint, collapsed = false },
+    { order, onPrint, openAccounts, collapsed = false },
     ref
   ) {
     const receiptDraft = orderToReceiptDraft(order);
@@ -46,6 +49,7 @@ const ReceiptPreview = memo(
                 total={order.total}
                 subtotal={order.subtotal}
                 orderNumber={order.orderNumber}
+                openAccounts={openAccounts}
               />
             </div>
           </CardContent>
