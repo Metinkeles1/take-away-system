@@ -74,6 +74,21 @@ export async function getVouchersByCorporate(
   return docs.map((d) => docToVoucher(d as Record<string, unknown>));
 }
 
+/**
+ * Bir kurumun TÜM dönemlerindeki açık (ödenmemiş) fişleri — açık hesap ekstresi
+ * için. Kısmi ödenmiş fişler de dahildir (paid:false), kalan = total − paidAmount.
+ * Tarih artan sırada döner (eski → yeni).
+ */
+export async function getOpenVouchersByCorporate(
+  corporateId: string,
+): Promise<Voucher[]> {
+  await connectDB();
+  const docs = await VoucherModel.find({ corporateId, paid: false })
+    .sort({ date: 1, voucherNumber: 1 })
+    .lean();
+  return docs.map((d) => docToVoucher(d as Record<string, unknown>));
+}
+
 export async function getVoucherById(id: string): Promise<Voucher | null> {
   await connectDB();
   const doc = await VoucherModel.findOne({ id }).lean();

@@ -1,8 +1,8 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { useReactToPrint } from "react-to-print";
-import { Printer } from "lucide-react";
+import { Printer, SlidersHorizontal } from "lucide-react";
 
 import {
   Dialog,
@@ -12,17 +12,32 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { cn } from "@/lib/utils";
+import {
+  type ReceiptOptions,
+  type ReceiptToggleKey,
+  type PaymentScope,
+  DEFAULT_RECEIPT_OPTIONS,
+  RECEIPT_OPTION_DEFS,
+  PAYMENT_SCOPE_DEFS,
+} from "@/components/receipt/corporateReceiptKit";
 
 export function PrintReceiptDialog({
   open,
   onOpenChange,
   title,
   children,
+  filterable = false,
+  storageKey,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   title: string;
-  children: React.ReactNode;
+  // Statik içerik (tek fiş) ya da seçeneklere göre render eden fonksiyon (ekstre/ürün özeti).
+  children: React.ReactNode | ((opts: ReceiptOptions) => React.ReactNode);
+  filterable?: boolean;
+  storageKey?: string;
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const handlePrint = useReactToPrint({
@@ -30,20 +45,111 @@ export function PrintReceiptDialog({
     documentTitle: title,
   });
 
+  // Filtre seçimi: varsa localStorage'dan yüklenir, böylece tekrar yazdırmada korunur.
+  const [opts, setOpts] = useState<ReceiptOptions>(() => {
+    if (typeof window === "undefined" || !storageKey) return DEFAULT_RECEIPT_OPTIONS;
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (raw) return { ...DEFAULT_RECEIPT_OPTIONS, ...JSON.parse(raw) };
+    } catch {
+      /* yok say */
+    }
+    return DEFAULT_RECEIPT_OPTIONS;
+  });
+
+  const persist = (next: ReceiptOptions) => {
+    if (storageKey) {
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(next));
+      } catch {
+        /* yok say */
+      }
+    }
+  };
+
+  const toggle = (key: ReceiptToggleKey) => {
+    setOpts((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      persist(next);
+      return next;
+    });
+  };
+
+  const setScope = (scope: PaymentScope) => {
+    setOpts((prev) => {
+      const next = { ...prev, scope };
+      persist(next);
+      return next;
+    });
+  };
+
+  // Lazy mount: children'ı sadece dialog açıkken hesapla/render et.
+  // Aksi halde MonthlyStatement / ProductSummaryReceipt her parent render'ında
+  // tekrar inşa edilip gereksiz hesaplama yapar.
+  const content = open
+    ? typeof children === "function"
+      ? children(opts)
+      : children
+    : null;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-sm" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
-        {/* Lazy mount: children'ı sadece dialog açıkken render et.
-            Aksi halde MonthlyStatement / VoucherReceipt her parent render'ında
-            tekrar inşa edilip gereksiz hesaplama yapar. */}
+
+        {filterable && (
+          <div className="rounded-lg border bg-muted/30 p-3">
+            <p className="mb-2 inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+              <SlidersHorizontal className="h-3.5 w-3.5" />
+              Fişte Göster
+            </p>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+              {RECEIPT_OPTION_DEFS.map((def) => (
+                <label
+                  key={def.key}
+                  className="flex cursor-pointer select-none items-center gap-2 text-sm"
+                >
+                  <Checkbox
+                    checked={opts[def.key]}
+                    onCheckedChange={() => toggle(def.key)}
+                  />
+                  {def.label}
+                </label>
+              ))}
+            </div>
+
+            <div className="mt-3 border-t pt-3">
+              <p className="mb-1.5 text-xs font-semibold text-muted-foreground">
+                Ödeme durumu
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {PAYMENT_SCOPE_DEFS.map((def) => (
+                  <button
+                    key={def.value}
+                    type="button"
+                    onClick={() => setScope(def.value)}
+                    className={cn(
+                      "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
+                      opts.scope === def.value
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-input hover:bg-muted",
+                    )}
+                  >
+                    {def.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         <div
           ref={contentRef}
-          className="flex max-h-[70vh] justify-center overflow-y-auto py-2 print:max-h-none print:overflow-visible"
+          className="flex max-h-[60vh] justify-center overflow-y-auto py-2 print:max-h-none print:overflow-visible"
         >
-          {open ? children : null}
+          {content}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>

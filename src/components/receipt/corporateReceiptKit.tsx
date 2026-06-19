@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useId, useMemo } from "react";
-import { type Voucher } from "@/types";
+import { type Voucher, type PeriodStats } from "@/types";
 
 /**
  * Termal yazıcı dostu ortak fiş primitifleri.
@@ -65,6 +65,71 @@ export const Divider = ({ dashed }: { dashed?: boolean }) => (
     }}
   />
 );
+
+/**
+ * Fiş yazdırma filtreleri: kullanıcı hangi tutar alanlarının basılacağını seçer.
+ * MonthlyStatement (gün gün) ve ProductSummaryReceipt (ürün bazlı) ortak kullanır.
+ */
+/**
+ * Ödeme durumu kapsamı:
+ *  - all: tüm fişler (işaretsiz)
+ *  - open: yalnızca açık (tam ödenmemiş) fişler → o an ödenmesi gereken
+ *  - marked: tüm fişler, ödenenlerin yanına ✓ (yalnızca gün gün ekstrede anlamlı;
+ *            ürün özetinde fiş bazlı ödeme olduğundan "all" gibi davranır)
+ */
+export type PaymentScope = "all" | "open" | "marked";
+
+export interface ReceiptOptions {
+  itemPrices: boolean; // ürün/gün satır tutarları
+  total: boolean; // toplam + genel toplam bloğu
+  paid: boolean; // tahsil edilen (ödenmiş) tutar
+  unpaid: boolean; // açık bakiye (kalan)
+  scope: PaymentScope; // hangi ödeme durumundaki fişler basılsın
+}
+
+export const DEFAULT_RECEIPT_OPTIONS: ReceiptOptions = {
+  itemPrices: true,
+  total: true,
+  paid: true,
+  unpaid: true,
+  scope: "all",
+};
+
+/** ReceiptOptions'ın yalnızca boolean (göster/gizle) alanları. */
+export type ReceiptToggleKey = "itemPrices" | "total" | "paid" | "unpaid";
+
+export const RECEIPT_OPTION_DEFS: { key: ReceiptToggleKey; label: string }[] = [
+  { key: "itemPrices", label: "Ürün fiyatları" },
+  { key: "total", label: "Toplam tutar" },
+  { key: "paid", label: "Tahsil edilen" },
+  { key: "unpaid", label: "Açık bakiye" },
+];
+
+export const PAYMENT_SCOPE_DEFS: { value: PaymentScope; label: string }[] = [
+  { value: "all", label: "Tümü" },
+  { value: "open", label: "Sadece açık" },
+  { value: "marked", label: "Ödenenleri işaretle" },
+];
+
+/** Ödeme durumu kapsamına göre fişleri süzer. "open" → tam ödenmemiş fişler. */
+export function filterVouchersByScope(
+  vouchers: Voucher[],
+  scope: PaymentScope,
+): Voucher[] {
+  if (scope === "open") return vouchers.filter((v) => !v.paid);
+  return vouchers;
+}
+
+/** Verilen fiş alt kümesinden dönem istatistiği hesaplar (süzme sonrası tutarlılık için). */
+export function computeVoucherStats(vouchers: Voucher[]): PeriodStats {
+  let total = 0;
+  let paid = 0;
+  for (const v of vouchers) {
+    total += v.total;
+    paid += v.paidAmount;
+  }
+  return { count: vouchers.length, total, paid, unpaid: total - paid };
+}
 
 /** Bir dönemin tüm fişlerini ürün + porsiyon bazında toplar (gün gün değil). */
 export interface AggregatedProduct {

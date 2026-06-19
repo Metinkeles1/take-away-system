@@ -16,6 +16,10 @@ import {
   aggregateVoucherProducts,
   shortPortion,
   usePrintedAt,
+  type ReceiptOptions,
+  DEFAULT_RECEIPT_OPTIONS,
+  filterVouchersByScope,
+  computeVoucherStats,
 } from "./corporateReceiptKit";
 
 export default function ProductSummaryReceipt({
@@ -23,14 +27,22 @@ export default function ProductSummaryReceipt({
   vouchers,
   stats,
   period,
+  options = DEFAULT_RECEIPT_OPTIONS,
 }: {
   corporate: Corporate;
   vouchers: Voucher[];
   stats: PeriodStats;
   period: string;
+  options?: ReceiptOptions;
 }) {
   const printedAt = usePrintedAt();
-  const { products, totalQty, personCount } = aggregateVoucherProducts(vouchers);
+  // Ödeme durumuna göre süz ("open" → açık fişler). "marked" ürün özetinde
+  // fiş bazlı ödeme nedeniyle "all" gibi davranır (tüm fişler dahil).
+  const visibleVouchers = filterVouchersByScope(vouchers, options.scope);
+  const { products, totalQty, personCount } =
+    aggregateVoucherProducts(visibleVouchers);
+  const displayStats =
+    options.scope === "open" ? computeVoucherStats(visibleVouchers) : stats;
 
   return (
     <ReceiptShell>
@@ -70,7 +82,9 @@ export default function ProductSummaryReceipt({
             fontWeight: 700,
           }}
         >
-          Bu dönemde ürün bulunmuyor.
+          {options.scope === "open"
+            ? "Açık (ödenmemiş) ürün bulunmuyor."
+            : "Bu dönemde ürün bulunmuyor."}
         </div>
       )}
 
@@ -118,18 +132,20 @@ export default function ProductSummaryReceipt({
               >
                 {p.quantity} ad.
               </span>
-              <span
-                style={{
-                  fontSize: FS_NORMAL,
-                  textAlign: "right",
-                  whiteSpace: "nowrap",
-                  fontVariantNumeric: "tabular-nums",
-                  fontWeight: 800,
-                  flexShrink: 0,
-                }}
-              >
-                {formatCurrency(p.total)}
-              </span>
+              {options.itemPrices && (
+                <span
+                  style={{
+                    fontSize: FS_NORMAL,
+                    textAlign: "right",
+                    whiteSpace: "nowrap",
+                    fontVariantNumeric: "tabular-nums",
+                    fontWeight: 800,
+                    flexShrink: 0,
+                  }}
+                >
+                  {formatCurrency(p.total)}
+                </span>
+              )}
             </div>
           </div>
         );
@@ -143,8 +159,14 @@ export default function ProductSummaryReceipt({
       {personCount > 0 && (
         <Row left="Kişi Bazlı Toplam" right={`${personCount} kişi`} />
       )}
+      {options.paid && (
+        <Row left="Tahsil Edilen" right={formatCurrency(displayStats.paid)} />
+      )}
+      {options.unpaid && (
+        <Row left="Açık Bakiye" right={formatCurrency(displayStats.unpaid)} />
+      )}
 
-      <GrandTotal amount={formatCurrency(stats.total)} />
+      {options.total && <GrandTotal amount={formatCurrency(displayStats.total)} />}
 
       <Divider dashed />
 

@@ -15,7 +15,14 @@ export function periodRange(period: Period): { start: Date; end: Date } {
   return { start: new Date(y, m - 1, 1), end: new Date(y, m, 1) };
 }
 
+/**
+ * Özel "dönem" değeri: tek bir ay yerine, kurumun tüm dönemlerindeki açık
+ * (ödenmemiş) fişlerini kapsar. Açık hesap ekstresi/tahsilat için kullanılır.
+ */
+export const ALL_OPEN_PERIOD = "all-open";
+
 export function formatPeriodLabel(period: Period): string {
+  if (period === ALL_OPEN_PERIOD) return "Açık Hesap (Tüm Dönemler)";
   const [y, m] = period.split("-").map(Number);
   return `${TR_MONTHS[m - 1]} ${y}`;
 }
