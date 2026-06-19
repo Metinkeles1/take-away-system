@@ -94,7 +94,13 @@ export function PrintReceiptDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-sm" aria-describedby={undefined}>
+      <DialogContent
+        className="sm:max-w-sm"
+        aria-describedby={undefined}
+        // Dialog'u ekrana sabitle: header/filtre/footer sabit, yalnızca fiş alanı
+        // kaydırılır. Aksi halde uzun ekstrede alt kısım ekran dışında kalıyordu.
+        style={{ display: "flex", flexDirection: "column", maxHeight: "90dvh" }}
+      >
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
@@ -147,7 +153,7 @@ export function PrintReceiptDialog({
 
         <div
           ref={contentRef}
-          className="flex max-h-[60vh] justify-center overflow-y-auto py-2 print:max-h-none print:overflow-visible"
+          className="flex min-h-0 flex-1 items-start justify-center overflow-y-auto py-2 print:min-h-0 print:flex-none print:overflow-visible"
         >
           {content}
         </div>
