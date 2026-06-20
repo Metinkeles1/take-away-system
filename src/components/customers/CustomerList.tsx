@@ -15,6 +15,7 @@ interface CustomerListProps {
   searchQuery: string;
   onEdit: (c: SavedCustomer) => void;
   onDelete: (c: SavedCustomer) => void;
+  onViewHistory: (c: SavedCustomer) => void;
   onAdd: () => void;
 }
 
@@ -27,6 +28,7 @@ export function CustomerList({
   searchQuery,
   onEdit,
   onDelete,
+  onViewHistory,
   onAdd,
 }: CustomerListProps) {
   const parentRef = useRef<HTMLDivElement>(null);
@@ -115,7 +117,12 @@ export function CustomerList({
                 paddingBottom: 12,
               }}
             >
-              <CustomerCard customer={customer} onEdit={onEdit} onDelete={onDelete} />
+              <CustomerCard
+                customer={customer}
+                onEdit={onEdit}
+                onDelete={onDelete}
+                onViewHistory={onViewHistory}
+              />
             </div>
           );
         })}

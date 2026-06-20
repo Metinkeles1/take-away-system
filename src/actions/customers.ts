@@ -2,7 +2,12 @@
 
 import { connectDB } from "@/lib/mongodb";
 import CustomerModel from "@/models/Customer";
-import { type SavedCustomer } from "@/types";
+import OrderModel from "@/models/Order";
+import {
+  type CustomerOrderSummary,
+  type OrderItem,
+  type SavedCustomer,
+} from "@/types";
 
 function docToCustomer(doc: Record<string, unknown>): SavedCustomer {
   return {
@@ -59,6 +64,41 @@ export async function searchCustomers(query: string): Promise<SavedCustomer[]> {
     .lean();
 
   return docs.map((d) => docToCustomer(d as Record<string, unknown>));
+}
+
+// ─── Müşterinin geçmiş siparişleri (telefon üzerinden) ───────────────────────
+// Müşteriler sayfasında "ne sipariş etmiş" dökümü için. En yeni önce, tavanlı.
+export async function getCustomerOrderHistory(
+  phone: string,
+): Promise<CustomerOrderSummary[]> {
+  await connectDB();
+
+  const docs = await OrderModel.find({ "customer.phone": phone })
+    .sort({ createdAt: -1 })
+    .limit(50)
+    .lean();
+
+  return docs.map((doc) => {
+    const d = doc as Record<string, unknown>;
+    const items = (d.items as OrderItem[] | undefined) ?? [];
+    return {
+      id: d.id as string,
+      orderNumber: d.orderNumber as number,
+      createdAt: (d as { createdAt: Date }).createdAt,
+      total: d.total as number,
+      status: d.status as CustomerOrderSummary["status"],
+      paymentStatus:
+        (d.paymentStatus as CustomerOrderSummary["paymentStatus"]) ?? "paid",
+      source: (d.source as CustomerOrderSummary["source"]) ?? "manual",
+      notes: (d.notes as string | undefined) ?? undefined,
+      items: items.map((it) => ({
+        name: it.product?.name ?? "Ürün",
+        quantity: it.quantity,
+        portionLabel: it.portion?.label,
+        totalPrice: it.totalPrice,
+      })),
+    };
+  });
 }
 
 // ─── Müşteri sil ─────────────────────────────────────────────────────────────

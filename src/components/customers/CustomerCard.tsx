@@ -17,12 +17,14 @@ interface CustomerCardProps {
   customer: SavedCustomer;
   onEdit: (customer: SavedCustomer) => void;
   onDelete: (customer: SavedCustomer) => void;
+  onViewHistory: (customer: SavedCustomer) => void;
 }
 
 export const CustomerCard = memo(function CustomerCard({
   customer,
   onEdit,
   onDelete,
+  onViewHistory,
 }: CustomerCardProps) {
   return (
     <Card className="transition-shadow hover:shadow-md">
@@ -30,7 +32,11 @@ export const CustomerCard = memo(function CustomerCard({
         <div className="hidden sm:flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
           <User className="h-5 w-5" />
         </div>
-        <div className="flex-1 min-w-0">
+        <button
+          type="button"
+          onClick={() => onViewHistory(customer)}
+          className="flex-1 min-w-0 text-left cursor-pointer rounded-md -m-1 p-1 hover:bg-muted/50 transition-colors"
+        >
           <p className="font-semibold text-base truncate">{customer.name}</p>
           <div className="flex items-center gap-1 text-sm text-muted-foreground mt-0.5">
             <Phone className="h-3.5 w-3.5 shrink-0" />
@@ -43,9 +49,13 @@ export const CustomerCard = memo(function CustomerCard({
               {customer.addressDetail && ` - ${customer.addressDetail}`}
             </span>
           </div>
-        </div>
+        </button>
         <div className="flex items-center gap-2 shrink-0">
-          <Badge variant="secondary" className="hidden sm:flex gap-1">
+          <Badge
+            variant="secondary"
+            className="hidden sm:flex gap-1 cursor-pointer hover:bg-secondary/80"
+            onClick={() => onViewHistory(customer)}
+          >
             <ShoppingBag className="h-3 w-3" />
             {customer.orderCount} sipariş
           </Badge>

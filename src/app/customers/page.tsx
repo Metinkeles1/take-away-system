@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { CustomerList } from "@/components/customers/CustomerList";
 import { CustomerFormDialog } from "@/components/customers/CustomerFormDialog";
 import { DeleteCustomerDialog } from "@/components/customers/DeleteCustomerDialog";
+import { CustomerHistoryDialog } from "@/components/customers/CustomerHistoryDialog";
 import { exportCustomersToCsv } from "@/components/customers/customerCsv";
 
 export default function CustomersPage() {
@@ -21,6 +22,7 @@ export default function CustomersPage() {
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<SavedCustomer | null>(null);
   const [deletingCustomer, setDeletingCustomer] = useState<SavedCustomer | null>(null);
+  const [historyCustomer, setHistoryCustomer] = useState<SavedCustomer | null>(null);
 
   const loadCustomers = useCallback(async () => {
     setIsLoading(true);
@@ -60,6 +62,7 @@ export default function CustomersPage() {
   const handleOpenAdd = useCallback(() => setShowAddDialog(true), []);
   const handleOpenEdit = useCallback((c: SavedCustomer) => setEditingCustomer(c), []);
   const handleOpenDelete = useCallback((c: SavedCustomer) => setDeletingCustomer(c), []);
+  const handleViewHistory = useCallback((c: SavedCustomer) => setHistoryCustomer(c), []);
 
   const handleExportCSV = useCallback(() => {
     if (customers.length === 0) {
@@ -108,6 +111,7 @@ export default function CustomersPage() {
           searchQuery={searchQuery}
           onEdit={handleOpenEdit}
           onDelete={handleOpenDelete}
+          onViewHistory={handleViewHistory}
           onAdd={handleOpenAdd}
         />
       </div>
@@ -127,6 +131,10 @@ export default function CustomersPage() {
         customer={deletingCustomer}
         onClose={() => setDeletingCustomer(null)}
         onSuccess={loadCustomers}
+      />
+      <CustomerHistoryDialog
+        customer={historyCustomer}
+        onClose={() => setHistoryCustomer(null)}
       />
     </main>
   );

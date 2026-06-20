@@ -212,6 +212,28 @@ export interface SavedCustomer {
   updatedAt: Date;
 }
 
+// ─── Müşteri Sipariş Geçmişi Özeti ───────────────────────────────────────────
+// Müşteriler sayfasında "bu müşteri daha önce ne sipariş etmiş" dökümü için
+// hafif satır. Tam Order yerine sadece görüntülenecek alanlar taşınır.
+export interface CustomerHistoryItem {
+  name: string;
+  quantity: number;
+  portionLabel?: string;
+  totalPrice: number;
+}
+
+export interface CustomerOrderSummary {
+  id: string;
+  orderNumber: number;
+  createdAt: Date;
+  total: number;
+  status: OrderStatus;
+  paymentStatus: PaymentStatus;
+  source: OrderSource;
+  notes?: string;
+  items: CustomerHistoryItem[];
+}
+
 // ─── Kurumsal Müşteri (Cari) ─────────────────────────────────────────────────
 export type BillingType = "per_person" | "per_item";
 
