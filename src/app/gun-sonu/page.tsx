@@ -7,10 +7,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   Printer,
   RefreshCw,
-  Package,
   Wallet,
   Receipt,
-  Ban,
   Building2,
   Lock,
   LockKeyhole,
@@ -24,8 +22,20 @@ import {
   Banknote,
   Ticket,
   ArrowRightLeft,
+  Globe,
+  ChevronRight,
+  TrendingUp,
+  TrendingDown,
+  Minus,
 } from "lucide-react";
 import Link from "next/link";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet";
 import {
   getEndOfDay,
   saveEndOfDaySnapshot,
@@ -33,31 +43,27 @@ import {
   type EndOfDayReport,
   type EndOfDaySnapshotSummary,
   type EndOfDayTrendyol,
+  type EndOfDayTrendyolLine,
+  type EndOfDayBreakdownRow,
+  type EndOfDayOrderRow,
+  type EndOfDayComparison,
 } from "@/actions/endOfDay";
 import EndOfDayReceipt from "@/components/receipt/EndOfDayReceipt";
 import { formatCurrency, cn } from "@/lib/utils";
 
-const PAYMENT_LABELS: Record<string, string> = {
-  cash: "Nakit",
-  card: "Kredi/Banka Kartı",
-  online: "Online Ödeme",
-  meal_card: "Yemek Kartı",
-  iban: "IBAN / Havale",
+// Ödeme yöntemi defteri — yöntem başına ikon + etiket + sabit sıra.
+const METHOD_META: Record<
+  string,
+  { label: string; icon: React.ComponentType<{ className?: string }>; accent: string }
+> = {
+  cash: { label: "Nakit", icon: Banknote, accent: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" },
+  card: { label: "Kredi / Banka Kartı", icon: CreditCard, accent: "bg-indigo-500/15 text-indigo-600 dark:text-indigo-400" },
+  meal_card: { label: "Yemek Kartı (Ticket)", icon: Ticket, accent: "bg-orange-500/15 text-orange-600 dark:text-orange-400" },
+  online: { label: "Online Ödeme", icon: Globe, accent: "bg-violet-500/15 text-violet-600 dark:text-violet-400" },
+  iban: { label: "IBAN / Havale", icon: ArrowRightLeft, accent: "bg-sky-500/15 text-sky-600 dark:text-sky-400" },
+  other: { label: "Diğer / Belirsiz", icon: Coins, accent: "bg-slate-500/15 text-slate-600 dark:text-slate-300" },
 };
-
-const SOURCE_LABELS: Record<string, string> = {
-  manual: "Telefon / Manuel",
-  trendyol: "Trendyol",
-  getir: "Getir",
-  yemeksepeti: "Yemeksepeti",
-};
-
-const SOURCE_DOT: Record<string, string> = {
-  manual: "bg-slate-400",
-  trendyol: "bg-orange-500",
-  getir: "bg-purple-500",
-  yemeksepeti: "bg-pink-500",
-};
+const METHOD_ORDER = ["cash", "card", "meal_card", "online", "iban", "other"];
 
 // "1.234,50" / "1234.5" / "" → number | null. Boş veya geçersizse null.
 function parseAmount(s: string): number | null {
@@ -76,308 +82,52 @@ function istanbulToday(): string {
   return `${y}-${m}-${d}`;
 }
 
-const StatCard = memo(function StatCard({
-  icon: Icon,
-  label,
-  value,
-  sub,
-  accent,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: string;
-  sub?: string;
-  accent: string;
-}) {
+// ── Trendyol kartı — online (bankaya) vs kapıda/kod (elden) net dökümü ────────
+// Sol tutarlar BRÜT satış (Trendyol paneliyle kıyaslanır); grup başına sağdaki
+// net toplam komisyon + yemek kartı sağlayıcı kesintisi sonrası eline geçendir.
+const TyLineRow = memo(function TyLineRow({ l }: { l: EndOfDayTrendyolLine }) {
   return (
-    <Card size="sm">
-      <CardContent className="flex items-center gap-3">
-        <div className={cn("flex size-10 shrink-0 items-center justify-center rounded-lg", accent)}>
-          <Icon className="size-5" />
-        </div>
-        <div className="min-w-0">
-          <p className="text-xs text-muted-foreground">{label}</p>
-          <p className="truncate text-lg font-semibold tabular-nums">{value}</p>
-          {sub && <p className="truncate text-[11px] text-muted-foreground">{sub}</p>}
-        </div>
-      </CardContent>
-    </Card>
-  );
-});
-
-const BreakdownTable = memo(function BreakdownTable({
-  title,
-  rows,
-  labels,
-  countHeader,
-  total,
-  dots,
-}: {
-  title: string;
-  rows: { key: string; count: number; amount: number }[];
-  labels: Record<string, string>;
-  countHeader: string;
-  total: number;
-  dots?: Record<string, string>;
-}) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {rows.length === 0 ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">
-            Bu gün için kayıt yok
-          </p>
-        ) : (
-          <div className="overflow-hidden rounded-lg ring-1 ring-foreground/8">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/50 text-xs text-muted-foreground">
-                  <th className="px-3 py-2 text-left font-medium">Kalem</th>
-                  <th className="px-3 py-2 text-center font-medium">{countHeader}</th>
-                  <th className="px-3 py-2 text-right font-medium">Tutar</th>
-                  <th className="px-3 py-2 text-right font-medium">%</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <tr key={r.key} className="border-b last:border-0">
-                    <td className="px-3 py-2">
-                      <span className="flex items-center gap-2">
-                        {dots && (
-                          <span
-                            className={cn("size-2 shrink-0 rounded-full", dots[r.key] ?? "bg-slate-400")}
-                          />
-                        )}
-                        {labels[r.key] ?? r.key}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-center tabular-nums">{r.count}</td>
-                    <td className="px-3 py-2 text-right font-medium tabular-nums">
-                      {formatCurrency(r.amount)}
-                    </td>
-                    <td className="px-3 py-2 text-right text-xs text-muted-foreground tabular-nums">
-                      {total > 0 ? `%${Math.round((r.amount / total) * 100)}` : "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="bg-muted/30 font-semibold">
-                  <td className="px-3 py-2">Toplam</td>
-                  <td className="px-3 py-2 text-center tabular-nums">
-                    {rows.reduce((s, r) => s + r.count, 0)}
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(total)}</td>
-                  <td className="px-3 py-2" />
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-});
-
-const CorporateTable = memo(function CorporateTable({
-  rows,
-  total,
-  open,
-}: {
-  rows: { id: string; name: string; count: number; amount: number; openAmount: number }[];
-  total: number;
-  open: number;
-}) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Building2 className="size-4 text-cyan-500" />
-          Kurumsal Hesaplar (O Gün Giden)
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        {rows.length === 0 ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">
-            Bu gün kurumsal fiş kesilmemiş
-          </p>
-        ) : (
-          <div className="overflow-hidden rounded-lg ring-1 ring-foreground/8">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/50 text-xs text-muted-foreground">
-                  <th className="px-3 py-2 text-left font-medium">Firma</th>
-                  <th className="px-3 py-2 text-center font-medium">Fiş</th>
-                  <th className="px-3 py-2 text-right font-medium">Tutar</th>
-                  <th className="px-3 py-2 text-right font-medium">Açık</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <tr key={r.id} className="border-b last:border-0 hover:bg-muted/30">
-                    <td className="px-3 py-2">
-                      <Link
-                        href={`/corporate/${r.id}`}
-                        className="font-medium text-cyan-600 hover:underline dark:text-cyan-400"
-                      >
-                        {r.name}
-                      </Link>
-                    </td>
-                    <td className="px-3 py-2 text-center tabular-nums">{r.count}</td>
-                    <td className="px-3 py-2 text-right font-medium tabular-nums">
-                      {formatCurrency(r.amount)}
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums">
-                      {r.openAmount > 0 ? (
-                        <span className="text-amber-600 dark:text-amber-400">
-                          {formatCurrency(r.openAmount)}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="bg-muted/30 font-semibold">
-                  <td className="px-3 py-2">Toplam</td>
-                  <td className="px-3 py-2 text-center tabular-nums">
-                    {rows.reduce((s, r) => s + r.count, 0)}
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(total)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">
-                    {open > 0 ? (
-                      <span className="text-amber-600 dark:text-amber-400">
-                        {formatCurrency(open)}
-                      </span>
-                    ) : (
-                      "—"
-                    )}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-});
-
-// ── Kurye teslimat kırılımı — hangi kurye kaç paket taşıdı, ne kadar tahsilat ──
-const CourierTable = memo(function CourierTable({
-  rows,
-}: {
-  rows: { name: string; count: number; amount: number; openAmount: number }[];
-}) {
-  const total = rows.reduce((s, r) => s + r.amount, 0);
-  const open = rows.reduce((s, r) => s + r.openAmount, 0);
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Bike className="size-4 text-lime-500" />
-          Kurye Teslimat Dökümü
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="overflow-hidden rounded-lg ring-1 ring-foreground/8">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b bg-muted/50 text-xs text-muted-foreground">
-                <th className="px-3 py-2 text-left font-medium">Kurye</th>
-                <th className="px-3 py-2 text-center font-medium">Paket</th>
-                <th className="px-3 py-2 text-right font-medium">Tahsilat</th>
-                <th className="px-3 py-2 text-right font-medium">Açık</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.name} className="border-b last:border-0 hover:bg-muted/30">
-                  <td className="px-3 py-2 font-medium">{r.name}</td>
-                  <td className="px-3 py-2 text-center tabular-nums">{r.count}</td>
-                  <td className="px-3 py-2 text-right font-medium tabular-nums">
-                    {formatCurrency(r.amount)}
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums">
-                    {r.openAmount > 0 ? (
-                      <span className="text-amber-600 dark:text-amber-400">
-                        {formatCurrency(r.openAmount)}
-                      </span>
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr className="bg-muted/30 font-semibold">
-                <td className="px-3 py-2">Toplam</td>
-                <td className="px-3 py-2 text-center tabular-nums">
-                  {rows.reduce((s, r) => s + r.count, 0)}
-                </td>
-                <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(total)}</td>
-                <td className="px-3 py-2 text-right tabular-nums">
-                  {open > 0 ? (
-                    <span className="text-amber-600 dark:text-amber-400">
-                      {formatCurrency(open)}
-                    </span>
-                  ) : (
-                    "—"
-                  )}
-                </td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-      </CardContent>
-    </Card>
-  );
-});
-
-// ── Trendyol hakediş kartı — kredi kartı / yemek kartı / kapıda kırılımı ──────
-// "Net Hakediş" = Tutar−Komisyon−İndirim (Trendyol Satıcı Hakediş).
-// "Bankaya Yatacak" = yemek kartı/kod ile kalemlerde sağlayıcı %10 da düşülmüş hali.
-type TrendyolCat = NonNullable<EndOfDayTrendyol["earnings"]>["creditCard"];
-
-const EarningRow = memo(function EarningRow({
-  icon: Icon,
-  label,
-  cat,
-  tag,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  cat: TrendyolCat | undefined;
-  tag: "gerçek" | "tahmini";
-}) {
-  if (!cat || cat.count === 0) return null;
-  const hasProviderCut = cat.bankNet < cat.trendyolNet - 0.5;
-  return (
-    <div className="flex items-center justify-between gap-3 border-b py-2 last:border-0">
-      <div className="flex min-w-0 items-center gap-2.5">
-        <Icon className="size-4 shrink-0 text-muted-foreground" />
-        <div className="min-w-0">
-          <p className="flex items-center gap-1.5 text-sm font-medium">
-            {label}
-            <span className="rounded bg-muted px-1 py-px text-[10px] font-normal text-muted-foreground">
-              {tag}
-            </span>
-          </p>
-          <p className="truncate text-[11px] text-muted-foreground tabular-nums">
-            {cat.count} sipariş · brüt {formatCurrency(cat.gross)}
-            {hasProviderCut && ` · hakediş ${formatCurrency(cat.trendyolNet)} −%10`}
-          </p>
-        </div>
-      </div>
-      <span className="shrink-0 text-sm font-semibold tabular-nums">
-        {formatCurrency(cat.bankNet)}
+    <div className="flex items-center justify-between gap-3 py-2 text-sm">
+      <span className="min-w-0 truncate">{l.label}</span>
+      <span className="flex shrink-0 items-baseline gap-2.5">
+        <span className="text-[11px] text-muted-foreground tabular-nums">{l.count} sip.</span>
+        <span className="font-medium tabular-nums">{formatCurrency(l.gross)}</span>
       </span>
+    </div>
+  );
+});
+
+const TyGroup = memo(function TyGroup({
+  icon: Icon,
+  title,
+  lines,
+  net,
+  netLabel,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  lines: EndOfDayTrendyolLine[];
+  net: number;
+  netLabel: string;
+}) {
+  if (lines.length === 0) return null;
+  return (
+    <div className="overflow-hidden rounded-lg ring-1 ring-foreground/8">
+      <div className="flex items-center gap-1.5 border-b bg-muted/50 px-3 py-2 text-xs font-medium text-muted-foreground">
+        <Icon className="size-3.5" />
+        {title}
+      </div>
+      <div className="divide-y px-3">
+        {lines.map((l, i) => (
+          <TyLineRow key={i} l={l} />
+        ))}
+      </div>
+      <div className="flex items-center justify-between border-t bg-muted/30 px-3 py-2">
+        <span className="text-sm font-medium">{netLabel}</span>
+        <span className="text-sm font-bold tabular-nums text-emerald-700 dark:text-emerald-400">
+          {formatCurrency(net)}
+        </span>
+      </div>
     </div>
   );
 });
@@ -395,7 +145,7 @@ const TrendyolEarningsCard = memo(function TrendyolEarningsCard({
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Bike className="size-4 text-orange-500" />
-            Trendyol Hakediş
+            Trendyol
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -409,12 +159,19 @@ const TrendyolEarningsCard = memo(function TrendyolEarningsCard({
   }
 
   const e = trendyol.earnings;
+  const lines = trendyol.lines ?? [];
+  const online = lines.filter((l) => l.group === "online");
+  const onsite = lines.filter((l) => l.group === "onsite");
+  const bankNet = e?.totalBankNet ?? trendyol.netRevenue;
+  const onsiteNet = e?.onDelivery?.bankNet ?? 0;
+  const toplam = bankNet + onsiteNet;
+
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Bike className="size-4 text-orange-500" />
-          Trendyol Hakediş
+          Trendyol
           <span className="ml-auto text-xs font-normal text-muted-foreground tabular-nums">
             {trendyol.orderCount} sipariş · brüt {formatCurrency(trendyol.revenue)}
           </span>
@@ -426,32 +183,38 @@ const TrendyolEarningsCard = memo(function TrendyolEarningsCard({
             Bu gün Trendyol siparişi yok
           </p>
         ) : (
-          <>
-            <p className="mb-1 text-[11px] text-muted-foreground">
-              Komisyon ~%{(e.commissionRate * 100).toFixed(1)} (online karttan türetildi) ·
-              sadece online tahsilat (kapıda ödeme hariç) · tutarlar bankaya yatacak nettir
-            </p>
-            <EarningRow icon={CreditCard} label="Kredi Kartı" cat={e.creditCard} tag="gerçek" />
-            <EarningRow icon={Receipt} label="Yemek Kartı (Ticket)" cat={e.ticket} tag="tahmini" />
+          <div className="space-y-4">
+            <TyGroup
+              icon={Landmark}
+              title="Online — bankaya yatacak"
+              lines={online}
+              net={bankNet}
+              netLabel="Bankaya Yatacak (net)"
+            />
+            <TyGroup
+              icon={Hand}
+              title="Kapıda / kod — elden tahsil"
+              lines={onsite}
+              net={onsiteNet}
+              netLabel="Kapıda Tahsilat (net)"
+            />
 
-            <div className="mt-3 space-y-2 rounded-lg bg-muted/40 p-3">
-              <div className="flex items-center justify-between gap-2 text-sm">
-                <span className="text-muted-foreground">Trendyol Hakediş (komisyon sonrası)</span>
-                <span className="font-semibold tabular-nums">
-                  {formatCurrency(e.totalTrendyolNet)}
-                </span>
-              </div>
-              <div className="flex items-center justify-between gap-2">
-                <span className="flex items-center gap-1.5 text-sm font-semibold text-emerald-700 dark:text-emerald-400">
-                  <Landmark className="size-4" />
-                  Bankaya Yatacak
-                </span>
-                <span className="text-lg font-bold text-emerald-700 tabular-nums dark:text-emerald-400">
-                  {formatCurrency(e.totalBankNet)}
-                </span>
-              </div>
+            <div className="flex items-center justify-between rounded-lg bg-emerald-500/10 px-3 py-3 ring-1 ring-emerald-500/20">
+              <span className="flex items-center gap-1.5 text-sm font-semibold text-emerald-700 dark:text-emerald-400">
+                <Bike className="size-4" />
+                Trendyol Toplam (net)
+              </span>
+              <span className="text-lg font-bold tabular-nums text-emerald-700 dark:text-emerald-400">
+                {formatCurrency(toplam)}
+              </span>
             </div>
-          </>
+
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              Soldaki tutarlar <b>brüt satıştır</b> (Trendyol paneliyle aynı). Sağdaki net
+              toplamlar komisyon (~%{(e.commissionRate * 100).toFixed(0)}) ve yemek kartı
+              sağlayıcı kesintisi sonrası sana geçen tutardır.
+            </p>
+          </div>
         )}
       </CardContent>
     </Card>
@@ -476,6 +239,7 @@ const CashCountCard = memo(function CashCountCard({
   openCount,
   corporateTotal,
   trendyolBankNet,
+  trendyolOnDeliveryNet,
   closed,
   disabled,
 }: {
@@ -491,7 +255,8 @@ const CashCountCard = memo(function CashCountCard({
   openAmount: number; // açık hesap (tahsil edilmemiş) — ciroya dahil değil, bilgi amaçlı
   openCount: number;
   corporateTotal: number; // o gün kurumsallara giden toplam — Genel Toplam'a dahil
-  trendyolBankNet: number | null; // Trendyol'dan bankaya gelen net (otomatik)
+  trendyolBankNet: number | null; // Trendyol online bankaya gelen net (otomatik)
+  trendyolOnDeliveryNet: number; // Trendyol kapıda tahsilat (komisyon sonrası net) — kasana girer
   closed: boolean;
   disabled: boolean;
 }) {
@@ -508,8 +273,10 @@ const CashCountCard = memo(function CashCountCard({
     (localPayments.iban ?? 0) +
     (localPayments.meal_card ?? 0);
   const diff = total - systemTotal; // + → kasa fazla; − → eksik (uyarı)
-  // Genel toplam = elle girilen kasa + Trendyol net satış + kurumsal satış.
-  const grandTotal = total + (trendyolBankNet ?? 0) + corporateTotal;
+  // Genel toplam = elle girilen kasa + Trendyol online net (bankaya) +
+  // Trendyol kapıda net (kendi kasana) + kurumsal satış.
+  const grandTotal =
+    total + (trendyolBankNet ?? 0) + trendyolOnDeliveryNet + corporateTotal;
 
   const field = (
     icon: React.ComponentType<{ className?: string }>,
@@ -599,16 +366,30 @@ const CashCountCard = memo(function CashCountCard({
           </span>
         </div>
 
-        {/* Trendyol net satış — bankaya gelen kısım, otomatik çekilir */}
+        {/* Trendyol online net — bankaya gelen kısım, otomatik çekilir */}
         {trendyolBankNet != null && (
           <div className="flex items-center justify-between gap-2 rounded-lg border px-3 py-2.5">
             <span className="flex items-center gap-1.5 text-sm font-medium">
               <Bike className="size-4 text-orange-500" />
-              Trendyol Net Satış
+              Trendyol Online (bankaya)
               <span className="text-[11px] font-normal text-muted-foreground">otomatik</span>
             </span>
             <span className="text-sm font-semibold tabular-nums">
               {formatCurrency(trendyolBankNet)}
+            </span>
+          </div>
+        )}
+
+        {/* Trendyol kapıda — kendi kuryenle topladığın, komisyon sonrası net */}
+        {trendyolOnDeliveryNet > 0.5 && (
+          <div className="flex items-center justify-between gap-2 rounded-lg border px-3 py-2.5">
+            <span className="flex items-center gap-1.5 text-sm font-medium">
+              <Hand className="size-4 text-orange-500" />
+              Trendyol Kapıda (net)
+              <span className="text-[11px] font-normal text-muted-foreground">otomatik</span>
+            </span>
+            <span className="text-sm font-semibold tabular-nums">
+              {formatCurrency(trendyolOnDeliveryNet)}
             </span>
           </div>
         )}
@@ -627,8 +408,8 @@ const CashCountCard = memo(function CashCountCard({
           </div>
         )}
 
-        {/* Genel toplam — kasa + Trendyol + kurumsal (günün tüm net geliri) */}
-        {(hasAny || trendyolBankNet != null || corporateTotal > 0.5) && (
+        {/* Genel toplam — kasa + Trendyol online + Trendyol kapıda + kurumsal */}
+        {(hasAny || trendyolBankNet != null || trendyolOnDeliveryNet > 0.5 || corporateTotal > 0.5) && (
           <div className="flex items-center justify-between gap-2 rounded-lg bg-emerald-500/10 px-3 py-3 ring-1 ring-emerald-500/20">
             <span className="flex items-center gap-1.5 text-sm font-semibold text-emerald-700 dark:text-emerald-400">
               <Coins className="size-4" />
@@ -794,6 +575,222 @@ const ArchiveList = memo(function ArchiveList({
   );
 });
 
+// ── Ödeme Yöntemi Defteri (SADECE kendi siparişler) ─────────────────────────
+// Kasana giren kendi tahsilatların; yönteme göre adet + tutar. Satıra tıkla →
+// o yöntemin siparişleri yan panelde. Trendyol burada DEĞİL (kendi kartında).
+type MethodRow = {
+  key: string;
+  count: number;
+  amount: number;
+};
+
+function buildMethodRows(local: EndOfDayBreakdownRow[]): MethodRow[] {
+  return local
+    .filter((r) => r.amount > 0)
+    .map((r) => ({ key: r.key, count: r.count, amount: r.amount }))
+    .sort((a, b) => {
+      const ia = METHOD_ORDER.indexOf(a.key);
+      const ib = METHOD_ORDER.indexOf(b.key);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+    });
+}
+
+const PaymentLedger = memo(function PaymentLedger({
+  rows,
+  onSelect,
+}: {
+  rows: MethodRow[];
+  onSelect: (key: string) => void;
+}) {
+  const total = rows.reduce((s, r) => s + r.amount, 0);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Coins className="size-4 text-emerald-500" />
+          Kendi Ödemelerim (kapıda / türlere göre)
+          <span className="ml-auto inline-flex items-center gap-1 text-[11px] font-normal text-muted-foreground">
+            <ChevronRight className="size-3" />
+            satıra tıkla · siparişleri gör
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {rows.length === 0 ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            Bu gün kendi ödeme kaydın yok
+          </p>
+        ) : (
+          <div className="overflow-hidden rounded-lg ring-1 ring-foreground/8">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-muted/50 text-xs text-muted-foreground">
+                  <th className="px-3 py-2 text-left font-medium">Yöntem</th>
+                  <th className="px-3 py-2 text-center font-medium">Adet</th>
+                  <th className="px-3 py-2 text-right font-medium">Tutar</th>
+                  <th className="w-8" />
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => {
+                  const meta = METHOD_META[r.key] ?? METHOD_META.other;
+                  const Icon = meta.icon;
+                  return (
+                    <tr
+                      key={r.key}
+                      onClick={() => onSelect(r.key)}
+                      className="cursor-pointer border-b last:border-0 transition-colors hover:bg-muted/40"
+                    >
+                      <td className="px-3 py-2.5">
+                        <span className="flex items-center gap-2.5 font-medium">
+                          <span className={cn("flex size-7 shrink-0 items-center justify-center rounded-md", meta.accent)}>
+                            <Icon className="size-3.5" />
+                          </span>
+                          {meta.label}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5 text-center tabular-nums">{r.count}</td>
+                      <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
+                        {formatCurrency(r.amount)}
+                      </td>
+                      <td className="px-2 text-muted-foreground/50">
+                        <ChevronRight className="size-4" />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="bg-muted/30 font-semibold">
+                  <td className="px-3 py-2.5">Toplam</td>
+                  <td className="px-3 py-2.5 text-center tabular-nums">
+                    {rows.reduce((s, r) => s + r.count, 0)}
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">{formatCurrency(total)}</td>
+                  <td />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+});
+
+// Drill-down yan panel — seçilen yöntemin KENDİ siparişleri.
+const OrdersSheet = memo(function OrdersSheet({
+  method,
+  orders,
+  onClose,
+}: {
+  method: string | null;
+  orders: EndOfDayOrderRow[];
+  onClose: () => void;
+}) {
+  const meta = method ? METHOD_META[method] ?? METHOD_META.other : null;
+  const Icon = meta?.icon ?? Coins;
+  const list = method ? orders.filter((o) => o.method === method) : [];
+  const ownTotal = list.reduce((s, o) => s + o.total, 0);
+
+  return (
+    <Sheet open={method != null} onOpenChange={(o) => !o && onClose()}>
+      <SheetContent className="flex w-full flex-col gap-0 p-0 sm:max-w-md">
+        <SheetHeader className="border-b p-4">
+          <SheetTitle className="flex items-center gap-2.5">
+            <span className={cn("flex size-8 items-center justify-center rounded-lg", meta?.accent)}>
+              <Icon className="size-4" />
+            </span>
+            {meta?.label ?? "Siparişler"}
+          </SheetTitle>
+          <SheetDescription className="tabular-nums">
+            {list.length} kendi siparişi · {formatCurrency(ownTotal)}
+          </SheetDescription>
+        </SheetHeader>
+
+        <div className="flex-1 space-y-2 overflow-y-auto p-3">
+          {list.length === 0 ? (
+            <p className="py-12 text-center text-sm text-muted-foreground">
+              Bu yöntemle kendi siparişin yok
+            </p>
+          ) : (
+            list.map((o, i) => {
+              const inner = (
+                <>
+                  <div className="min-w-0 flex-1">
+                    <p className="flex items-center gap-1.5 text-sm font-medium">
+                      #{o.orderNumber}
+                      {o.open && (
+                        <span className="rounded bg-amber-500/15 px-1 py-px text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                          Açık
+                        </span>
+                      )}
+                    </p>
+                    <p className="truncate text-[11px] text-muted-foreground">
+                      {o.customer} · {o.time}
+                    </p>
+                  </div>
+                  <span className="shrink-0 text-sm font-semibold tabular-nums">
+                    {formatCurrency(o.total)}
+                  </span>
+                </>
+              );
+              return o.id ? (
+                <Link
+                  key={o.id}
+                  href={`/orders/${o.id}`}
+                  className="flex items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors hover:bg-muted/50"
+                >
+                  {inner}
+                </Link>
+              ) : (
+                <div key={i} className="flex items-center gap-3 rounded-lg border px-3 py-2.5">
+                  {inner}
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        <div className="flex items-center justify-between border-t bg-muted/30 p-4">
+          <span className="text-sm text-muted-foreground">Toplam (kendi)</span>
+          <span className="text-base font-bold tabular-nums">{formatCurrency(ownTotal)}</span>
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+});
+
+// Geçen aynı güne (−7) kıyas rozeti — snapshot varsa ciro değişimini gösterir.
+function ComparisonBadge({
+  comparison,
+  current,
+}: {
+  comparison: EndOfDayComparison | null;
+  current: number;
+}) {
+  if (!comparison || comparison.totalRevenue <= 0) return null;
+  const diff = current - comparison.totalRevenue;
+  const pct = Math.round((diff / comparison.totalRevenue) * 100);
+  const flat = Math.abs(pct) < 1;
+  const Icon = flat ? Minus : diff > 0 ? TrendingUp : TrendingDown;
+  const tone = flat
+    ? "bg-muted text-muted-foreground"
+    : diff > 0
+      ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+      : "bg-rose-500/15 text-rose-600 dark:text-rose-400";
+  return (
+    <span
+      className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium tabular-nums", tone)}
+      title={`Geçen hafta aynı gün: ${formatCurrency(comparison.totalRevenue)}`}
+    >
+      <Icon className="size-3" />
+      {flat ? "geçen haftayla aynı" : `${diff > 0 ? "+" : ""}%${pct} geçen haftaya göre`}
+    </span>
+  );
+}
+
 export default function EndOfDayPage() {
   const [date, setDate] = useState(istanbulToday);
   const [report, setReport] = useState<EndOfDayReport | null>(null);
@@ -808,6 +805,9 @@ export default function EndOfDayPage() {
   const [cardCounted, setCardCounted] = useState("");
   const [ibanCounted, setIbanCounted] = useState("");
   const [ticketCounted, setTicketCounted] = useState("");
+  // Geçen aynı güne kıyas + ödeme defteri drill-down (seçili yöntem).
+  const [comparison, setComparison] = useState<EndOfDayComparison | null>(null);
+  const [drillMethod, setDrillMethod] = useState<string | null>(null);
 
   const loadArchive = useCallback(async () => {
     setArchiveLoading(true);
@@ -825,6 +825,7 @@ export default function EndOfDayPage() {
       setReport(data.report);
       setClosed(data.closed);
       setClosedAt(data.closedAt);
+      setComparison(data.comparison);
       // Kayıtlı sayım varsa input'lara doldur (kapatılmış günü açınca görünür);
       // yoksa boşalt — başka güne geçince önceki günün rakamı kalmasın.
       setCashCounted(data.cashCounted != null ? String(data.cashCounted) : "");
@@ -866,6 +867,9 @@ export default function EndOfDayPage() {
     loadArchive,
   ]);
 
+  // Fiş her zaman DOM'da mount; @media print ID üzerinden yalnızca fişi basar.
+  const handlePrint = useCallback(() => window.print(), []);
+
   useEffect(() => {
     load();
   }, [load]);
@@ -880,10 +884,6 @@ export default function EndOfDayPage() {
 
   // Mount başına bir kez — her render'da yeniden hesaplama yok.
   const today = useMemo(() => istanbulToday(), []);
-  const paymentTotal = useMemo(
-    () => report?.paymentBreakdown.reduce((s, r) => s + r.amount, 0) ?? 0,
-    [report],
-  );
   // Kasa mutabakatı için yöntem bazlı yerel satış (Trendyol hariç). Her kasa
   // alanı, sistemdeki aynı yöntemin yerel satışıyla karşılaştırılır.
   const localPayments = useMemo(() => {
@@ -891,10 +891,16 @@ export default function EndOfDayPage() {
     for (const r of report?.localPaymentBreakdown ?? []) map[r.key] = r.amount;
     return map;
   }, [report]);
+  // Ödeme defteri satırları — yalnızca kendi (yerel) tahsilatlar. Trendyol ayrı
+  // kartta tam dökümüyle gösterilir, defteride karışmaz.
+  const methodRows = useMemo(
+    () => buildMethodRows(report?.localPaymentBreakdown ?? []),
+    [report],
+  );
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="flex flex-1 flex-col gap-4 p-4 sm:gap-6 sm:p-6 lg:p-8">
+      <div className="mx-auto flex max-w-7xl flex-col gap-5 p-4 sm:p-6 lg:p-8">
         {/* Header */}
         <header className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div className="min-w-0">
@@ -906,11 +912,12 @@ export default function EndOfDayPage() {
                   Kapatıldı
                 </span>
               )}
+              {report && <ComparisonBadge comparison={comparison} current={report.totalRevenue} />}
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
               {closed && closedAt
                 ? `Bu gün donduruldu · ${new Date(closedAt).toLocaleString("tr-TR")}`
-                : "Seçilen güne ait ödeme ve kanal kırılımı — fiş olarak yazdırılabilir"}
+                : "Trendyol hakedişi, kapıda tahsilat ve kasa sayımı — fiş olarak yazdırılabilir"}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -943,7 +950,7 @@ export default function EndOfDayPage() {
             </Button>
             <Button
               size="sm"
-              onClick={() => window.print()}
+              onClick={handlePrint}
               disabled={isLoading || !report || report.packageCount === 0}
               className="gap-1.5"
             >
@@ -953,150 +960,59 @@ export default function EndOfDayPage() {
           </div>
         </header>
 
-        {/* KPI kartları — 2 sıra × 3 (geniş ekranda sıkışmasın) */}
-        <section className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          {isLoading || !report ? (
-            Array.from({ length: 6 }).map((_, i) => (
-              <Skeleton key={i} className="h-20 w-full rounded-xl" />
-            ))
-          ) : (
-            <>
-              <StatCard
-                icon={Package}
-                label="Toplam Paket"
-                value={`${report.packageCount}`}
-                sub={`Ort. sepet ${formatCurrency(report.avgBasket)}`}
-                accent="bg-blue-500/15 text-blue-600 dark:text-blue-400"
-              />
-              <StatCard
-                icon={Wallet}
-                label="Toplam Ciro"
-                value={formatCurrency(report.totalRevenue + report.corporateTotal)}
-                sub={
-                  report.corporateTotal > 0
-                    ? `+ Kurumsal ${formatCurrency(report.corporateTotal)} dahil`
-                    : undefined
-                }
-                accent="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
-              />
-              <StatCard
-                icon={Bike}
-                label="Trendyol Bankaya Yatacak"
-                value={
-                  report.trendyol?.available
-                    ? formatCurrency(
-                        report.trendyol.earnings?.totalBankNet ??
-                          report.trendyol.netRevenue,
-                      )
-                    : "—"
-                }
-                sub={
-                  report.trendyol?.available
-                    ? `Hakediş ${formatCurrency(
-                        report.trendyol.earnings?.totalTrendyolNet ??
-                          report.trendyol.netRevenue,
-                      )} · Brüt ${formatCurrency(report.trendyol.revenue)}`
-                    : "API'dan okunamadı"
-                }
-                accent="bg-orange-500/15 text-orange-600 dark:text-orange-400"
-              />
-              <StatCard
-                icon={Receipt}
-                label="Açık Hesap"
-                value={formatCurrency(report.openAmount)}
-                sub={`${report.openCount} sipariş · Tahsil ${formatCurrency(report.paidAmount)}`}
-                accent="bg-amber-500/15 text-amber-600 dark:text-amber-400"
-              />
-              <StatCard
-                icon={Building2}
-                label="Kurumsal (Bugün)"
-                value={formatCurrency(report.corporateTotal)}
-                sub={`${report.corporateVoucherCount} fiş · Açık ${formatCurrency(report.corporateOpen)}`}
-                accent="bg-cyan-500/15 text-cyan-600 dark:text-cyan-400"
-              />
-              <StatCard
-                icon={Ban}
-                label="İptal Edilen"
-                value={`${report.cancelledCount}`}
-                accent="bg-rose-500/15 text-rose-600 dark:text-rose-400"
-              />
-            </>
-          )}
-        </section>
-
-        {/* Kırılımlar + fiş önizleme */}
-        <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-          <div className="flex flex-col gap-4 lg:col-span-2">
-            {isLoading || !report ? (
-              <>
-                <Skeleton className="h-64 w-full rounded-xl" />
-                <Skeleton className="h-64 w-full rounded-xl" />
-              </>
-            ) : (
-              <>
-                {report.trendyol && <TrendyolEarningsCard trendyol={report.trendyol} />}
-                <BreakdownTable
-                  title="Ödeme Yöntemine Göre"
-                  rows={report.paymentBreakdown}
-                  labels={PAYMENT_LABELS}
-                  countHeader="Adet"
-                  total={paymentTotal}
-                />
-                <BreakdownTable
-                  title="Kanala Göre (Ticket)"
-                  rows={report.sourceBreakdown}
-                  labels={SOURCE_LABELS}
-                  countHeader="Paket"
-                  total={report.totalRevenue}
-                  dots={SOURCE_DOT}
-                />
-                <CorporateTable
-                  rows={report.corporateBreakdown}
-                  total={report.corporateTotal}
-                  open={report.corporateOpen}
-                />
-                {/* Kurye dökümü — yalnızca o gün kurye atanmışsa (eski snapshot'larda yok) */}
-                {report.courierBreakdown && report.courierBreakdown.length > 0 && (
-                  <CourierTable rows={report.courierBreakdown} />
-                )}
-              </>
-            )}
+        {isLoading || !report ? (
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <Skeleton className="h-96 w-full rounded-xl lg:col-span-2" />
+            <Skeleton className="h-96 w-full rounded-xl" />
           </div>
+        ) : (
+          <>
+            {/* Para akışı — Trendyol + kendi ödemeler solda, kasa sayımı sağda */}
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+              <div className="flex flex-col gap-4 lg:col-span-2">
+                {report.trendyol && <TrendyolEarningsCard trendyol={report.trendyol} />}
+                <PaymentLedger rows={methodRows} onSelect={setDrillMethod} />
+              </div>
+              <div className="lg:col-span-1">
+                <CashCountCard
+                  cashValue={cashCounted}
+                  cardValue={cardCounted}
+                  ibanValue={ibanCounted}
+                  ticketValue={ticketCounted}
+                  onCashChange={setCashCounted}
+                  onCardChange={setCardCounted}
+                  onIbanChange={setIbanCounted}
+                  onTicketChange={setTicketCounted}
+                  localPayments={localPayments}
+                  openAmount={report.openAmount}
+                  openCount={report.openCount}
+                  corporateTotal={report.corporateTotal}
+                  trendyolBankNet={
+                    report.trendyol?.available
+                      ? report.trendyol.earnings?.totalBankNet ?? null
+                      : null
+                  }
+                  trendyolOnDeliveryNet={
+                    report.trendyol?.available
+                      ? report.trendyol.earnings?.onDelivery?.bankNet ?? 0
+                      : 0
+                  }
+                  closed={closed}
+                  disabled={isLoading || isClosing}
+                />
+              </div>
+            </div>
 
-          {/* Kasa sayımı + fiş önizleme + arşiv — sağ kolon */}
-          <div className="flex flex-col gap-4 lg:col-span-1">
-            <CashCountCard
-              cashValue={cashCounted}
-              cardValue={cardCounted}
-              ibanValue={ibanCounted}
-              ticketValue={ticketCounted}
-              onCashChange={setCashCounted}
-              onCardChange={setCardCounted}
-              onIbanChange={setIbanCounted}
-              onTicketChange={setTicketCounted}
-              localPayments={localPayments}
-              openAmount={report?.openAmount ?? 0}
-              openCount={report?.openCount ?? 0}
-              corporateTotal={report?.corporateTotal ?? 0}
-              trendyolBankNet={
-                report?.trendyol?.available
-                  ? report.trendyol.earnings?.totalBankNet ?? null
-                  : null
-              }
-              closed={closed}
-              disabled={isLoading || isClosing}
-            />
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-sm">
-                  <Receipt className="size-4" />
-                  Fiş Önizleme
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="flex justify-center">
-                {isLoading || !report ? (
-                  <Skeleton className="h-96 w-[72mm] rounded-md" />
-                ) : (
+            {/* Fiş önizleme + kapatılan günler arşivi (ikincil) */}
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-sm">
+                    <Receipt className="size-4" />
+                    Fiş Önizleme
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="flex justify-center">
                   <EndOfDayReceipt
                     report={report}
                     cashCounted={parseAmount(cashCounted)}
@@ -1104,19 +1020,25 @@ export default function EndOfDayPage() {
                     ibanCounted={parseAmount(ibanCounted)}
                     ticketCounted={parseAmount(ticketCounted)}
                   />
-                )}
-              </CardContent>
-            </Card>
-
-            <ArchiveList
-              snapshots={snapshots}
-              activeDate={date}
-              isLoading={archiveLoading}
-              onSelect={setDate}
-            />
-          </div>
-        </section>
+                </CardContent>
+              </Card>
+              <ArchiveList
+                snapshots={snapshots}
+                activeDate={date}
+                isLoading={archiveLoading}
+                onSelect={setDate}
+              />
+            </div>
+          </>
+        )}
       </div>
+
+      {/* Ödeme defteri drill-down — seçili yöntemin kendi siparişleri */}
+      <OrdersSheet
+        method={drillMethod}
+        orders={report?.orders ?? []}
+        onClose={() => setDrillMethod(null)}
+      />
     </div>
   );
 }

@@ -132,12 +132,14 @@ const EndOfDayReceipt = React.forwardRef<HTMLDivElement, EndOfDayReceiptProps>(
     const ty = report.trendyol;
     const tyAvailable = !!ty?.available && ty.orderCount > 0;
     const tyEarnings = tyAvailable ? ty!.earnings : null;
-    // Trendyol'dan bankaya gelen net satış (otomatik).
+    // Trendyol'dan bankaya gelen net satış (online, otomatik).
     const tyBankNet = tyAvailable
       ? tyEarnings?.totalBankNet ?? ty!.netRevenue
       : 0;
-    // Genel toplam = elle girilen kasa + Trendyol net satış + kurumsal satış.
-    const grandTotal = kasaTotal + tyBankNet + report.corporateTotal;
+    // Trendyol kapıda tahsilat (komisyon + sağlayıcı kesintisi sonrası net) — kasana girer.
+    const tyOnDelNet = tyAvailable ? tyEarnings?.onDelivery?.bankNet ?? 0 : 0;
+    // Genel toplam = kasa + Trendyol online (bankaya) + Trendyol kapıda + kurumsal.
+    const grandTotal = kasaTotal + tyBankNet + tyOnDelNet + report.corporateTotal;
     const showGrandTotal = kasaRows.length > 0 || tyAvailable || report.corporateTotal > 0;
 
     return (
@@ -268,6 +270,20 @@ const EndOfDayReceipt = React.forwardRef<HTMLDivElement, EndOfDayReceiptProps>(
                         bold
                       />
                     </div>
+                    {tyOnDelNet > 0 && (
+                      <>
+                        <Row left="Kapıda (net)" right={formatCurrency(tyOnDelNet)} />
+                        <div
+                          style={{ borderTop: "1px solid #000", marginTop: "3px", paddingTop: "3px" }}
+                        >
+                          <Row
+                            left="Trendyol Toplam"
+                            right={formatCurrency(tyEarnings.totalBankNet + tyOnDelNet)}
+                            bold
+                          />
+                        </div>
+                      </>
+                    )}
                   </>
                 ) : (
                   <Row left="Net Hakediş" right={formatCurrency(ty.netRevenue)} bold />

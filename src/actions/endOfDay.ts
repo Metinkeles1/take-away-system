@@ -20,6 +20,20 @@ export interface EndOfDayBreakdownRow {
   amount: number; // ciro (₺)
 }
 
+// Ödeme yöntemi defterinde "satıra tıkla → siparişler" için sipariş bazında
+// satır. SADECE yerel (kendi) siparişler — Trendyol siparişleri yerel DB'de
+// tutulmadığından sipariş bazında listelenemez (yalnız toplam tutar gösterilir).
+export interface EndOfDayOrderRow {
+  id: string; // order.id — /orders/:id detayına link
+  orderNumber: number;
+  customer: string;
+  total: number;
+  method: string; // ödeme yöntemi key'i (cash/card/online/meal_card/iban)
+  time: string; // HH:MM (Istanbul) — sipariş alınış saati
+  open: boolean; // açık hesap mı (tahsil edilmemiş)
+  status: string;
+}
+
 // Kuryeye göre o günün teslimat kırılımı (yalnızca kurye atanmış yerel siparişler;
 // Trendyol siparişlerinde kurye bilgisi yoktur).
 export interface CourierDayRow {
@@ -52,8 +66,22 @@ export interface EndOfDayTrendyolEarnings {
   commissionRate: number; // online karttan türetilen efektif komisyon oranı
   creditCard: TrendyolCategoryEarning; // Kredi Kartı (online) — net GERÇEK
   ticket: TrendyolCategoryEarning; // Yemek Kartı — tahmini
-  totalTrendyolNet: number; // kredi kartı + yemek kartı hakediş toplamı (₺)
-  totalBankNet: number; // sağlayıcı %10 sonrası bankaya yatacak tahmin (₺)
+  // Kapıda ödeme (nakit/kart/kod) — kendi kuryemizle fiziksel tahsil edilir.
+  // trendyolNet = Trendyol komisyonu sonrası net (komisyon settlement'tan kesilir).
+  onDelivery: TrendyolCategoryEarning;
+  totalTrendyolNet: number; // kredi kartı + yemek kartı hakediş toplamı (₺) — online
+  totalBankNet: number; // online bankaya yatacak net (kapıda HARİÇ) (₺)
+}
+
+// Trendyol gün sonu için temiz, okunabilir kategori dökümü satırı.
+// group: "online" → para bankaya gelir; "onsite" → kapıda/kod ile elden tahsil.
+// gross brüt satış (Trendyol paneliyle kıyaslanabilir); net toplamlar grup
+// bazında earnings'ten gösterilir (satır başına net dağıtmaya gerek yok).
+export interface EndOfDayTrendyolLine {
+  label: string; // "Kredi Kartı", "Yemek Kartı · Multinet", "Nakit"...
+  group: "online" | "onsite";
+  count: number;
+  gross: number;
 }
 
 export interface EndOfDayTrendyol {
@@ -67,6 +95,8 @@ export interface EndOfDayTrendyol {
   // Hakediş kırılımı (kredi kartı / yemek kartı / kapıda) + bankaya yatacak.
   // Eski snapshot'larda olmayabilir → opsiyonel.
   earnings?: EndOfDayTrendyolEarnings | null;
+  // Temiz kategori dökümü (Trendyol sekmesinde gösterilir). Eski snapshot'larda yok.
+  lines?: EndOfDayTrendyolLine[];
 }
 
 export interface EndOfDayReport {
@@ -87,6 +117,12 @@ export interface EndOfDayReport {
   // Yöntem bazında YEREL kırılım (Trendyol HARİÇ) — kasa sayımı mutabakatı için.
   // paymentBreakdown'a Trendyol merge edildiği için ayrı tutulur.
   localPaymentBreakdown: EndOfDayBreakdownRow[];
+  // Yöntem bazında YALNIZ Trendyol kırılımı — ödeme defterinde "Kendi vs Trendyol"
+  // kolonlarını ayrı göstermek için. Trendyol okunamadıysa boş dizi.
+  trendyolPaymentBreakdown: EndOfDayBreakdownRow[];
+  // Yöntem bazında "satıra tıkla → siparişler" drill-down'ı için sipariş listesi
+  // (yalnız yerel/kendi siparişler). Eski snapshot'larda olmayabilir → opsiyonel.
+  orders: EndOfDayOrderRow[];
   sourceBreakdown: EndOfDayBreakdownRow[]; // kanala/ticket'a göre (count desc)
   statusBreakdown: Record<string, number>;
 
@@ -115,6 +151,20 @@ function pad2(n: number): string {
 function isoDateOf(dayStart: Date): string {
   const ist = new Date(dayStart.getTime() + ISTANBUL_OFFSET_MS);
   return `${ist.getUTCFullYear()}-${pad2(ist.getUTCMonth() + 1)}-${pad2(ist.getUTCDate())}`;
+}
+
+// Bir tarihi Istanbul saatine göre "HH:MM" formatında döner.
+function istanbulHHMM(d: Date): string {
+  const ist = new Date(d.getTime() + ISTANBUL_OFFSET_MS);
+  return `${pad2(ist.getUTCHours())}:${pad2(ist.getUTCMinutes())}`;
+}
+
+// "YYYY-MM-DD" ISO gününe gün ekler/çıkarır (kıyas için "geçen aynı gün" = −7).
+function shiftIso(iso: string, days: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return `${dt.getUTCFullYear()}-${pad2(dt.getUTCMonth() + 1)}-${pad2(dt.getUTCDate())}`;
 }
 
 // dateStr verilmezse "bugün" (Istanbul). Verilirse o günün sınırları.
@@ -147,12 +197,16 @@ export async function getEndOfDayReport(dateStr?: string): Promise<EndOfDayRepor
       createdAt: { $gte: start, $lt: end },
     })
       .select({
+        id: 1,
+        orderNumber: 1,
+        "customer.name": 1,
         total: 1,
         status: 1,
         source: 1,
         paymentStatus: 1,
         "payment.method": 1,
         courier: 1,
+        createdAt: 1,
       })
       .lean(),
     // Kurumsal fişler "date" (hizmet günü) alanına göre filtrelenir.
@@ -186,6 +240,8 @@ export async function getEndOfDayReport(dateStr?: string): Promise<EndOfDayRepor
   const statusBreakdown: Record<string, number> = {};
   // Kuryeye göre teslimat kırılımı — iptal hariç, kurye atanmış siparişler.
   const courierMap = new Map<string, CourierDayRow>();
+  // Sipariş bazında satırlar (drill-down) — iptal hariç yerel siparişler.
+  const orderRows: EndOfDayOrderRow[] = [];
 
   let packageCount = 0;
   let totalRevenue = 0;
@@ -229,6 +285,18 @@ export async function getEndOfDayReport(dateStr?: string): Promise<EndOfDayRepor
     } else {
       paidAmount += total;
     }
+
+    // Drill-down satırı — yöntem bilinmiyorsa "other" altında toplanır.
+    orderRows.push({
+      id: (o as { id?: string }).id ?? "",
+      orderNumber: (o as { orderNumber?: number }).orderNumber ?? 0,
+      customer: (o as { customer?: { name?: string } }).customer?.name ?? "—",
+      total,
+      method: method ?? "other",
+      time: istanbulHHMM((o as { createdAt?: Date }).createdAt ?? start),
+      open: isOpen,
+      status,
+    });
 
     // Kurye kırılımı — yalnızca kurye atanmışsa.
     const courier = (o as { courier?: string }).courier;
@@ -292,7 +360,56 @@ export async function getEndOfDayReport(dateStr?: string): Promise<EndOfDayRepor
   // kanal kırılımına ("trendyol") ve ödeme kırılımına (online/meal_card/...) ekle.
   // Trendyol siparişleri online tahsil edilmiş sayılır → paidAmount'a yazılır.
   let trendyolSummary: EndOfDayTrendyol | null = null;
+  // Yalnız Trendyol yöntem kırılımı (ödeme defterinde ayrı kolon). {key,count,amount}.
+  let trendyolPaymentBreakdown: EndOfDayBreakdownRow[] = [];
   if (trendyol && !trendyol.error) {
+    // Defteri kasaya/bankaya GEÇEN parayı göstermeli (ciro/brüt değil). Trendyol'un
+    // sana fiilen geçen NET toplamı = online bankaya net + kapıda net. Tek satır,
+    // "online" altında (Trendyol parası banka/elektronik üzerinden gelir). Yöntem
+    // kırılımı Trendyol Hakediş kartında. earnings yoksa eski gross-by-method'a düşeriz.
+    const e = trendyol.earnings;
+    if (e) {
+      const tyNet = e.totalBankNet + e.onDelivery.trendyolNet;
+      trendyolPaymentBreakdown =
+        tyNet > 0.5
+          ? [{ key: "online", count: trendyol.orderCount, amount: tyNet }]
+          : [];
+    } else {
+      trendyolPaymentBreakdown = trendyol.paymentBreakdown
+        .map((p) => ({ key: p.key, count: p.count, amount: p.revenue }))
+        .filter((r) => r.count > 0)
+        .sort((a, b) => b.amount - a.amount);
+    }
+    // Temiz kategori dökümü (Trendyol sekmesi): online (bankaya) vs kapıda (elden/kod).
+    // Yemek kartları marka bazında ayrı satır → kullanıcı "yemek kartı + kapıda"yı
+    // net görür. pb.cash/pb.card SADECE kapıda (online kart "online" key'inde).
+    const tLines: EndOfDayTrendyolLine[] = [];
+    const te = trendyol.earnings;
+    if (te) {
+      if (te.creditCard.count > 0)
+        tLines.push({
+          label: "Kredi Kartı",
+          group: "online",
+          count: te.creditCard.count,
+          gross: te.creditCard.gross,
+        });
+    }
+    for (const m of trendyol.mealCardBreakdown) {
+      if (m.count <= 0) continue;
+      tLines.push({
+        label: `Yemek Kartı · ${m.brand}${m.source === "on_delivery" ? " (kod)" : ""}`,
+        group: m.source === "on_delivery" ? "onsite" : "online",
+        count: m.count,
+        gross: m.revenue,
+      });
+    }
+    for (const p of trendyol.paymentBreakdown) {
+      if (p.key === "cash" && p.count > 0)
+        tLines.push({ label: "Nakit", group: "onsite", count: p.count, gross: p.revenue });
+      if (p.key === "card" && p.count > 0)
+        tLines.push({ label: "Kart", group: "onsite", count: p.count, gross: p.revenue });
+    }
+
     trendyolSummary = {
       available: true,
       orderCount: trendyol.orderCount,
@@ -300,12 +417,12 @@ export async function getEndOfDayReport(dateStr?: string): Promise<EndOfDayRepor
       revenue: trendyol.revenue,
       netRevenue: trendyol.finance?.netRevenue ?? 0,
       avgBasket: trendyol.avgBasket,
-      // Kapıda ödemeyi dışarıda bırak → toplamları kredi kartı + yemek kartından kur.
       earnings: trendyol.earnings
         ? {
             commissionRate: trendyol.earnings.commissionRate,
             creditCard: trendyol.earnings.creditCard,
             ticket: trendyol.earnings.ticket,
+            onDelivery: trendyol.earnings.onDelivery,
             totalTrendyolNet:
               trendyol.earnings.creditCard.trendyolNet +
               trendyol.earnings.ticket.trendyolNet,
@@ -313,6 +430,7 @@ export async function getEndOfDayReport(dateStr?: string): Promise<EndOfDayRepor
               trendyol.earnings.creditCard.bankNet + trendyol.earnings.ticket.bankNet,
           }
         : null,
+      lines: tLines,
     };
 
     packageCount += trendyol.orderCount;
@@ -364,6 +482,8 @@ export async function getEndOfDayReport(dateStr?: string): Promise<EndOfDayRepor
     openCount,
     paymentBreakdown,
     localPaymentBreakdown,
+    trendyolPaymentBreakdown,
+    orders: orderRows,
     sourceBreakdown,
     statusBreakdown,
     courierBreakdown,
@@ -380,6 +500,14 @@ export async function getEndOfDayReport(dateStr?: string): Promise<EndOfDayRepor
 
 export type SnapshotSource = "cron" | "manual";
 
+// Geçen aynı güne (−7 gün) kıyas — yalnız o gün KAPATILMIŞSA (snapshot varsa)
+// dolar; aksi halde null (kıyas gösterilmez).
+export interface EndOfDayComparison {
+  date: string; // geçen aynı gün ISO (YYYY-MM-DD)
+  totalRevenue: number;
+  packageCount: number;
+}
+
 export interface EndOfDayResult {
   report: EndOfDayReport;
   closed: boolean; // bu gün dondurulmuş bir snapshot'a sahip mi
@@ -389,6 +517,21 @@ export interface EndOfDayResult {
   cardCounted: number | null; // elle girilen kredi kartı (POS) toplamı
   ibanCounted: number | null; // elle girilen IBAN / havale toplamı
   ticketCounted: number | null; // elle girilen yemek kartı (ticket) toplamı
+  comparison: EndOfDayComparison | null; // geçen aynı güne kıyas
+}
+
+// Geçen aynı günün (−7) snapshot özetini döner; yoksa null.
+async function getComparison(iso: string): Promise<EndOfDayComparison | null> {
+  const prev = shiftIso(iso, -7);
+  const snap = await EndOfDaySnapshotModel.findOne({ date: prev })
+    .select({ totalRevenue: 1, packageCount: 1 })
+    .lean<{ totalRevenue?: number; packageCount?: number }>();
+  if (!snap) return null;
+  return {
+    date: prev,
+    totalRevenue: snap.totalRevenue ?? 0,
+    packageCount: snap.packageCount ?? 0,
+  };
 }
 
 interface SnapshotLean {
@@ -491,6 +634,7 @@ export async function getEndOfDaySnapshot(dateStr: string): Promise<EndOfDayResu
     cardCounted: snap.cardCounted ?? null,
     ibanCounted: snap.ibanCounted ?? null,
     ticketCounted: snap.ticketCounted ?? null,
+    comparison: await getComparison(dateStr),
   };
 }
 
@@ -517,6 +661,7 @@ export async function getEndOfDay(dateStr?: string): Promise<EndOfDayResult> {
         cardCounted: snap.cardCounted ?? null,
         ibanCounted: snap.ibanCounted ?? null,
         ticketCounted: snap.ticketCounted ?? null,
+        comparison: await getComparison(iso),
       };
     }
     return {
@@ -528,15 +673,17 @@ export async function getEndOfDay(dateStr?: string): Promise<EndOfDayResult> {
       cardCounted: null,
       ibanCounted: null,
       ticketCounted: null,
+      comparison: await getComparison(iso),
     };
   }
 
   // Bugün / açık gün: snapshot durumu yalnızca "Kapatıldı" rozetini etkiler,
   // raporu her halükarda canlı hesaplıyoruz → iki sorguyu paralel çalıştır
   // (ardışık iki DB gidiş-dönüşü yerine tek tur, hot path'in gecikmesini düşürür).
-  const [snap, report] = await Promise.all([
+  const [snap, report, comparison] = await Promise.all([
     EndOfDaySnapshotModel.findOne({ date: iso }).lean<SnapshotLean>(),
     getEndOfDayReport(iso),
+    getComparison(iso),
   ]);
   return {
     report,
@@ -547,5 +694,6 @@ export async function getEndOfDay(dateStr?: string): Promise<EndOfDayResult> {
     cardCounted: snap?.cardCounted ?? null,
     ibanCounted: snap?.ibanCounted ?? null,
     ticketCounted: snap?.ticketCounted ?? null,
+    comparison,
   };
 }
