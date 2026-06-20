@@ -10,6 +10,8 @@ import {
   istanbulDayStart,
   istanbulDayStartDaysAgo,
 } from "@/lib/datetime";
+import { estimateOrderNet } from "@/lib/commission";
+import { slaLevel, type SlaLevel } from "@/lib/operations";
 
 // "all" = filtre yok; OrderSource = sadece o kaynak.
 // "manual" filtresi eski (source alanı olmayan) kayıtları da kapsar.
@@ -27,6 +29,7 @@ function buildSourceFilter(source: DashboardSource): Record<string, unknown> {
 export interface DashboardStats {
   todayOrderCount: number;
   todayRevenue: number;
+  todayNet: number; // bugünkü tahmini net (komisyon sonrası) — bkz. lib/commission
   activeOrderCount: number;
   totalOrderCount: number;
   totalRevenue: number;
@@ -105,6 +108,17 @@ export interface DashboardStats {
     revenue: number;
     avgBasket: number;
   }[];
+
+  // Müşteri kohortları — telefon bazlı ilk/son sipariş tarihinden türetilir.
+  customerCohorts: {
+    total: number; // telefonu olan benzersiz müşteri
+    newThisMonth: number; // ilk siparişi bu ay
+    returningThisMonth: number; // bu ay sipariş + öncesinde de var
+    repeatRate: number; // 2+ siparişli müşteri oranı (%)
+    oneTime: number; // tek siparişlik
+    atRisk: number; // son sipariş 30-90 gün önce (soğuyor)
+    lost: number; // son sipariş 90+ gün önce
+  };
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -151,6 +165,7 @@ export async function getDashboardStats(
         orderNumber: 1,
         status: 1,
         total: 1,
+        source: 1,
         createdAt: 1,
         "customer.name": 1,
         "customer.phone": 1,
@@ -222,12 +237,18 @@ export async function getDashboardStats(
   >();
   const addressMap = new Map<string, { orderCount: number; revenue: number }>();
   const regionMap = new Map<string, { orderCount: number; revenue: number }>();
+  // Telefon → { ilk sipariş, son sipariş, adet } — müşteri kohortları için.
+  const phoneMap = new Map<
+    string,
+    { firstMs: number; lastMs: number; count: number }
+  >();
   const statusBreakdown: Record<string, number> = {};
 
   let totalOrderCount = 0;
   let totalRevenue = 0;
   let todayOrderCount = 0;
   let todayRevenue = 0;
+  let todayNet = 0;
   let activeOrderCount = 0;
 
   const activeOrders: DashboardStats["activeOrders"] = [];
@@ -303,6 +324,19 @@ export async function getDashboardStats(
       }
     }
 
+    // Müşteri kohortu (telefon bazlı ilk/son sipariş)
+    const phone = (o.customer as unknown as { phone?: string }).phone;
+    if (phone) {
+      const pm = phoneMap.get(phone);
+      if (pm) {
+        pm.count++;
+        if (dateMs < pm.firstMs) pm.firstMs = dateMs;
+        if (dateMs > pm.lastMs) pm.lastMs = dateMs;
+      } else {
+        phoneMap.set(phone, { firstMs: dateMs, lastMs: dateMs, count: 1 });
+      }
+    }
+
     // Bölge
     const district = (
       (o.customer as unknown as { district?: string }).district ?? ""
@@ -321,6 +355,8 @@ export async function getDashboardStats(
     if (isToday) {
       todayOrderCount++;
       todayRevenue += o.total;
+      const orderSource = (o as unknown as { source?: OrderSource }).source;
+      todayNet += estimateOrderNet(o.total, orderSource, method === "meal_card");
       if (method && method in paymentBreakdown) {
         paymentBreakdown[method] += o.total;
       }
@@ -431,6 +467,45 @@ export async function getDashboardStats(
     .sort((a, b) => b.orderCount - a.orderCount)
     .slice(0, 10);
 
+  // ─── Müşteri kohortları ─────────────────────────────────────
+  const nowMs = Date.now();
+  const thisMonthStartMs = Date.UTC(currentY, currentM, 1) - ISTANBUL_OFFSET_MS;
+  const thirtyDaysAgoMs = nowMs - 30 * 24 * 60 * 60 * 1000;
+  const ninetyDaysAgoCohortMs = nowMs - 90 * 24 * 60 * 60 * 1000;
+
+  let cohortNew = 0;
+  let cohortReturning = 0;
+  let cohortRepeat = 0;
+  let cohortOneTime = 0;
+  let cohortAtRisk = 0;
+  let cohortLost = 0;
+
+  for (const { firstMs, lastMs, count } of phoneMap.values()) {
+    if (count >= 2) cohortRepeat++;
+    else cohortOneTime++;
+
+    const orderedThisMonth = lastMs >= thisMonthStartMs;
+    if (firstMs >= thisMonthStartMs) cohortNew++;
+    else if (orderedThisMonth) cohortReturning++;
+
+    // Risk/kayıp — bu ay sipariş vermemişse son siparişin yaşına bak.
+    if (!orderedThisMonth) {
+      if (lastMs < ninetyDaysAgoCohortMs) cohortLost++;
+      else if (lastMs < thirtyDaysAgoMs) cohortAtRisk++;
+    }
+  }
+
+  const cohortTotal = phoneMap.size;
+  const customerCohorts = {
+    total: cohortTotal,
+    newThisMonth: cohortNew,
+    returningThisMonth: cohortReturning,
+    repeatRate: cohortTotal > 0 ? (cohortRepeat / cohortTotal) * 100 : 0,
+    oneTime: cohortOneTime,
+    atRisk: cohortAtRisk,
+    lost: cohortLost,
+  };
+
   // ─── 90 günlük trend (sorted keys'ten map'le) ───────────────
   const revenueTrend = dailyOrder.map((key) => {
     const b = dailyMap.get(key)!;
@@ -470,6 +545,7 @@ export async function getDashboardStats(
   return {
     todayOrderCount,
     todayRevenue,
+    todayNet,
     activeOrderCount,
     totalOrderCount,
     totalRevenue,
@@ -489,6 +565,7 @@ export async function getDashboardStats(
     revenueTrend,
     monthlyTrend,
     regionBreakdown,
+    customerCohorts,
   };
 }
 
@@ -499,6 +576,7 @@ export interface DaySales {
   dateISO: string; // "YYYY-MM-DD" (Istanbul günü)
   orderCount: number;
   revenue: number;
+  net: number; // tahmini net (komisyon sonrası) — bkz. lib/commission
   products: {
     name: string;
     category: string;
@@ -529,6 +607,7 @@ export async function getDaySales(
       id: 1,
       status: 1,
       total: 1,
+      source: 1,
       "payment.method": 1,
       "items.quantity": 1,
       "items.totalPrice": 1,
@@ -546,6 +625,7 @@ export async function getDaySales(
   >();
   let orderCount = 0;
   let revenue = 0;
+  let net = 0;
 
   for (const o of orders) {
     if ((o.status as string) === "cancelled") continue;
@@ -554,6 +634,11 @@ export async function getDaySales(
 
     const method = o.payment?.method as PaymentKey | undefined;
     if (method && method in payments) payments[method] += o.total;
+    net += estimateOrderNet(
+      o.total,
+      (o as unknown as { source?: OrderSource }).source,
+      method === "meal_card",
+    );
 
     for (const item of o.items) {
       const name = item.product.name;
@@ -591,8 +676,222 @@ export async function getDaySales(
     dateISO: istanbulDateISO(dayStartMs),
     orderCount,
     revenue,
+    net,
     payments,
     products,
+  };
+}
+
+// ─── Sipariş bölgeleri (belirli gün) ────────────────────────────────────────
+// Kurye teslimde GPS yakalamışsa (customer.geo) sipariş haritaya pinlenir.
+// Pin yoksa geocoding yapmıyoruz (maliyet) — sipariş "konumu eksik" listesine
+// düşer ve ilçe kırılımında yine sayılır.
+import type { RegionPin } from "@/actions/trendyolRegions";
+
+export interface OrderRegionStats {
+  dayOffset: number;
+  dateISO: string;
+  totalOrders: number;
+  totalRevenue: number;
+  pinnedCount: number; // kurye GPS yakaladı (geo dolu)
+  unpinnedCount: number; // pin yok (adresten tahmini)
+  payments: Record<PaymentKey, number>;
+  pins: RegionPin[];
+  districts: {
+    district: string;
+    orderCount: number;
+    revenue: number;
+    pinnedCount: number;
+  }[];
+  unpinned: {
+    id: string;
+    orderNumber: number;
+    customerName: string;
+    district: string | null;
+    address: string;
+    total: number;
+    status: string;
+    createdAt: number;
+  }[];
+  bounds?: { minLat: number; maxLat: number; minLng: number; maxLng: number };
+}
+
+function parseFiniteCoord(v: unknown): number | null {
+  const n = typeof v === "number" ? v : Number(v);
+  if (!Number.isFinite(n) || n === 0) return null;
+  return n;
+}
+
+export async function getOrderRegions(
+  source: DashboardSource = "all",
+  dayOffset = 0,
+): Promise<OrderRegionStats> {
+  await connectDB();
+
+  const safeOffset = Math.max(0, Math.min(365, Math.floor(dayOffset)));
+  const dayStart = istanbulDayStartDaysAgo(safeOffset);
+  const dayStartMs = dayStart.getTime();
+  const dayEndMs = dayStartMs + 24 * 60 * 60 * 1000;
+
+  const orders = await OrderModel.find({
+    ...buildSourceFilter(source),
+    createdAt: { $gte: new Date(dayStartMs), $lt: new Date(dayEndMs) },
+  })
+    .select({
+      id: 1,
+      orderNumber: 1,
+      status: 1,
+      total: 1,
+      createdAt: 1,
+      "customer.name": 1,
+      "customer.phone": 1,
+      "customer.address": 1,
+      "customer.district": 1,
+      "customer.geo": 1,
+      "payment.method": 1,
+    })
+    .sort({ createdAt: -1 })
+    .lean();
+
+  // Pin fallback: siparişin kendi geo'su yoksa, müşteri kaydındaki (telefon)
+  // pini kullan — kurye/sipariş ekranlarıyla aynı mantık (bkz. orders.ts
+  // getGeoByPhone/withFallbackGeo). Aksi halde aynı müşterinin önceden
+  // pinlenmiş siparişleri burada "pinsiz" görünüyordu.
+  const phonesNeedingGeo = [
+    ...new Set(
+      orders
+        .filter((o) => {
+          const g = (o.customer as unknown as { geo?: { lat?: number } }).geo;
+          return parseFiniteCoord(g?.lat) === null;
+        })
+        .map((o) => (o.customer as unknown as { phone?: string }).phone)
+        .filter((p): p is string => !!p),
+    ),
+  ];
+  const geoByPhone = new Map<string, { lat: number; lng: number }>();
+  if (phonesNeedingGeo.length > 0) {
+    const custs = await CustomerModel.find({ phone: { $in: phonesNeedingGeo } })
+      .select({ phone: 1, geo: 1 })
+      .lean();
+    for (const c of custs) {
+      const rec = c as unknown as {
+        phone: string;
+        geo?: { lat?: number; lng?: number };
+      };
+      const lat = parseFiniteCoord(rec.geo?.lat);
+      const lng = parseFiniteCoord(rec.geo?.lng);
+      if (lat !== null && lng !== null) geoByPhone.set(rec.phone, { lat, lng });
+    }
+  }
+
+  const payments: Record<PaymentKey, number> = {
+    cash: 0, card: 0, online: 0, meal_card: 0, iban: 0,
+  };
+  const districtMap = new Map<
+    string,
+    { orderCount: number; revenue: number; pinnedCount: number }
+  >();
+  const pins: RegionPin[] = [];
+  const unpinned: OrderRegionStats["unpinned"] = [];
+
+  let totalOrders = 0;
+  let totalRevenue = 0;
+  let pinnedCount = 0;
+  let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
+
+  for (const o of orders) {
+    if ((o.status as string) === "cancelled") continue;
+
+    const status = o.status as string;
+    const createdAt = (o as unknown as { createdAt: Date }).createdAt;
+    const createdMs =
+      createdAt instanceof Date ? createdAt.getTime() : new Date(createdAt).getTime();
+
+    totalOrders++;
+    totalRevenue += o.total;
+
+    const method = o.payment?.method as PaymentKey | undefined;
+    if (method && method in payments) payments[method] += o.total;
+
+    const districtRaw = (
+      (o.customer as unknown as { district?: string }).district ?? ""
+    ).trim();
+    const district = districtRaw || "Bilinmiyor";
+
+    // Önce siparişin kendi pini; yoksa müşteri kaydındaki (telefon) pin.
+    const ownGeo = (o.customer as unknown as {
+      geo?: { lat?: number; lng?: number };
+    }).geo;
+    let lat = parseFiniteCoord(ownGeo?.lat);
+    let lng = parseFiniteCoord(ownGeo?.lng);
+    if (lat === null || lng === null) {
+      const phone = (o.customer as unknown as { phone?: string }).phone;
+      const fallback = phone ? geoByPhone.get(phone) : undefined;
+      if (fallback) {
+        lat = fallback.lat;
+        lng = fallback.lng;
+      }
+    }
+    const isPinned = lat !== null && lng !== null;
+
+    const d = districtMap.get(district) ?? {
+      orderCount: 0,
+      revenue: 0,
+      pinnedCount: 0,
+    };
+    d.orderCount++;
+    d.revenue += o.total;
+    if (isPinned) d.pinnedCount++;
+    districtMap.set(district, d);
+
+    if (isPinned) {
+      pinnedCount++;
+      if (lat! < minLat) minLat = lat!;
+      if (lat! > maxLat) maxLat = lat!;
+      if (lng! < minLng) minLng = lng!;
+      if (lng! > maxLng) maxLng = lng!;
+      pins.push({
+        id: o.id,
+        orderNumber: `${o.orderNumber}`,
+        lat: lat!,
+        lng: lng!,
+        district: districtRaw || undefined,
+        neighborhood: undefined,
+        total: o.total,
+        status, // ham status → RegionsMap renk anahtarı
+        createdAt: createdMs,
+      });
+    } else {
+      unpinned.push({
+        id: o.id,
+        orderNumber: o.orderNumber,
+        customerName: o.customer.name,
+        district: districtRaw || null,
+        address: (o.customer.address ?? "").trim(),
+        total: o.total,
+        status,
+        createdAt: createdMs,
+      });
+    }
+  }
+
+  const districts = [...districtMap.entries()]
+    .map(([district, v]) => ({ district, ...v }))
+    .sort((a, b) => b.orderCount - a.orderCount);
+
+  return {
+    dayOffset: safeOffset,
+    dateISO: istanbulDateISO(dayStartMs),
+    totalOrders,
+    totalRevenue,
+    pinnedCount,
+    unpinnedCount: unpinned.length,
+    payments,
+    pins,
+    districts,
+    unpinned,
+    bounds:
+      pinnedCount > 0 ? { minLat, maxLat, minLng, maxLng } : undefined,
   };
 }
 
@@ -613,6 +912,7 @@ export interface ChannelBreakdown {
     label: string;
     orderCount: number;
     revenue: number;
+    net: number; // tahmini net (kanal komisyonu sonrası)
   }[];
 }
 
@@ -651,12 +951,18 @@ export async function getChannelBreakdown(
   }
 
   const channels = (Object.keys(CHANNEL_LABELS) as OrderSource[])
-    .map((source) => ({
-      source,
-      label: CHANNEL_LABELS[source],
-      orderCount: map.get(source)?.orderCount ?? 0,
-      revenue: map.get(source)?.revenue ?? 0,
-    }))
+    .map((source) => {
+      const revenue = map.get(source)?.revenue ?? 0;
+      return {
+        source,
+        label: CHANNEL_LABELS[source],
+        orderCount: map.get(source)?.orderCount ?? 0,
+        revenue,
+        // Kanal seviyesinde tahmini net — yemek kartı ek kesintisi yöntem
+        // kırılımı olmadan uygulanamadığından sadece kanal komisyonu düşülür.
+        net: estimateOrderNet(revenue, source),
+      };
+    })
     .sort((a, b) => b.revenue - a.revenue);
 
   return {
@@ -664,5 +970,122 @@ export async function getChannelBreakdown(
     dateISO: istanbulDateISO(dayStartMs),
     total,
     channels,
+  };
+}
+
+// ─── Canlı operasyon snapshot ("şu an ne oluyor") ───────────────────────────
+// Açık (teslim edilmemiş) siparişlerin canlı durumu + bugünkü teslim hızı.
+// Sadece "bugün" anlamlı olduğu için Özet'in üst şeridinde gösterilir.
+export interface LiveOpsOrder {
+  id: string;
+  orderNumber: number;
+  customerName: string;
+  total: number;
+  status: string;
+  source: OrderSource;
+  ageMin: number; // sipariş alınışından beri geçen dakika
+  sla: SlaLevel; // ok | warn | critical
+}
+
+export interface OperationalSnapshot {
+  kitchenCount: number; // pending + preparing (mutfakta)
+  onTheWayCount: number; // yolda
+  lateCount: number; // SLA warn+critical (geciken)
+  criticalCount: number; // SLA critical (kritik geciken)
+  avgDeliveryMin: number | null; // bugün teslim edilenlerin ort. süresi (dk)
+  deliveredToday: number; // bugün teslim edilen adet
+  openOrders: LiveOpsOrder[]; // açık siparişler — geciken üstte sıralı
+}
+
+const OPEN_STATUSES = ["pending", "preparing", "on-the-way"];
+
+export async function getOperationalSnapshot(
+  source: DashboardSource = "all",
+): Promise<OperationalSnapshot> {
+  await connectDB();
+
+  const now = Date.now();
+  const todayStartMs = istanbulDayStart().getTime();
+
+  // İki hafif sorgu: açık siparişler (canlı) + bugün teslim edilenler (hız).
+  const [openDocs, deliveredDocs] = await Promise.all([
+    OrderModel.find({
+      ...buildSourceFilter(source),
+      status: { $in: OPEN_STATUSES },
+    })
+      .select({
+        id: 1,
+        orderNumber: 1,
+        status: 1,
+        total: 1,
+        source: 1,
+        createdAt: 1,
+        "customer.name": 1,
+      })
+      .lean(),
+    OrderModel.find({
+      ...buildSourceFilter(source),
+      status: "delivered",
+      deliveredAt: { $gte: new Date(todayStartMs) },
+      deliveryDurationMin: { $gt: 0 },
+    })
+      .select({ deliveryDurationMin: 1 })
+      .lean(),
+  ]);
+
+  let kitchenCount = 0;
+  let onTheWayCount = 0;
+  let lateCount = 0;
+  let criticalCount = 0;
+
+  const openOrders: LiveOpsOrder[] = openDocs.map((o) => {
+    const status = o.status as string;
+    const createdAt = (o as unknown as { createdAt: Date }).createdAt;
+    const createdMs =
+      createdAt instanceof Date ? createdAt.getTime() : new Date(createdAt).getTime();
+    const ageMin = Math.max(0, Math.round((now - createdMs) / 60000));
+    const sla = slaLevel(ageMin);
+
+    if (status === "on-the-way") onTheWayCount++;
+    else kitchenCount++;
+    if (sla !== "ok") lateCount++;
+    if (sla === "critical") criticalCount++;
+
+    return {
+      id: o.id,
+      orderNumber: o.orderNumber,
+      customerName: o.customer.name,
+      total: o.total,
+      status,
+      source: ((o as unknown as { source?: OrderSource }).source ??
+        "manual") as OrderSource,
+      ageMin,
+      sla,
+    };
+  });
+
+  // Geciken (yaşça en yaşlı) üstte.
+  openOrders.sort((a, b) => b.ageMin - a.ageMin);
+
+  const deliveredToday = deliveredDocs.length;
+  const avgDeliveryMin =
+    deliveredToday > 0
+      ? Math.round(
+          deliveredDocs.reduce(
+            (s, d) =>
+              s + ((d as unknown as { deliveryDurationMin: number }).deliveryDurationMin ?? 0),
+            0,
+          ) / deliveredToday,
+        )
+      : null;
+
+  return {
+    kitchenCount,
+    onTheWayCount,
+    lateCount,
+    criticalCount,
+    avgDeliveryMin,
+    deliveredToday,
+    openOrders,
   };
 }

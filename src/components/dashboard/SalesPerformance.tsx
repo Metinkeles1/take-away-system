@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Area, AreaChart, CartesianGrid, Line, XAxis, YAxis } from "recharts";
+import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { Download } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -45,7 +45,6 @@ const RANGE_LABEL: Record<Range, string> = {
 
 const chartConfig = {
   revenue: { label: "Ciro", color: "var(--chart-1)" },
-  target: { label: "Hedef", color: "var(--muted-foreground)" },
 } satisfies ChartConfig;
 
 export function SalesPerformance({ stats, isLoading }: Props) {
@@ -60,7 +59,7 @@ export function SalesPerformance({ stats, isLoading }: Props) {
     <Card className="@container/card w-full">
       <CardHeader>
         <CardTitle>Satış Performansı</CardTitle>
-        <CardDescription>Aylık ciro · hedefe karşı</CardDescription>
+        <CardDescription>Aylık ciro trendi</CardDescription>
         <CardAction>
           <div className="flex items-center gap-2">
             <Select value={range} onValueChange={(v) => setRange(v as Range)}>
@@ -126,16 +125,14 @@ export function SalesPerformance({ stats, isLoading }: Props) {
                   <ChartTooltipContent
                     indicator="dot"
                     labelFormatter={(value) => value as string}
-                    formatter={(value, name, item) => (
+                    formatter={(value, _name, item) => (
                       <div className="flex w-full items-center justify-between gap-3">
                         <div className="flex items-center gap-1.5">
                           <span
                             className="size-2 rounded-xs"
                             style={{ background: item.color }}
                           />
-                          <span className="text-muted-foreground">
-                            {name === "revenue" ? "Ciro" : "Hedef"}
-                          </span>
+                          <span className="text-muted-foreground">Ciro</span>
                         </div>
                         <span className="font-mono font-medium tabular-nums">
                           {formatCurrency(value as number)}
@@ -151,14 +148,6 @@ export function SalesPerformance({ stats, isLoading }: Props) {
                 fill="url(#salesFill)"
                 stroke="var(--color-revenue)"
                 strokeWidth={2}
-              />
-              <Line
-                dataKey="target"
-                type="monotone"
-                stroke="var(--color-target)"
-                strokeWidth={1.5}
-                strokeDasharray="5 5"
-                dot={false}
               />
             </AreaChart>
           </ChartContainer>

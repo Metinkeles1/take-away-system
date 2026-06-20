@@ -7,11 +7,17 @@ import type { RegionPin } from "@/actions/trendyolRegions";
 import "leaflet/dist/leaflet.css";
 
 const STATUS_COLORS: Record<string, string> = {
+  // Trendyol paket statüleri
   Created: "#3b82f6",
   Picking: "#f59e0b",
   Invoiced: "#8b5cf6",
   Shipped: "#f97316",
   Delivered: "#10b981",
+  // Manuel sipariş statüleri
+  pending: "#3b82f6",
+  preparing: "#f59e0b",
+  "on-the-way": "#f97316",
+  delivered: "#10b981",
 };
 
 export function RegionsMap({

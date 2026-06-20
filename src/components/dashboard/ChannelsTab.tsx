@@ -70,6 +70,9 @@ export function ChannelsTab({ data, isLoading, label }: Props) {
                 <p className="text-xs text-muted-foreground tabular-nums">
                   {c.orderCount} sipariş · %{pct.toFixed(0)}
                 </p>
+                <p className="mt-1 text-xs font-medium tabular-nums text-emerald-600 dark:text-emerald-400">
+                  Net ~{formatCurrency(c.net)}
+                </p>
               </CardContent>
             </Card>
           );
