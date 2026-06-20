@@ -23,6 +23,10 @@ import {
   Lock,
   UserRound,
   ChevronRight,
+  Landmark,
+  Copy,
+  Send,
+  Eye,
 } from "lucide-react";
 import {
   getCourierBoard,
@@ -32,7 +36,7 @@ import {
   claimManyOrders,
 } from "@/actions/courier";
 import { getActiveCouriers, type Courier } from "@/actions/couriers";
-import { type ShopLocation } from "@/actions/settings";
+import { type ShopLocation, type ShopIban } from "@/actions/settings";
 import { setOrderPaymentMethod } from "@/actions/orders";
 import { subscribeOrders } from "@/lib/pusher/client";
 import {
@@ -146,6 +150,39 @@ function buildWhatsAppUrl(
     text += ` + ${settledDebt.count} eski hesap tahsil edildi (${formatCurrency(settledDebt.total)})`;
   }
   return `whatsapp://send?text=${encodeURIComponent(text)}`;
+}
+
+// TR telefonu wa.me'nin beklediği uluslararası biçime çevirir (90XXXXXXXXXX).
+// 0 ile başlıyorsa baştaki 0 → 90; 10 hane "5..." ise başına 90; zaten 90 ise olduğu gibi.
+function toWhatsAppPhone(raw: string): string {
+  const digits = raw.replace(/\D/g, "");
+  if (digits.startsWith("90")) return digits;
+  if (digits.startsWith("0")) return "90" + digits.slice(1);
+  if (digits.length === 10) return "90" + digits;
+  return digits;
+}
+
+// IBAN'ı 4'erli gruplayarak okunur biçimde gösterir (TR00 0000 ...). Sadece görsel.
+function formatIban(iban: string): string {
+  return iban.replace(/(.{4})/g, "$1 ").trim();
+}
+
+// Müşteriye gönderilecek IBAN mesajı — tutar + ad soyad + IBAN hazır gelir.
+function buildIbanMessage(o: Order, iban: ShopIban): string {
+  return [
+    `Merhaba, ${o.orderNumber} numaralı siparişinizin tutarı ${formatCurrency(o.total)}.`,
+    "Aşağıdaki IBAN'a gönderebilirsiniz:",
+    "",
+    iban.name,
+    formatIban(iban.iban),
+  ].join("\n");
+}
+
+// Müşterinin numarasına IBAN mesajıyla WhatsApp aç (wa.me — uygulamada o sohbeti açar).
+function buildIbanWhatsAppUrl(o: Order, iban: ShopIban): string {
+  const phone = toWhatsAppPhone(o.customer.phone);
+  const text = buildIbanMessage(o, iban);
+  return `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
 }
 
 // GPS konumunu yakala. Başarısızlıkta kullanıcıya gösterilecek somut sebebi döner.
@@ -293,6 +330,8 @@ export default function KuryePage() {
   // Dükkan konumu (Ayarlar'dan pinlenir). Varsa pini olan siparişlerde kuş uçuşu
   // uzaklık gösterilir; yoksa rozet hiç çıkmaz.
   const [shopLocation, setShopLocation] = useState<ShopLocation | null>(null);
+  // Dükkan tahsilat IBAN'ı (Ayarlar'dan girilir). "IBAN" ödemede gösterilir/gönderilir.
+  const [shopIban, setShopIban] = useState<ShopIban | null>(null);
   // Sekme: "mine" = Benim Paketlerim (detaylı teslim kartları), "pool" = Tüm
   // Paketler (kısa liste, check'leyerek üstlen).
   const [tab, setTab] = useState<"mine" | "pool">("mine");
@@ -314,6 +353,12 @@ export default function KuryePage() {
   const [payErrors, setPayErrors] = useState<Record<string, string>>({});
   // Yemek kartı marka seçme modalı: hangi siparişin markası seçiliyor.
   const [brandOrder, setBrandOrder] = useState<Order | null>(null);
+  // IBAN ödeme modalı: hangi sipariş için IBAN göster/gönder seçiliyor.
+  const [ibanOrder, setIbanOrder] = useState<Order | null>(null);
+  // IBAN modal görünümü: "menu" = göster/gönder seçimi, "show" = IBAN ekranda.
+  const [ibanView, setIbanView] = useState<"menu" | "show">("menu");
+  // IBAN modalında "IBAN'ı kopyala" geri bildirimi.
+  const [ibanCopied, setIbanCopied] = useState(false);
   // Harita seçici (manuel pinleme): hangi sipariş + harita merkezi.
   const [pickerOrder, setPickerOrder] = useState<Order | null>(null);
   const [pickerCenter, setPickerCenter] = useState<LatLng>(DEFAULT_MAP_CENTER);
@@ -327,10 +372,12 @@ export default function KuryePage() {
         orders: data,
         multiCourierMode: mode,
         shopLocation: shop,
+        shopIban: iban,
       } = await getCourierBoard();
       setOrders(data);
       setMultiCourierMode(mode);
       setShopLocation(shop);
+      setShopIban(iban);
     } finally {
       setLoading(false);
     }
@@ -558,8 +605,44 @@ export default function KuryePage() {
       setBrandOrder(o);
       return;
     }
+    if (method === "iban") {
+      // IBAN seçildi: önce yöntemi kaydet (değişmişse), sonra göster/gönder modalını aç.
+      if (o.payment.method !== "iban") {
+        void savePayment(o, { method, mealCardBrand: undefined });
+      }
+      setIbanCopied(false);
+      setIbanView("menu");
+      setIbanOrder(o);
+      return;
+    }
     if (o.payment.method === method) return;
     void savePayment(o, { method, mealCardBrand: undefined });
+  };
+
+  // IBAN'ı panoya kopyala (modaldeki "Kopyala" butonu).
+  const handleCopyIban = async () => {
+    if (!shopIban) return;
+    try {
+      await navigator.clipboard.writeText(shopIban.iban);
+      setIbanCopied(true);
+      setTimeout(() => setIbanCopied(false), 2000);
+    } catch {
+      // Pano erişimi yoksa sessiz geç — kurye ekrandan okuyabilir.
+    }
+  };
+
+  // IBAN'ı müşterinin WhatsApp'ına gönder (wa.me — uygulamada o sohbeti açar).
+  const handleSendIban = (o: Order) => {
+    if (!shopIban) return;
+    const url = buildIbanWhatsAppUrl(o, shopIban);
+    const a = document.createElement("a");
+    a.href = url;
+    a.target = "_blank";
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setIbanOrder(null);
   };
 
   // Modalden marka seçilince: meal_card + marka olarak kaydet.
@@ -1127,6 +1210,104 @@ export default function KuryePage() {
                 );
               })}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* IBAN ödeme modalı — kurye kapıda "IBAN" seçince açılır.
+          İki yol: "Göster" (ekranda büyük + kopyala) veya "Gönder"
+          (müşterinin WhatsApp'ına hazır IBAN mesajı). */}
+      {ibanOrder && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40"
+          onClick={() => setIbanOrder(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-t-3xl bg-white p-5 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center gap-2">
+              <Landmark className="h-5 w-5 text-sky-600" />
+              <h3 className="text-base font-bold text-slate-900">
+                IBAN ile ödeme
+              </h3>
+              <button
+                onClick={() => setIbanOrder(null)}
+                aria-label="Kapat"
+                className="ml-auto grid h-8 w-8 place-items-center rounded-full text-slate-400 transition active:scale-90 hover:bg-slate-100"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {!shopIban ? (
+              // IBAN henüz Ayarlar'dan girilmemiş.
+              <div className="rounded-2xl bg-amber-50 p-4 text-sm text-amber-800 ring-1 ring-amber-200">
+                <p className="font-semibold">IBAN tanımlı değil</p>
+                <p className="mt-1 text-amber-700">
+                  Panelde <b>Ayarlar → Tahsilat IBAN&apos;ı</b> bölümünden IBAN
+                  ve ad soyad girince burada görünür.
+                </p>
+              </div>
+            ) : ibanView === "menu" ? (
+              // İki seçenek: Göster / Gönder.
+              <div className="grid grid-cols-2 gap-2.5">
+                <button
+                  onClick={() => setIbanView("show")}
+                  className="flex flex-col items-center justify-center gap-2 rounded-2xl bg-white py-6 text-sm font-bold text-slate-700 ring-1 ring-slate-200 transition active:scale-[0.97] active:bg-slate-50"
+                >
+                  <Eye className="h-6 w-6 text-sky-600" />
+                  IBAN Göster
+                </button>
+                <button
+                  onClick={() => handleSendIban(ibanOrder)}
+                  className="flex flex-col items-center justify-center gap-2 rounded-2xl bg-emerald-500 py-6 text-sm font-bold text-white ring-1 ring-emerald-500 transition active:scale-[0.97]"
+                >
+                  <Send className="h-6 w-6" />
+                  IBAN Gönder
+                </button>
+              </div>
+            ) : (
+              // IBAN ekranda — müşteriye göster + kopyala.
+              <div>
+                <div className="rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200">
+                  <p className="text-[11px] font-semibold tracking-wide text-slate-400 uppercase">
+                    Ad Soyad
+                  </p>
+                  <p className="mt-0.5 text-base font-bold text-slate-900">
+                    {shopIban.name}
+                  </p>
+                  <p className="mt-3 text-[11px] font-semibold tracking-wide text-slate-400 uppercase">
+                    IBAN
+                  </p>
+                  <p className="mt-0.5 font-mono text-lg font-bold tracking-wide text-slate-900 select-all">
+                    {formatIban(shopIban.iban)}
+                  </p>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2.5">
+                  <button
+                    onClick={() => void handleCopyIban()}
+                    className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white py-3.5 text-sm font-bold text-slate-700 ring-1 ring-slate-200 transition active:scale-[0.97] active:bg-slate-50"
+                  >
+                    {ibanCopied ? (
+                      <>
+                        <Check className="h-4 w-4 text-emerald-600" /> Kopyalandı
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="h-4 w-4" /> Kopyala
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => handleSendIban(ibanOrder)}
+                    className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-500 py-3.5 text-sm font-bold text-white transition active:scale-[0.97]"
+                  >
+                    <Send className="h-4 w-4" /> Gönder
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

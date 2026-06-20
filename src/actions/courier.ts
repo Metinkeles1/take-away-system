@@ -8,7 +8,9 @@ import { notifyOrdersChanged } from "@/lib/pusher/server";
 import {
   getMultiCourierMode,
   getShopLocation,
+  getShopIban,
   type ShopLocation,
+  type ShopIban,
 } from "@/actions/settings";
 import {
   getOpenAccountsByPhone,
@@ -211,13 +213,15 @@ export async function getCourierBoard(): Promise<{
   orders: Order[];
   multiCourierMode: boolean;
   shopLocation: ShopLocation | null;
+  shopIban: ShopIban | null;
 }> {
-  const [orders, multiCourierMode, shopLocation] = await Promise.all([
+  const [orders, multiCourierMode, shopLocation, shopIban] = await Promise.all([
     getCourierOrders(),
     getMultiCourierMode(),
     getShopLocation(),
+    getShopIban(),
   ]);
-  return { orders, multiCourierMode, shopLocation };
+  return { orders, multiCourierMode, shopLocation, shopIban };
 }
 
 // Kurye üstlenmeyi bırakır (check'i kaldırır) → sipariş havuza döner. Güvenlik:
