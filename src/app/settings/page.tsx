@@ -15,6 +15,10 @@ import {
   setMultiCourierMode,
   getShopLocation,
   setShopLocation,
+  getShopIban,
+  setShopIban,
+  getMonthlyTarget,
+  setMonthlyTarget,
 } from "@/actions/settings";
 import { LocationPicker, type LatLng } from "@/components/kurye/LocationPicker";
 import { Button } from "@/components/ui/button";
@@ -32,6 +36,8 @@ import {
   Users,
   Store,
   MapPin,
+  Landmark,
+  Target,
 } from "lucide-react";
 
 // Dükkan konumu hiç ayarlı değilken haritanın ortalanacağı nokta (env ile bölgeye
@@ -55,19 +61,56 @@ export default function SettingsPage() {
   const [shopLoc, setShopLoc] = useState<LatLng | null>(null);
   const [shopPickerOpen, setShopPickerOpen] = useState(false);
   const [shopSaving, setShopSaving] = useState(false);
+  // Dükkan IBAN'ı — kurye "IBAN" ödeme seçince müşteriye gösterilir/gönderilir.
+  const [ibanName, setIbanName] = useState("");
+  const [ibanNumber, setIbanNumber] = useState("");
+  const [ibanSaving, setIbanSaving] = useState(false);
+  // Aylık ciro hedefi — dashboard "Bu Ay" ilerleme çubuğu.
+  const [targetInput, setTargetInput] = useState("");
+  const [targetSaving, setTargetSaving] = useState(false);
 
   const load = async () => {
     try {
-      const [list, mode, shop] = await Promise.all([
+      const [list, mode, shop, iban, tgt] = await Promise.all([
         getCouriers(),
         getMultiCourierMode(),
         getShopLocation(),
+        getShopIban(),
+        getMonthlyTarget(),
       ]);
       setCouriers(list);
       setMultiMode(mode);
       setShopLoc(shop);
+      if (iban) {
+        setIbanName(iban.name);
+        setIbanNumber(iban.iban);
+      }
+      if (tgt > 0) setTargetInput(String(tgt));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveTarget = async () => {
+    const value = Number(targetInput.replace(/[^\d]/g, ""));
+    setTargetSaving(true);
+    const res = await setMonthlyTarget(value);
+    setTargetSaving(false);
+    if (res.ok) {
+      toast.success(value > 0 ? "Aylık hedef kaydedildi" : "Hedef kaldırıldı");
+    } else {
+      toast.error(res.error ?? "Hedef kaydedilemedi");
+    }
+  };
+
+  const handleSaveIban = async () => {
+    setIbanSaving(true);
+    const res = await setShopIban({ name: ibanName, iban: ibanNumber });
+    setIbanSaving(false);
+    if (res.ok) {
+      toast.success("IBAN kaydedildi");
+    } else {
+      toast.error(res.error ?? "IBAN kaydedilemedi");
     }
   };
 
@@ -236,6 +279,99 @@ export default function SettingsPage() {
                 <MapPin className="h-4 w-4" />
                 {shopLoc ? "Düzelt" : "İşaretle"}
               </Button>
+            </CardContent>
+          </Card>
+        </section>
+
+        {/* Dükkan IBAN'ı — kurye "IBAN" ödeme seçince müşteriye gösterilir/gönderilir */}
+        <section className="mb-8">
+          <Card>
+            <CardContent className="p-4">
+              <div className="mb-3 flex items-center gap-3">
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-sky-100 text-sky-700">
+                  <Landmark className="h-5 w-5" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold">Tahsilat IBAN&apos;ı</p>
+                  <p className="text-xs text-muted-foreground">
+                    Kurye &quot;IBAN&quot; ödeme seçince müşteriye bu bilgiler
+                    gösterilir veya WhatsApp ile gönderilir.
+                  </p>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Input
+                  value={ibanName}
+                  onChange={(e) => setIbanName(e.target.value)}
+                  placeholder="Ad Soyad / Ünvan"
+                  maxLength={60}
+                  disabled={loading}
+                />
+                <Input
+                  value={ibanNumber}
+                  onChange={(e) => setIbanNumber(e.target.value.toUpperCase())}
+                  placeholder="TR00 0000 0000 0000 0000 0000 00"
+                  maxLength={34}
+                  disabled={loading}
+                  className="font-mono tracking-wide"
+                />
+                <Button
+                  onClick={() => void handleSaveIban()}
+                  disabled={ibanSaving || loading || ibanName.trim().length < 2}
+                  className="w-full"
+                >
+                  {ibanSaving ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Check className="h-4 w-4" />
+                  )}
+                  IBAN&apos;ı Kaydet
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </section>
+
+        {/* Aylık ciro hedefi — dashboard ilerleme çubuğu */}
+        <section className="mb-8">
+          <Card>
+            <CardContent className="p-4">
+              <div className="mb-3 flex items-center gap-3">
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-emerald-100 text-emerald-700">
+                  <Target className="h-5 w-5" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold">Aylık ciro hedefi</p>
+                  <p className="text-xs text-muted-foreground">
+                    Dashboard&apos;da &quot;Bu Ay&quot; görünümünde ilerleme
+                    çubuğu olarak gösterilir. Boş/0 = gizli.
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  inputMode="numeric"
+                  value={targetInput}
+                  onChange={(e) =>
+                    setTargetInput(e.target.value.replace(/[^\d]/g, ""))
+                  }
+                  placeholder="Örn. 150000"
+                  maxLength={9}
+                  disabled={loading}
+                  className="font-mono tracking-wide"
+                />
+                <Button
+                  onClick={() => void handleSaveTarget()}
+                  disabled={targetSaving || loading}
+                >
+                  {targetSaving ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Check className="h-4 w-4" />
+                  )}
+                  Kaydet
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </section>
