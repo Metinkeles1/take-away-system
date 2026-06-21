@@ -2,6 +2,7 @@
 
 import { connectDB } from "@/lib/mongodb";
 import ProductModel from "@/models/Product";
+import OrderModel from "@/models/Order";
 import {
   type Product,
   type ProductCategory,
@@ -37,6 +38,29 @@ export async function getAvailableProducts(): Promise<Product[]> {
     .sort({ category: 1, sortOrder: 1, name: 1 })
     .lean();
   return docs.map((d) => docToProduct(d as Record<string, unknown>));
+}
+
+// ─── Ürün satış sıralaması (en çok/en az satılan) ──────────────────────────
+// Sipariş kalemlerini ürün id'sine göre toplar; iptal edilenler hariç.
+// Dönen map: productId -> toplam satılan adet. Sipariş sayfasında menüyü
+// popülerliğe göre sıralamak için kullanılır.
+export async function getProductSalesRanking(): Promise<Record<string, number>> {
+  await connectDB();
+  const rows = await OrderModel.aggregate<{ _id: string; quantity: number }>([
+    { $match: { status: { $ne: "cancelled" } } },
+    { $unwind: "$items" },
+    {
+      $group: {
+        _id: "$items.product.id",
+        quantity: { $sum: "$items.quantity" },
+      },
+    },
+  ]);
+  const map: Record<string, number> = {};
+  for (const r of rows) {
+    if (r._id) map[r._id] = r.quantity;
+  }
+  return map;
 }
 
 // ─── Yeni ürün ekle ────────────────────────────────────────────────────────

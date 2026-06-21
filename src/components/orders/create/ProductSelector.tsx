@@ -6,7 +6,14 @@ import { useMenuStore } from "@/store/menuStore";
 import { MENU_CATEGORIES } from "@/data/menu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Minus, Search, X } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Plus, Minus, Search, X, ArrowUpDown } from "lucide-react";
 import { formatCurrency, cn } from "@/lib/utils";
 import {
   type ProductCategory,
@@ -32,6 +39,15 @@ import {
 const GRID_CLASS =
   "grid gap-2 sm:gap-2.5 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-4 2xl:grid-cols-5";
 
+// Menü sıralama seçenekleri — varsayılan: en çok satılan.
+type SortOption = "popular" | "least" | "default";
+
+const SORT_OPTIONS: { value: SortOption; label: string }[] = [
+  { value: "popular", label: "En çok satılan" },
+  { value: "least", label: "En az satılan" },
+  { value: "default", label: "Menü sırası" },
+];
+
 export default function ProductSelector() {
   const draft = useOrderStore((s) => s.draft);
   const addItem = useOrderStore((s) => s.addItem);
@@ -39,7 +55,9 @@ export default function ProductSelector() {
   const updateQuantity = useOrderStore((s) => s.updateQuantity);
   const [activeCategory, setActiveCategory] = useState<ProductCategory | "all">("all");
   const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState<SortOption>("popular");
   const menuItems = useMenuStore((s) => s.items);
+  const salesRank = useMenuStore((s) => s.salesRank);
   const loadMenu = useMenuStore((s) => s.loadMenu);
   const hasCache = menuItems.length > 0;
   const isLoadingMenu = !hasCache;
@@ -51,12 +69,24 @@ export default function ProductSelector() {
   // Search'i normalize edip filter loop'u dışına çıkar — her item için lower oluşmasın
   const filteredItems = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return menuItems.filter((item) => {
+    const filtered = menuItems.filter((item) => {
       if (activeCategory !== "all" && item.category !== activeCategory) return false;
       if (q && !item.name.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [menuItems, activeCategory, search]);
+
+    // "default" → menuItems zaten kategori/sıra düzeninde geliyor, dokunma.
+    if (sortBy === "default") return filtered;
+
+    const dir = sortBy === "popular" ? -1 : 1;
+    // Satışı olmayan ürünler 0 sayılır; en çok satılanda en sona, en azda en başa düşer.
+    return [...filtered].sort((a, b) => {
+      const sa = salesRank[a.id] ?? 0;
+      const sb = salesRank[b.id] ?? 0;
+      if (sa !== sb) return (sa - sb) * dir;
+      return a.name.localeCompare(b.name, "tr");
+    });
+  }, [menuItems, activeCategory, search, sortBy, salesRank]);
 
   // Sepetteki ürünlerin toplam adedi — kart başına filter+reduce yerine O(1) lookup
   const cartQuantities = useMemo(() => {
@@ -71,25 +101,45 @@ export default function ProductSelector() {
 
   return (
     <div className="h-full flex flex-col gap-3 min-h-0">
-      {/* Arama */}
-      <div className="relative shrink-0">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-        <Input
-          placeholder="Ürün ara..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="pl-10 pr-10 h-11"
-        />
-        {search && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8"
-            onClick={() => setSearch("")}
+      {/* Arama + sıralama */}
+      <div className="flex items-center gap-2 shrink-0">
+        <div className="relative flex-1 min-w-0">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+          <Input
+            placeholder="Ürün ara..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-10 pr-10 h-11"
+          />
+          {search && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8"
+              onClick={() => setSearch("")}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
+        <Select value={sortBy} onValueChange={(v) => setSortBy(v as SortOption)}>
+          <SelectTrigger
+            className="h-11 w-11 px-0 justify-center sm:w-auto sm:px-3 shrink-0 [&>svg:last-child]:hidden sm:[&>svg:last-child]:block"
+            aria-label="Sıralama"
           >
-            <X className="h-4 w-4" />
-          </Button>
-        )}
+            <ArrowUpDown className="h-4 w-4 shrink-0" />
+            <span className="hidden sm:inline">
+              <SelectValue />
+            </span>
+          </SelectTrigger>
+          <SelectContent align="end">
+            {SORT_OPTIONS.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Kategori şeridi — mobilde yatay scroll, sm+ wrap (tüm chip'ler tek/iki satıra ferah dağılır) */}

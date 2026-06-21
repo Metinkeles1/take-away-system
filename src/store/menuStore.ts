@@ -1,10 +1,12 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { type Product } from "@/types";
-import { getAvailableProducts } from "@/actions/products";
+import { getAvailableProducts, getProductSalesRanking } from "@/actions/products";
 
 interface MenuStore {
   items: Product[];
+  /** productId -> toplam satılan adet (iptaller hariç). Menüyü popülerliğe göre sıralar. */
+  salesRank: Record<string, number>;
   fetchedAt: number | null;
   isRefreshing: boolean;
   /**
@@ -18,6 +20,7 @@ export const useMenuStore = create<MenuStore>()(
   persist(
     (set, get) => ({
       items: [],
+      salesRank: {},
       fetchedAt: null,
       isRefreshing: false,
 
@@ -25,8 +28,11 @@ export const useMenuStore = create<MenuStore>()(
         if (get().isRefreshing) return;
         set({ isRefreshing: true });
         try {
-          const fresh = await getAvailableProducts();
-          set({ items: fresh, fetchedAt: Date.now() });
+          const [fresh, salesRank] = await Promise.all([
+            getAvailableProducts(),
+            getProductSalesRanking(),
+          ]);
+          set({ items: fresh, salesRank, fetchedAt: Date.now() });
         } finally {
           set({ isRefreshing: false });
         }
@@ -36,8 +42,12 @@ export const useMenuStore = create<MenuStore>()(
       name: "menu-cache",
       // Şema/görsel alanları değiştikçe bu sürümü artır → eski (ör. resimsiz)
       // cache'ler kullanıcı tarayıcılarında otomatik atılır, menü taze çekilir.
-      version: 1,
-      partialize: (state) => ({ items: state.items, fetchedAt: state.fetchedAt }),
+      version: 2,
+      partialize: (state) => ({
+        items: state.items,
+        salesRank: state.salesRank,
+        fetchedAt: state.fetchedAt,
+      }),
       // Bayat cache (ör. ürün resimleri eklenmeden önce kaydedilmiş) resimsiz
       // kart flash'ı yapmasın: belirli yaşı geçmişse boş başla, skeleton göster,
       // loadMenu taze veriyi (resimlerle) getirsin.
@@ -48,6 +58,7 @@ export const useMenuStore = create<MenuStore>()(
         return {
           ...current,
           items: fresh ? (p?.items ?? []) : [],
+          salesRank: fresh ? (p?.salesRank ?? {}) : {},
           fetchedAt: fresh ? (p?.fetchedAt ?? null) : null,
         };
       },
