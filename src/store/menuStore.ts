@@ -43,6 +43,16 @@ export const useMenuStore = create<MenuStore>()(
       // Şema/görsel alanları değiştikçe bu sürümü artır → eski (ör. resimsiz)
       // cache'ler kullanıcı tarayıcılarında otomatik atılır, menü taze çekilir.
       version: 2,
+      // Sürüm uyuşmazlığında veriyi merge'e bırak (merge zaten yaşa göre bayat
+      // cache'i atıyor). migrate tanımlı olmazsa Zustand konsola uyarı basar.
+      migrate: (persisted) => {
+        const p = (persisted ?? {}) as Partial<MenuStore>;
+        return {
+          items: p.items ?? [],
+          salesRank: p.salesRank ?? {},
+          fetchedAt: p.fetchedAt ?? null,
+        };
+      },
       partialize: (state) => ({
         items: state.items,
         salesRank: state.salesRank,
