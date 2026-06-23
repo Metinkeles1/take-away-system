@@ -60,6 +60,7 @@ type NavEntry = NavLeaf | NavGroup;
 
 export const NAV_ITEMS: readonly NavEntry[] = [
   { kind: "leaf", href: "/",          label: "Panel",        icon: Home,           color: "text-slate-300" },
+  { kind: "leaf", href: "/komuta",    label: "Komuta Merkezi", icon: LayoutDashboard, color: "text-blue-400", activeBg: "bg-blue-500/15" },
   { kind: "leaf", href: "/dashboard", label: "Dashboard",    icon: BarChart3,      color: "text-blue-400",   activeBg: "bg-blue-500/15" },
   {
     kind: "group",

@@ -19,6 +19,8 @@ interface Props {
   isLoading?: boolean;
   /** Verilirse kart tıklanabilir olur (sipariş listesi açar). */
   onClick?: () => void;
+  /** KPI'nın altına eklenen ek içerik (ör. kanal kırılımı çipleri). */
+  footer?: React.ReactNode;
 }
 
 // Tek bakışta okunan büyük metrik. Renk minimal: vurgulu kart yeşil, kıyas
@@ -32,6 +34,7 @@ export function OverviewMetricCard({
   accent,
   isLoading,
   onClick,
+  footer,
 }: Props) {
   const up = delta !== null && delta >= 0;
   const clickable = !!onClick && !isLoading;
@@ -108,6 +111,8 @@ export function OverviewMetricCard({
             )}
           </div>
         )}
+
+        {!isLoading && footer && <div className="mt-3">{footer}</div>}
 
         {clickable && (
           <p className="mt-2 text-xs font-medium text-muted-foreground">

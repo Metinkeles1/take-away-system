@@ -569,6 +569,59 @@ const cachedComputePast = unstable_cache(
   { revalidate: 600 },
 );
 
+// Dönemdeki TÜM Trendyol siparişleri (recentOrders 8 ile sınırlı; Komuta
+// Merkezi sipariş listesi için tam liste gerekir). Settlement çekilmez → net yok.
+export interface TrendyolPeriodOrder {
+  orderNumber: string;
+  customerName: string;
+  customerPhone: string | null; // own müşteriyle telefon eşleştirme için
+  customerId: string | null; // Trendyol müşteri grup anahtarı (telefon maskeli)
+  total: number;
+  status: string;
+  paymentMethod: string; // gösterim etiketi (örn. "Online Kart")
+  paymentKey: string; // ham anahtar (online|card|cash|meal_card) — filtre için
+  products: string[]; // satır ürün adları — ürün→sipariş filtresi için
+  createdAt: number;
+  district: string | null;
+}
+
+export async function getTrendyolPeriodOrders(
+  period: TrendyolPeriod = "today",
+  referenceDate?: number,
+): Promise<TrendyolPeriodOrder[]> {
+  const { start, end } = periodRange(period, referenceDate);
+  const { start: pkgApiStart, end: pkgApiEnd } = apiRange(period, referenceDate);
+
+  let res: Awaited<ReturnType<typeof fetchAllPackages>>;
+  try {
+    res = await fetchAllPackages(pkgApiStart, pkgApiEnd);
+  } catch {
+    return [];
+  }
+  if (!res.ok) return [];
+
+  return res.packages
+    .filter((p) => p.packageCreationDate >= start && p.packageCreationDate <= end)
+    .sort((a, b) => b.packageCreationDate - a.packageCreationDate)
+    .map((p) => {
+      const key = paymentKey(p);
+      return {
+        orderNumber: p.orderNumber,
+        customerName:
+          [p.customer?.firstName, p.customer?.lastName].filter(Boolean).join(" ") || "—",
+        customerPhone: p.address?.phone ?? null,
+        customerId: p.customer?.id != null ? String(p.customer.id) : null,
+        total: p.totalPrice ?? 0,
+        status: p.packageStatus,
+        paymentMethod: PAYMENT_LABEL[key] ?? "—",
+        paymentKey: key,
+        products: (p.lines ?? []).map((l) => l.name),
+        createdAt: p.packageCreationDate,
+        district: p.address?.district ?? null,
+      };
+    });
+}
+
 export async function getTrendyolDashboardStats(
   period: TrendyolPeriod = "today",
   referenceDate?: number,

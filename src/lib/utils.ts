@@ -14,6 +14,15 @@ export function formatCurrency(amount: number): string {
   }).format(amount);
 }
 
+// Kuruşsuz (tam TL) — kartlar/özet gösterimleri için. Örn. ₺465.970
+export function formatCurrencyShort(amount: number): string {
+  return new Intl.NumberFormat("tr-TR", {
+    style: "currency",
+    currency: "TRY",
+    maximumFractionDigits: 0,
+  }).format(amount);
+}
+
 // ─── Tarih formatı ────────────────────────────────────────────────────────────
 export function formatDate(date: Date | string): string {
   return new Intl.DateTimeFormat("tr-TR", {

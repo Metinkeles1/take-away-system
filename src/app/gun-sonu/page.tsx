@@ -791,8 +791,13 @@ function ComparisonBadge({
   );
 }
 
-export default function EndOfDayPage() {
-  const [date, setDate] = useState(istanbulToday);
+export default function EndOfDayPage({ initialDate }: { initialDate?: string } = {}) {
+  const [date, setDate] = useState(() => initialDate ?? istanbulToday());
+  // Komuta Merkezi'ne gömülüyken seçili güne senkronla (route olarak açılınca
+  // initialDate undefined → kendi tarih seçicisi çalışır).
+  useEffect(() => {
+    if (initialDate) setDate(initialDate);
+  }, [initialDate]);
   const [report, setReport] = useState<EndOfDayReport | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [closed, setClosed] = useState(false);
