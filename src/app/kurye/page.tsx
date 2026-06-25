@@ -54,6 +54,8 @@ import {
   cn,
 } from "@/lib/utils";
 import { LocationPicker, type LatLng } from "@/components/kurye/LocationPicker";
+import { PoolMapSelect } from "@/components/kurye/PoolMapSelect";
+import { orderStopsByProximity, buildGoogleRouteUrl } from "@/lib/kurye/route";
 
 // Pusher (websocket) anlık güncellemeyi sağlar; bu poll yalnızca emniyet ağı
 // (Pusher devre dışıysa / kaçan olay için). Bu yüzden seyrek tutulur.
@@ -363,6 +365,10 @@ export default function KuryePage() {
   const [pickerOrder, setPickerOrder] = useState<Order | null>(null);
   const [pickerCenter, setPickerCenter] = useState<LatLng>(DEFAULT_MAP_CENTER);
   const [pickerSaving, setPickerSaving] = useState(false);
+  // Havuzdan haritayla toplu seçim (üstlenme) ekranı açık mı.
+  const [poolMapOpen, setPoolMapOpen] = useState(false);
+  // Teslimat haritası: bu sefer götürülecek partiyi seçip rota al (üstlenme yok).
+  const [planMapOpen, setPlanMapOpen] = useState(false);
   const startX = useRef<number | null>(null);
 
   const load = async () => {
@@ -484,6 +490,27 @@ export default function KuryePage() {
   // Aktif indeks her zaman geçerli aralıkta kalsın.
   const idx = Math.min(active, Math.max(0, sorted.length - 1));
   const current = sorted[idx];
+
+  // ─── Rota (çoklu durak yol tarifi) ─────────────────────────────────────────
+  // Teslimat listemdeki PİNLİ paketleri dükkandan başlayarak yakınlık sırasına
+  // diz; ≥2 durak varsa hepsini tek Google Maps linkinde aç. Pinsizler rotaya
+  // girmez (koordinatı yok) — sayıları ayrıca uyarı olarak gösterilir.
+  const routeStops = useMemo(
+    () => sorted.filter((o) => o.customer.geo),
+    [sorted],
+  );
+  const orderedRoute = useMemo(
+    () => orderStopsByProximity(routeStops, shopLocation),
+    [routeStops, shopLocation],
+  );
+  // Pinsiz paketler — rota görünümünde geocode'lu yaklaşık durak olur (atılmaz).
+  const unpinnedStops = useMemo(
+    () => sorted.filter((o) => !o.customer.geo),
+    [sorted],
+  );
+  // Rotaya girebilecek toplam durak (pinli + pinsiz). ≥2 ise rota anlamlı.
+  const routableCount = orderedRoute.length + unpinnedStops.length;
+  const canRoute = routableCount >= 2;
 
   const go = (i: number) => {
     setConfirming(false);
@@ -722,6 +749,17 @@ export default function KuryePage() {
     if (!res.ok) await load(); // çakışma/başarısızlık → gerçek duruma senkronla
   };
 
+  // Haritadan seçilen paketleri tek seferde üstlen (optimistic + tek bulk çağrı).
+  const claimSelected = async (ids: string[]) => {
+    if (!courier || ids.length === 0) return;
+    const idSet = new Set(ids);
+    setOrders((prev) =>
+      prev.map((x) => (idSet.has(x.id) && !x.courier ? { ...x, courier } : x)),
+    );
+    const res = await claimManyOrders(ids, courier);
+    if (!res.ok) await load();
+  };
+
   // Hibrit "Konumu Pinle": önce GPS dene. İYİ doğruluk gelirse otomatik kaydet
   // (harita yok). GPS yok / düşük doğruluk olursa haritada elle işaretlemeye düş —
   // yanlış/uzak pin asla sessizce kaydedilmez.
@@ -923,6 +961,7 @@ export default function KuryePage() {
             claimingId={claimingId}
             onToggle={(o) => void toggleClaim(o)}
             onClaimAll={() => void claimAll()}
+            onOpenMap={() => setPoolMapOpen(true)}
           />
         ) : sorted.length === 0 || !current ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
@@ -966,6 +1005,44 @@ export default function KuryePage() {
           </div>
         ) : (
           <>
+            {/* Rota çubuğu — teslimat listemde ≥2 durak varsa tek dokunuşla Google
+                yol tarifini aç: pinliler dükkandan optimize sırayla (koordinatla),
+                pinsizler metin adresiyle (Google kendi bulur). Tek paketse görünmez. */}
+            {canRoute && (
+              <div className="px-4 pt-3">
+                <div className="flex items-stretch gap-2">
+                  {/* Hepsine tek dokunuş rota — pinli koordinat + pinsiz metin. */}
+                  <a
+                    href={buildGoogleRouteUrl(
+                      orderedRoute,
+                      unpinnedStops.map(fullAddress),
+                    )}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-indigo-600 py-3.5 text-sm font-bold text-white shadow-sm shadow-indigo-600/25 transition active:scale-[0.98]"
+                  >
+                    <Navigation className="h-5 w-5 fill-white" />
+                    Yol Tarifi Al ({routableCount})
+                  </a>
+                  {/* Planla — bu sefer götürülecek partiyi haritadan seç (üstlenme yok). */}
+                  <button
+                    onClick={() => setPlanMapOpen(true)}
+                    aria-label="Haritada planla"
+                    className="flex w-16 shrink-0 flex-col items-center justify-center gap-0.5 rounded-2xl bg-white text-indigo-700 ring-1 ring-indigo-200 transition active:scale-95"
+                  >
+                    <MapPin className="h-4 w-4" />
+                    <span className="text-[11px] font-bold">Planla</span>
+                  </button>
+                </div>
+                {unpinnedStops.length > 0 && (
+                  <p className="mt-1.5 flex items-center justify-center gap-1 text-center text-[11px] font-medium text-slate-500">
+                    <MapPin className="h-3 w-3 shrink-0" />
+                    {unpinnedStops.length} pinsiz adresi Google adıyla bulacak
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Konum göstergesi + ok ile gezinme */}
             <div className="flex items-center justify-center gap-4 px-4 py-3">
               <button
@@ -1154,6 +1231,26 @@ export default function KuryePage() {
         </footer>
       )}
 
+      {/* Havuzdan haritayla toplu seçim — rotaya uyanları üstlen, kalan havuzda kalsın. */}
+      <PoolMapSelect
+        open={poolMapOpen}
+        orders={allSorted}
+        courier={courier}
+        shopLocation={shopLocation}
+        onClose={() => setPoolMapOpen(false)}
+        onClaim={claimSelected}
+      />
+
+      {/* Teslimat haritası — bu sefer götürülecek partiyi seç, doğrudan rota (üstlenme yok). */}
+      <PoolMapSelect
+        open={planMapOpen}
+        orders={sorted}
+        courier={courier}
+        shopLocation={shopLocation}
+        onClose={() => setPlanMapOpen(false)}
+        mode="route"
+      />
+
       {/* Manuel konum seçici (hibrit fallback + "haritadan seç") */}
       <LocationPicker
         open={!!pickerOrder}
@@ -1320,6 +1417,60 @@ function shortAddress(o: Order): string {
   return [o.customer.address, o.customer.district].filter(Boolean).join(", ");
 }
 
+// Bu mesafenin (m) altındaki pinli siparişler "yakın" sayılır → aynı gruba düşer.
+const CLUSTER_THRESHOLD_M = 800;
+
+// Havuzdaki PİNLİ siparişleri kuş uçuşu yakınlığa göre kümeler (single-linkage,
+// union-find). Yalnızca ≥2 üyeli gruplara 1'den başlayan numara verilir; kurye
+// "aynı renk = birlikte al" diye tarar. Pinsizler (koordinatsız) kümelenmez.
+// Saf matematik — API/maliyet yok. Havuz küçük olduğu için O(n²) sorun değil.
+function clusterPoolOrders(orders: Order[]): Record<string, number> {
+  const pinned = orders.filter((o) => o.customer.geo);
+  const n = pinned.length;
+  const parent = Array.from({ length: n }, (_, i) => i);
+  const find = (x: number): number => {
+    while (parent[x] !== x) {
+      parent[x] = parent[parent[x]];
+      x = parent[x];
+    }
+    return x;
+  };
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      if (
+        haversineMeters(pinned[i].customer.geo!, pinned[j].customer.geo!) <=
+        CLUSTER_THRESHOLD_M
+      ) {
+        parent[find(i)] = find(j);
+      }
+    }
+  }
+  const groups = new Map<number, number[]>();
+  for (let i = 0; i < n; i++) {
+    const r = find(i);
+    const arr = groups.get(r);
+    if (arr) arr.push(i);
+    else groups.set(r, [i]);
+  }
+  const result: Record<string, number> = {};
+  let g = 0;
+  for (const members of groups.values()) {
+    if (members.length < 2) continue;
+    g += 1;
+    for (const idx of members) result[pinned[idx].id] = g;
+  }
+  return result;
+}
+
+// Yakın-grup rozet renkleri (grup no'ya göre döner).
+const CLUSTER_CHIPS = [
+  "bg-sky-100 text-sky-700 ring-sky-200",
+  "bg-violet-100 text-violet-700 ring-violet-200",
+  "bg-emerald-100 text-emerald-700 ring-emerald-200",
+  "bg-orange-100 text-orange-700 ring-orange-200",
+  "bg-pink-100 text-pink-700 ring-pink-200",
+];
+
 // ─── Tüm Paketler (havuz / checklist) ────────────────────────────────────────
 // Bütün aktif paketler alt alta, kısaca: #no · adres · ödeme. Kurye kendi
 // aldıklarını check'ler → "Benim Paketlerim"e geçer. Başka kuryenin aldığı satır
@@ -1330,14 +1481,19 @@ function PoolList({
   claimingId,
   onToggle,
   onClaimAll,
+  onOpenMap,
 }: {
   orders: Order[];
   courier: string | null;
   claimingId: string | null;
   onToggle: (o: Order) => void;
   onClaimAll: () => void;
+  onOpenMap: () => void;
 }) {
   const freeCount = orders.filter((o) => !o.courier).length;
+  // Yakın siparişleri kümele → kurye aynı bölgedekileri birlikte üstlensin.
+  const clusters = useMemo(() => clusterPoolOrders(orders), [orders]);
+  const hasClusters = Object.keys(clusters).length > 0;
 
   if (orders.length === 0) {
     return (
@@ -1352,6 +1508,17 @@ function PoolList({
 
   return (
     <div className="space-y-2 px-3 py-3">
+      {/* Haritadan toplu seçim — adresleri görüp rotana uyanları üstlen. */}
+      {freeCount > 1 && (
+        <button
+          onClick={onOpenMap}
+          className="flex w-full items-center justify-center gap-2 rounded-2xl bg-indigo-600 py-3 text-sm font-bold text-white shadow-sm shadow-indigo-600/25 transition active:scale-[0.98]"
+        >
+          <MapPin className="h-4 w-4" />
+          Haritada Seç
+        </button>
+      )}
+
       {/* Yoğun gün / tek kurye: tek dokunuşla tüm boş paketleri üstlen. */}
       {freeCount > 1 && (
         <button
@@ -1363,11 +1530,20 @@ function PoolList({
         </button>
       )}
 
+      {/* Yakın-grup ipucu — aynı renk rozetli paketler birbirine yakın. */}
+      {hasClusters && (
+        <div className="flex items-center gap-2 rounded-2xl bg-indigo-50 px-3.5 py-2.5 text-xs font-semibold text-indigo-700 ring-1 ring-indigo-100">
+          <MapPin className="h-4 w-4 shrink-0" />
+          Aynı renkli paketler birbirine yakın — birlikte almak rota kazandırır.
+        </div>
+      )}
+
       {orders.map((o) => {
         const mine = o.courier === courier;
         const claimedByOther = !!o.courier && !mine;
         const busy = claimingId === o.id;
         const pay = PAYMENT_LABEL[o.payment.method];
+        const group = clusters[o.id];
         const itemCount = o.items.reduce((s, i) => s + i.quantity, 0);
         return (
           <button
@@ -1417,6 +1593,17 @@ function PoolList({
                   >
                     <pay.icon className="h-3 w-3" />
                     {pay.label}
+                  </span>
+                )}
+                {group && (
+                  <span
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-bold ring-1",
+                      CLUSTER_CHIPS[(group - 1) % CLUSTER_CHIPS.length],
+                    )}
+                  >
+                    <MapPin className="h-3 w-3" />
+                    Yakın {group}
                   </span>
                 )}
                 <span className="ml-auto inline-flex items-center gap-1 text-[10px] text-slate-400">
