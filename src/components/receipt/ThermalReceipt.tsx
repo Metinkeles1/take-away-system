@@ -9,6 +9,10 @@ interface ThermalReceiptProps {
   total: number;
   subtotal: number;
   orderNumber?: number;
+  // Mevcut bir siparişin oluşturulma tarihi. Verilirse fişte bu tarih/saat
+  // basılır (sipariş ne zaman verildiyse o). Verilmezse — yeni sipariş
+  // oluşturma akışı — yazdırma anı (new Date()) kullanılır.
+  createdAt?: Date | string;
   // Müşterinin ÖNCEKİ ödenmemiş siparişleri. Doluysa fişe "Eski Açık Hesap"
   // bölümü (tam dökümlü) + GENEL TOPLAM eklenir; kurye kapıda toplam alacağı
   // tek kâğıttan görür. Boş/undefined ise fiş bugünküyle birebir aynı kalır.
@@ -114,13 +118,17 @@ const SectionTitle = ({ children }: { children: React.ReactNode }) => (
 );
 
 const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptProps>(
-  ({ draft, total, subtotal, orderNumber, openAccounts }, ref) => {
+  ({ draft, total, subtotal, orderNumber, createdAt, openAccounts }, ref) => {
     const hasDebt = !!openAccounts && openAccounts.orders.length > 0;
     const grandTotal = total + (openAccounts?.total ?? 0);
     const uniqueId = useId();
     const receiptId = `thermal-receipt-${uniqueId.replace(/:/g, "")}`;
 
-    // Tarih/saat sadece client'ta hesaplanır — SSR'da new Date() çağırırsak
+    // Fişteki tarih/saat = siparişin verildiği an (createdAt). Mevcut bir
+    // siparişi sonradan yazdırınca yazdırma anı değil, sipariş zamanı basılır.
+    //
+    // createdAt verilmezse (yeni sipariş oluşturma akışı) yazdırma anı kullanılır.
+    // Bu durumda tarih SADECE client'ta hesaplanır — SSR'da new Date() çağırırsak
     // sunucu vs. istemci farklı saatte render edip hydration mismatch oluşur
     // (özellikle gece yarısı sınırını geçince gün de farklı çıkar).
     // useSyncExternalStore: SSR snapshot null, client snapshot ilk çağrıda
@@ -130,14 +138,16 @@ const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptProps>(
       let cached: Date | null = null;
       return () => (cached ??= new Date());
     }, []);
-    const printDate = useSyncExternalStore(
+    const liveDate = useSyncExternalStore(
       () => () => {},
       getDateSnapshot,
       () => null,
     );
-    const dateStr = printDate ? printDate.toLocaleDateString("tr-TR") : "";
-    const timeStr = printDate
-      ? printDate.toLocaleTimeString("tr-TR", {
+    // createdAt sabit bir geçmiş tarih olduğundan SSR'da da güvenle render edilir.
+    const receiptDate = createdAt ? new Date(createdAt) : liveDate;
+    const dateStr = receiptDate ? receiptDate.toLocaleDateString("tr-TR") : "";
+    const timeStr = receiptDate
+      ? receiptDate.toLocaleTimeString("tr-TR", {
           hour: "2-digit",
           minute: "2-digit",
         })

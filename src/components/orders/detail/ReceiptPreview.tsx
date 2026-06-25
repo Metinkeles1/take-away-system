@@ -49,6 +49,7 @@ const ReceiptPreview = memo(
                 total={order.total}
                 subtotal={order.subtotal}
                 orderNumber={order.orderNumber}
+                createdAt={order.createdAt}
                 openAccounts={openAccounts}
               />
             </div>
