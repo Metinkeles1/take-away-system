@@ -131,6 +131,14 @@ function fullAddress(o: Order): string {
     .join(", ");
 }
 
+// Tek durağa Google yol tarifi: pinliyse kesin koordinat, değilse metin adresi
+// (Google geocode eder). Alt bardaki "Git" butonu bunu kullanır.
+function singleStopMapsUrl(o: Order): string {
+  return o.customer.geo
+    ? `https://www.google.com/maps/search/?api=1&query=${o.customer.geo.lat},${o.customer.geo.lng}`
+    : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullAddress(o))}`;
+}
+
 // "Teslim edildi" bildirimi — sade: adres — ödeme tipi — Teslim edildi.
 // Numara YOK: WhatsApp'ın sohbet seçme ekranı açılır, kurye grubu seçip gönderir.
 // (WhatsApp deep-link ile belirli bir gruba doğrudan mesaj atmaya izin vermez.)
@@ -369,6 +377,8 @@ export default function KuryePage() {
   const [poolMapOpen, setPoolMapOpen] = useState(false);
   // Teslimat haritası: bu sefer götürülecek partiyi seçip rota al (üstlenme yok).
   const [planMapOpen, setPlanMapOpen] = useState(false);
+  // Başlıktaki "Rota" girişiyle açılan alt sheet (tüm rota / haritadan planla).
+  const [routeSheetOpen, setRouteSheetOpen] = useState(false);
   const startX = useRef<number | null>(null);
 
   const load = async () => {
@@ -880,13 +890,26 @@ export default function KuryePage() {
               <p className="text-[11px] text-slate-400">değiştirmek için dokun</p>
             </div>
           </button>
-          <button
-            onClick={() => void load()}
-            aria-label="Yenile"
-            className="rounded-full p-2.5 text-slate-300 transition hover:bg-white/10 active:scale-90"
-          >
-            <RefreshCw className={cn("h-5 w-5", loading && "animate-spin")} />
-          </button>
+          <div className="flex items-center gap-1.5">
+            {/* Gezi rotası tek giriş — teslimat sekmesinde ≥2 durak varsa. Alt sheet
+                açar: tüm rotaya yol tarifi / haritadan planla. */}
+            {activeTab === "mine" && canRoute && (
+              <button
+                onClick={() => setRouteSheetOpen(true)}
+                className="flex items-center gap-1.5 rounded-full bg-indigo-500/20 px-3 py-1.5 text-xs font-bold text-indigo-300 transition active:scale-95"
+              >
+                <Navigation className="h-3.5 w-3.5 fill-indigo-300" />
+                Rota {routableCount}
+              </button>
+            )}
+            <button
+              onClick={() => void load()}
+              aria-label="Yenile"
+              className="rounded-full p-2.5 text-slate-300 transition hover:bg-white/10 active:scale-90"
+            >
+              <RefreshCw className={cn("h-5 w-5", loading && "animate-spin")} />
+            </button>
+          </div>
         </div>
 
         {/* Sekme çubuğu — yalnızca birden fazla kurye tanımlıysa. Tek kuryede
@@ -1005,44 +1028,6 @@ export default function KuryePage() {
           </div>
         ) : (
           <>
-            {/* Rota çubuğu — teslimat listemde ≥2 durak varsa tek dokunuşla Google
-                yol tarifini aç: pinliler dükkandan optimize sırayla (koordinatla),
-                pinsizler metin adresiyle (Google kendi bulur). Tek paketse görünmez. */}
-            {canRoute && (
-              <div className="px-4 pt-3">
-                <div className="flex items-stretch gap-2">
-                  {/* Hepsine tek dokunuş rota — pinli koordinat + pinsiz metin. */}
-                  <a
-                    href={buildGoogleRouteUrl(
-                      orderedRoute,
-                      unpinnedStops.map(fullAddress),
-                    )}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-indigo-600 py-3.5 text-sm font-bold text-white shadow-sm shadow-indigo-600/25 transition active:scale-[0.98]"
-                  >
-                    <Navigation className="h-5 w-5 fill-white" />
-                    Yol Tarifi Al ({routableCount})
-                  </a>
-                  {/* Planla — bu sefer götürülecek partiyi haritadan seç (üstlenme yok). */}
-                  <button
-                    onClick={() => setPlanMapOpen(true)}
-                    aria-label="Haritada planla"
-                    className="flex w-16 shrink-0 flex-col items-center justify-center gap-0.5 rounded-2xl bg-white text-indigo-700 ring-1 ring-indigo-200 transition active:scale-95"
-                  >
-                    <MapPin className="h-4 w-4" />
-                    <span className="text-[11px] font-bold">Planla</span>
-                  </button>
-                </div>
-                {unpinnedStops.length > 0 && (
-                  <p className="mt-1.5 flex items-center justify-center gap-1 text-center text-[11px] font-medium text-slate-500">
-                    <MapPin className="h-3 w-3 shrink-0" />
-                    {unpinnedStops.length} pinsiz adresi Google adıyla bulacak
-                  </p>
-                )}
-              </div>
-            )}
-
             {/* Konum göstergesi + ok ile gezinme */}
             <div className="flex items-center justify-center gap-4 px-4 py-3">
               <button
@@ -1071,10 +1056,7 @@ export default function KuryePage() {
                 key={current.id}
                 o={current}
                 shopLocation={shopLocation}
-                pinning={pinningId === current.id}
-                pinError={pinErrors[current.id]}
                 payError={payErrors[current.id]}
-                onPin={() => void handlePin(current)}
                 onPickOnMap={() => openMapManual(current)}
                 onSetPayment={(m) => void handleSetPayment(current, m)}
               />
@@ -1109,17 +1091,48 @@ export default function KuryePage() {
               <span>{deliverError}</span>
             </div>
           )}
+          {!confirming && pinErrors[current.id] && (
+            <div className="mx-auto flex max-w-md items-start gap-2 px-3 pt-2 text-sm font-medium text-amber-700">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{pinErrors[current.id]}</span>
+            </div>
+          )}
           <div className="mx-auto flex max-w-md items-stretch gap-2.5 p-3">
             {!confirming ? (
               <>
                 <a
                   href={`tel:${current.customer.phone}`}
                   aria-label="Müşteriyi ara"
-                  className="flex w-20 shrink-0 flex-col items-center justify-center gap-0.5 rounded-2xl bg-blue-600 text-white shadow-sm shadow-blue-600/25 transition active:scale-95"
+                  className="flex w-16 shrink-0 flex-col items-center justify-center gap-0.5 rounded-2xl bg-blue-600 text-white shadow-sm shadow-blue-600/25 transition active:scale-95"
                 >
                   <Phone className="h-5 w-5" />
-                  <span className="text-xs font-semibold">Ara</span>
+                  <span className="text-[11px] font-semibold">Ara</span>
                 </a>
+                {/* Bu durağa git (pinli→koordinat, değil→metin) ya da önce Pinle. */}
+                {current.customer.geo ? (
+                  <a
+                    href={singleStopMapsUrl(current)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-slate-900 py-4 text-base font-bold text-white shadow-sm transition active:scale-[0.98]"
+                  >
+                    <Navigation className="h-5 w-5 fill-white" /> Git
+                  </a>
+                ) : (
+                  <button
+                    onClick={() => void handlePin(current)}
+                    disabled={pinningId === current.id}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-amber-500 py-4 text-base font-bold text-white shadow-sm shadow-amber-500/25 transition active:scale-[0.98] disabled:opacity-70"
+                  >
+                    {pinningId === current.id ? (
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    ) : (
+                      <>
+                        <LocateFixed className="h-5 w-5" /> Pinle
+                      </>
+                    )}
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     setDeliverError(null);
@@ -1132,7 +1145,7 @@ export default function KuryePage() {
                     <Loader2 className="h-5 w-5 animate-spin" />
                   ) : (
                     <>
-                      <CheckCircle2 className="h-5 w-5" /> Teslim Et
+                      <CheckCircle2 className="h-5 w-5" /> Teslim
                     </>
                   )}
                 </button>
@@ -1250,6 +1263,63 @@ export default function KuryePage() {
         onClose={() => setPlanMapOpen(false)}
         mode="route"
       />
+
+      {/* Rota alt sheet — başlıktaki "Rota" çipi açar. Tek giriş, iki yol:
+          tüm rotaya yol tarifi (hepsi) veya haritadan planla/seç. */}
+      {routeSheetOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40"
+          onClick={() => setRouteSheetOpen(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-t-3xl bg-white p-5 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center gap-2">
+              <Navigation className="h-5 w-5 fill-indigo-600 text-indigo-600" />
+              <h3 className="text-base font-bold text-slate-900">Rota</h3>
+              <button
+                onClick={() => setRouteSheetOpen(false)}
+                aria-label="Kapat"
+                className="ml-auto grid h-8 w-8 place-items-center rounded-full text-slate-400 transition active:scale-90 hover:bg-slate-100"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="space-y-2.5">
+              <a
+                href={buildGoogleRouteUrl(
+                  orderedRoute,
+                  unpinnedStops.map(fullAddress),
+                )}
+                target="_blank"
+                rel="noreferrer"
+                onClick={() => setRouteSheetOpen(false)}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-indigo-600 py-4 text-base font-bold text-white shadow-sm shadow-indigo-600/25 transition active:scale-[0.98]"
+              >
+                <Navigation className="h-5 w-5 fill-white" />
+                Tüm rotaya yol tarifi ({routableCount})
+              </a>
+              <button
+                onClick={() => {
+                  setRouteSheetOpen(false);
+                  setPlanMapOpen(true);
+                }}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-white py-3.5 text-sm font-bold text-indigo-700 ring-1 ring-indigo-200 transition active:scale-[0.98]"
+              >
+                <MapPin className="h-4 w-4" />
+                Haritadan planla / seç
+              </button>
+            </div>
+            {unpinnedStops.length > 0 && (
+              <p className="mt-3 flex items-center justify-center gap-1 text-center text-[11px] font-medium text-slate-500">
+                <MapPin className="h-3 w-3 shrink-0" />
+                {unpinnedStops.length} pinsiz adresi Google adıyla bulacak
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Manuel konum seçici (hibrit fallback + "haritadan seç") */}
       <LocationPicker
@@ -1635,19 +1705,15 @@ function PoolList({
 function OrderCard({
   o,
   shopLocation,
-  pinning,
-  pinError,
-  onPin,
   onPickOnMap,
   payError,
   onSetPayment,
 }: {
   o: Order;
   shopLocation: ShopLocation | null;
-  pinning: boolean;
-  pinError?: string;
   payError?: string;
-  onPin: () => void;
+  // Pinli durağın konumunu düzeltmek için (kart içi küçük link). Pinleme aksiyonu
+  // artık alt barda ("Pinle"); kart yalnızca bilgi + düzeltme linki taşır.
   onPickOnMap: () => void;
   onSetPayment: (method: PaymentMethod) => void;
 }) {
@@ -1670,9 +1736,6 @@ function OrderCard({
     shopLocation && geo
       ? formatDistance(haversineMeters(shopLocation, geo))
       : null;
-  const mapsUrl = hasPin
-    ? `https://www.google.com/maps/search/?api=1&query=${geo!.lat},${geo!.lng}`
-    : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullAddress(o))}`;
   const detail = [o.customer.addressDetail, o.customer.district]
     .filter(Boolean)
     .join(" · ");
@@ -1746,59 +1809,26 @@ function OrderCard({
                 {detail}
               </p>
             )}
-            {/* Dükkana kuş uçuşu uzaklık — pin + dükkan konumu varsa görünür. */}
-            {distanceLabel && (
-              <span className="mt-1.5 inline-flex items-center gap-1 rounded-lg bg-blue-50 px-2 py-0.5 text-xs font-bold text-blue-700 ring-1 ring-blue-100">
-                <Navigation className="h-3 w-3 fill-blue-700" />
-                Dükkana {distanceLabel}
-              </span>
-            )}
+            {/* Dükkana kuş uçuşu uzaklık + pinliyken küçük "düzelt" linki.
+                Navigasyon/pinleme aksiyonları artık alt barda. */}
+            <div className="mt-1.5 flex flex-wrap items-center gap-2">
+              {distanceLabel && (
+                <span className="inline-flex items-center gap-1 rounded-lg bg-blue-50 px-2 py-0.5 text-xs font-bold text-blue-700 ring-1 ring-blue-100">
+                  <Navigation className="h-3 w-3 fill-blue-700" />
+                  Dükkana {distanceLabel}
+                </span>
+              )}
+              {hasPin && (
+                <button
+                  onClick={onPickOnMap}
+                  className="inline-flex items-center gap-1 rounded-lg px-1.5 py-0.5 text-xs font-semibold text-slate-500 ring-1 ring-slate-200 transition active:scale-95"
+                >
+                  <MapPin className="h-3 w-3" /> Konumu düzelt
+                </button>
+              )}
+            </div>
           </div>
         </div>
-
-        {/* Birincil aksiyonlar — Yol Tarifi (büyük) + konum aksiyonu yan yana.
-            İkisi de net ve dengeli: pin durumu adres ikonundaki rozetten okunur,
-            buradaki konum butonu yalnızca aksiyondur (Pinle / Düzelt). */}
-        <div className="mt-4 flex items-stretch gap-2.5">
-          <a
-            href={mapsUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-blue-600 text-base font-bold text-white shadow-sm shadow-blue-600/25 transition active:scale-[0.98]"
-          >
-            <Navigation className="h-5 w-5 fill-white" /> Yol Tarifi
-          </a>
-
-          {hasPin ? (
-            <button
-              onClick={onPickOnMap}
-              aria-label="Konumu düzelt"
-              className="flex w-24 shrink-0 flex-col items-center justify-center gap-1 rounded-2xl bg-slate-100 py-3 text-slate-700 ring-1 ring-slate-200 transition active:scale-95"
-            >
-              <MapPin className="h-5 w-5 text-blue-600" />
-              <span className="text-xs font-bold">Düzelt</span>
-            </button>
-          ) : (
-            <button
-              onClick={onPin}
-              disabled={pinning}
-              aria-label="Konumu pinle"
-              className="flex w-24 shrink-0 flex-col items-center justify-center gap-1 rounded-2xl bg-amber-500 py-3 text-white shadow-sm shadow-amber-500/25 transition active:scale-95 disabled:opacity-70"
-            >
-              {pinning ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : (
-                <LocateFixed className="h-5 w-5" />
-              )}
-              <span className="text-xs font-bold">
-                {pinning ? "Alınıyor…" : "Pinle"}
-              </span>
-            </button>
-          )}
-        </div>
-        {pinError && (
-          <p className="mt-2 text-xs font-medium text-amber-700">{pinError}</p>
-        )}
       </div>
 
       {/* Müşteri + tahsilat. Açık hesap varsa tutar = bu sipariş + eski borç
