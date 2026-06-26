@@ -22,18 +22,32 @@ interface Props {
 
 // Son siparişler — Kendi (DB) + Trendyol (API) birleşik, en yeniler üstte.
 export function KomutaRecentOrders({ period, channel, dayOffset }: Props) {
-  const [rows, setRows] = useState<KomutaOrderRow[] | null>(null);
+  // Veriyi çekildiği anahtarla sakla; rows'u render'da türet. Böylece efektte
+  // senkron setState (cascading render) yok — anahtar değişince rows null olur
+  // (loading), veri gelince dolar. Davranış aynı, lint temiz.
+  const key = `${period}|${channel}|${dayOffset}`;
+  const [fetched, setFetched] = useState<{
+    key: string;
+    rows: KomutaOrderRow[];
+  } | null>(null);
 
   useEffect(() => {
     let alive = true;
-    setRows(null);
     getKomutaPeriodOrders(period, channel, dayOffset).then((r) => {
-      if (alive) setRows(r.filter((o) => !o.status.toLowerCase().includes("cancel")).slice(0, 8));
+      if (alive)
+        setFetched({
+          key,
+          rows: r
+            .filter((o) => !o.status.toLowerCase().includes("cancel"))
+            .slice(0, 8),
+        });
     });
     return () => {
       alive = false;
     };
-  }, [period, channel, dayOffset]);
+  }, [period, channel, dayOffset, key]);
+
+  const rows = fetched?.key === key ? fetched.rows : null;
 
   return (
     <Card className="flex h-full flex-col">

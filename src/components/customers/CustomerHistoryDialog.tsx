@@ -23,25 +23,27 @@ export const CustomerHistoryDialog = memo(function CustomerHistoryDialog({
   customer,
   onClose,
 }: CustomerHistoryDialogProps) {
-  const [orders, setOrders] = useState<CustomerOrderSummary[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  // Veriyi müşterinin telefonuyla etiketle; orders/isLoading'i render'da türet.
+  // Böylece efektte senkron setState (cascading render) yok.
+  const [fetched, setFetched] = useState<{
+    phone: string;
+    orders: CustomerOrderSummary[];
+  } | null>(null);
 
   useEffect(() => {
     if (!customer) return;
     let cancelled = false;
-    setIsLoading(true);
-    setOrders([]);
-    getCustomerOrderHistory(customer.phone)
-      .then((data) => {
-        if (!cancelled) setOrders(data);
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
+    getCustomerOrderHistory(customer.phone).then((data) => {
+      if (!cancelled) setFetched({ phone: customer.phone, orders: data });
+    });
     return () => {
       cancelled = true;
     };
   }, [customer]);
+
+  const ready = !!customer && fetched?.phone === customer.phone;
+  const orders = ready ? fetched.orders : [];
+  const isLoading = !!customer && !ready;
 
   return (
     <Dialog open={!!customer} onOpenChange={(o) => !o && onClose()}>

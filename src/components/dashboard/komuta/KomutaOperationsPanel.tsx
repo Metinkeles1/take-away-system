@@ -29,18 +29,24 @@ export function KomutaOperationsPanel({
   showLegend,
   onRegionClick,
 }: Props) {
-  const [ops, setOps] = useState<KomutaOperations | null>(null);
+  // Veriyi anahtarla sakla; ops'u render'da türet (efektte senkron setState yok).
+  const key = `${period}|${channel}|${dayOffset}`;
+  const [fetched, setFetched] = useState<{
+    key: string;
+    ops: KomutaOperations;
+  } | null>(null);
 
   useEffect(() => {
     let alive = true;
-    setOps(null);
     getKomutaOperations(period, channel, dayOffset).then((r) => {
-      if (alive) setOps(r);
+      if (alive) setFetched({ key, ops: r });
     });
     return () => {
       alive = false;
     };
-  }, [period, channel, dayOffset]);
+  }, [period, channel, dayOffset, key]);
+
+  const ops = fetched?.key === key ? fetched.ops : null;
 
   const regions = ops?.regions ?? [];
   const maxRegion = Math.max(1, ...regions.map((r) => r.total));

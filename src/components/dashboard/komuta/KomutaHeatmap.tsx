@@ -19,7 +19,9 @@ export function KomutaHeatmap({ hourly, isLoading }: Props) {
   const maxTy = Math.max(1, ...hourly.map((h) => h.trendyol));
   const cols = hourly.length;
 
-  const Strip = ({
+  // Düz render fonksiyonu (bileşen DEĞİL) — render içinde bileşen tanımlamak
+  // "Cannot create components during render" hatası + gereksiz remount demek.
+  const renderStrip = ({
     label,
     color,
     pick,
@@ -79,24 +81,22 @@ export function KomutaHeatmap({ hourly, isLoading }: Props) {
           <p className="py-8 text-center text-sm text-muted-foreground">Bu dönemde sipariş yok.</p>
         ) : (
           <div className="space-y-2">
-            {hasOwn && (
-              <Strip
-                label="Kendi"
-                color="text-blue-600 dark:text-blue-400"
-                pick={(h) => h.own}
-                max={maxOwn}
-                rgb="37,99,235"
-              />
-            )}
-            {hasTy && (
-              <Strip
-                label="Trendyol"
-                color="text-orange-600 dark:text-orange-400"
-                pick={(h) => h.trendyol}
-                max={maxTy}
-                rgb="249,115,22"
-              />
-            )}
+            {hasOwn &&
+              renderStrip({
+                label: "Kendi",
+                color: "text-blue-600 dark:text-blue-400",
+                pick: (h) => h.own,
+                max: maxOwn,
+                rgb: "37,99,235",
+              })}
+            {hasTy &&
+              renderStrip({
+                label: "Trendyol",
+                color: "text-orange-600 dark:text-orange-400",
+                pick: (h) => h.trendyol,
+                max: maxTy,
+                rgb: "249,115,22",
+              })}
             {/* Saat ekseni */}
             <div className="flex items-center gap-2">
               <span className="w-16 shrink-0" />

@@ -140,11 +140,24 @@ export function ChannelSplitSheet({
 }
 
 function OrdersList({ query }: { query: OrdersQuery }) {
-  const [rows, setRows] = useState<KomutaOrderRow[] | null>(null);
+  // Veriyi anahtarla sakla; rows'u render'da türet (efektte senkron setState yok).
+  const key = [
+    query.period,
+    query.channel,
+    query.dayOffset,
+    query.method ?? "",
+    query.productName ?? "",
+    query.district ?? "",
+    query.phone ?? "",
+    query.trendyolId ?? "",
+  ].join("|");
+  const [fetched, setFetched] = useState<{
+    key: string;
+    rows: KomutaOrderRow[];
+  } | null>(null);
 
   useEffect(() => {
     let alive = true;
-    setRows(null);
     getKomutaPeriodOrders(query.period, query.channel, query.dayOffset, {
       method: query.method,
       productName: query.productName,
@@ -152,12 +165,18 @@ function OrdersList({ query }: { query: OrdersQuery }) {
       phone: query.phone,
       trendyolId: query.trendyolId,
     }).then((r) => {
-      if (alive) setRows(r.filter((o) => !o.status.toLowerCase().includes("cancel")));
+      if (alive)
+        setFetched({
+          key,
+          rows: r.filter((o) => !o.status.toLowerCase().includes("cancel")),
+        });
     });
     return () => {
       alive = false;
     };
-  }, [query.period, query.channel, query.dayOffset, query.method, query.productName, query.district, query.phone, query.trendyolId]);
+  }, [query.period, query.channel, query.dayOffset, query.method, query.productName, query.district, query.phone, query.trendyolId, key]);
+
+  const rows = fetched?.key === key ? fetched.rows : null;
 
   return (
     <div className="border-t pt-4">

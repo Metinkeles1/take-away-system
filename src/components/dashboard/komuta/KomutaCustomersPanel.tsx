@@ -35,18 +35,24 @@ export function KomutaCustomersPanel({
   onCustomerClick,
   cohorts,
 }: Props) {
-  const [data, setData] = useState<KomutaCustomers | null>(null);
+  // Veriyi anahtarla sakla; data'yı render'da türet (efektte senkron setState yok).
+  const key = `${period}|${channel}|${dayOffset}`;
+  const [fetched, setFetched] = useState<{
+    key: string;
+    data: KomutaCustomers;
+  } | null>(null);
 
   useEffect(() => {
     let alive = true;
-    setData(null);
     getKomutaCustomers(period, channel, dayOffset).then((r) => {
-      if (alive) setData(r);
+      if (alive) setFetched({ key, data: r });
     });
     return () => {
       alive = false;
     };
-  }, [period, channel, dayOffset]);
+  }, [period, channel, dayOffset, key]);
+
+  const data = fetched?.key === key ? fetched.data : null;
 
   const seg = data?.segments;
   const customers = data?.topCustomers ?? [];
