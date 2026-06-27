@@ -36,9 +36,12 @@ function addrKey(c: { address?: string; district?: string }): string {
 
 // Daha önce pinlenmiş konum varsa (telefon eşleşmesi) order.customer.geo'ya
 // iliştiririz; böylece aynı kişi AYNI adrese tekrar sipariş verince pin hazır gelir.
-// ÖNEMLİ: kayıtlı pin yalnızca adres de eşleşirse kullanılır — aksi halde müşteri
-// farklı bir adrese sipariş verdiğinde eski pin iliştirilip "Yol Tarifi" yanlış
-// (eski) konuma giderdi. Adres farklıysa pin düşer, kurye yerinde yeniden pinler.
+// Eşleşme kuralı (dengeli):
+//  • Kayıtlı pinde adres (geoAddress) VARSA → ancak sipariş adresiyle eşleşirse
+//    kullan (farklı adrese eski pin iliştirme → yanlış konum bug'ını önler).
+//  • Adres kaydı YOKSA (eski kayıtlar) → geriye dönük uyum için yine iliştir;
+//    aksi halde mevcut tüm pinler birden "pinsiz" görünürdü. İlk teslimde pin
+//    adresiyle yeniden kaydedilir, sonraki sefer kesin eşleşme devreye girer.
 export async function getCourierOrders(): Promise<Order[]> {
   await connectDB();
 
@@ -71,13 +74,12 @@ export async function getCourierOrders(): Promise<Order[]> {
 
   return docs.map((doc) => {
     const customer = doc.customer as Order["customer"];
-    // Siparişin kendi pini varsa onu kullan; yoksa müşteriye kayıtlı pini SADECE
-    // adres de eşleşiyorsa al (farklı adrese eski pin iliştirme bug'ını önler).
+    // Siparişin kendi pini varsa onu kullan; yoksa müşterinin kayıtlı pinine düş.
+    // Kayıtlı pinde adres varsa eşleşmeli; yoksa (eski kayıt) geriye dönük iliştir.
     const saved = savedByPhone.get(customer.phone);
-    const fallbackGeo =
-      saved?.geo && saved.geoAddress && saved.geoAddress === addrKey(customer)
-        ? saved.geo
-        : undefined;
+    const addrMatches =
+      !saved?.geoAddress || saved.geoAddress === addrKey(customer);
+    const fallbackGeo = saved?.geo && addrMatches ? saved.geo : undefined;
     const geo = customer.geo ?? fallbackGeo;
 
     return {
