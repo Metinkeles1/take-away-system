@@ -1056,7 +1056,10 @@ export default function KuryePage() {
                 key={current.id}
                 o={current}
                 shopLocation={shopLocation}
+                pinning={pinningId === current.id}
+                pinError={pinErrors[current.id]}
                 payError={payErrors[current.id]}
+                onPin={() => void handlePin(current)}
                 onPickOnMap={() => openMapManual(current)}
                 onSetPayment={(m) => void handleSetPayment(current, m)}
               />
@@ -1091,12 +1094,6 @@ export default function KuryePage() {
               <span>{deliverError}</span>
             </div>
           )}
-          {!confirming && pinErrors[current.id] && (
-            <div className="mx-auto flex max-w-md items-start gap-2 px-3 pt-2 text-sm font-medium text-amber-700">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>{pinErrors[current.id]}</span>
-            </div>
-          )}
           <div className="mx-auto flex max-w-md items-stretch gap-2.5 p-3">
             {!confirming ? (
               <>
@@ -1108,31 +1105,16 @@ export default function KuryePage() {
                   <Phone className="h-5 w-5" />
                   <span className="text-[11px] font-semibold">Ara</span>
                 </a>
-                {/* Bu durağa git (pinli→koordinat, değil→metin) ya da önce Pinle. */}
-                {current.customer.geo ? (
-                  <a
-                    href={singleStopMapsUrl(current)}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-slate-900 py-4 text-base font-bold text-white shadow-sm transition active:scale-[0.98]"
-                  >
-                    <Navigation className="h-5 w-5 fill-white" /> Git
-                  </a>
-                ) : (
-                  <button
-                    onClick={() => void handlePin(current)}
-                    disabled={pinningId === current.id}
-                    className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-amber-500 py-4 text-base font-bold text-white shadow-sm shadow-amber-500/25 transition active:scale-[0.98] disabled:opacity-70"
-                  >
-                    {pinningId === current.id ? (
-                      <Loader2 className="h-5 w-5 animate-spin" />
-                    ) : (
-                      <>
-                        <LocateFixed className="h-5 w-5" /> Pinle
-                      </>
-                    )}
-                  </button>
-                )}
+                {/* Bu durağa git — pinliyse kesin koordinat, değilse metin adresi
+                    (Google adresten bulur). Pinsizde de çalışır; pinleme kartta. */}
+                <a
+                  href={singleStopMapsUrl(current)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-slate-900 py-4 text-base font-bold text-white shadow-sm transition active:scale-[0.98]"
+                >
+                  <Navigation className="h-5 w-5 fill-white" /> Git
+                </a>
                 <button
                   onClick={() => {
                     setDeliverError(null);
@@ -1705,15 +1687,21 @@ function PoolList({
 function OrderCard({
   o,
   shopLocation,
+  pinning,
+  pinError,
+  onPin,
   onPickOnMap,
   payError,
   onSetPayment,
 }: {
   o: Order;
   shopLocation: ShopLocation | null;
+  pinning: boolean;
+  pinError?: string;
   payError?: string;
-  // Pinli durağın konumunu düzeltmek için (kart içi küçük link). Pinleme aksiyonu
-  // artık alt barda ("Pinle"); kart yalnızca bilgi + düzeltme linki taşır.
+  // Pinsizken "Konumu pinle" (GPS) ve pinliyken "Konumu düzelt" (haritadan) —
+  // kart içi küçük aksiyonlar. Navigasyon ("Git") alt barda.
+  onPin: () => void;
   onPickOnMap: () => void;
   onSetPayment: (method: PaymentMethod) => void;
 }) {
@@ -1809,8 +1797,8 @@ function OrderCard({
                 {detail}
               </p>
             )}
-            {/* Dükkana kuş uçuşu uzaklık + pinliyken küçük "düzelt" linki.
-                Navigasyon/pinleme aksiyonları artık alt barda. */}
+            {/* Dükkana uzaklık + konum aksiyonu: pinliyken "düzelt", pinsizken
+                "pinle" (GPS). Navigasyon ("Git") alt barda. */}
             <div className="mt-1.5 flex flex-wrap items-center gap-2">
               {distanceLabel && (
                 <span className="inline-flex items-center gap-1 rounded-lg bg-blue-50 px-2 py-0.5 text-xs font-bold text-blue-700 ring-1 ring-blue-100">
@@ -1818,15 +1806,33 @@ function OrderCard({
                   Dükkana {distanceLabel}
                 </span>
               )}
-              {hasPin && (
+              {hasPin ? (
                 <button
                   onClick={onPickOnMap}
                   className="inline-flex items-center gap-1 rounded-lg px-1.5 py-0.5 text-xs font-semibold text-slate-500 ring-1 ring-slate-200 transition active:scale-95"
                 >
                   <MapPin className="h-3 w-3" /> Konumu düzelt
                 </button>
+              ) : (
+                <button
+                  onClick={onPin}
+                  disabled={pinning}
+                  className="inline-flex items-center gap-1 rounded-lg bg-amber-500 px-2 py-1 text-xs font-bold text-white shadow-sm transition active:scale-95 disabled:opacity-70"
+                >
+                  {pinning ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <LocateFixed className="h-3 w-3" />
+                  )}
+                  {pinning ? "Alınıyor…" : "Konumu pinle"}
+                </button>
               )}
             </div>
+            {pinError && (
+              <p className="mt-1.5 text-xs font-medium text-amber-700">
+                {pinError}
+              </p>
+            )}
           </div>
         </div>
       </div>
