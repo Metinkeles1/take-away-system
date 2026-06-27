@@ -305,17 +305,32 @@ export default function MonthlyStatement({
     () => filterVouchersByScope(vouchers, options.scope),
     [vouchers, options.scope],
   );
+  // "Tahsil edilen" / "Açık bakiye" tikleri yalnızca alttaki özet satırını değil
+  // listedeki günleri de süzer: ödenmiş günler options.paid'e, açık (tam ödenmemiş)
+  // günler options.unpaid'e bağlı görünür.
+  const paymentScopedVouchers = useMemo(
+    () =>
+      visibleVouchers.filter((v) => (v.paid ? options.paid : options.unpaid)),
+    [visibleVouchers, options.paid, options.unpaid],
+  );
   const sortedVouchers = useMemo(
     () =>
-      [...visibleVouchers].sort(
+      [...paymentScopedVouchers].sort(
         (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
       ),
-    [visibleVouchers],
+    [paymentScopedVouchers],
   );
-  // "open" modunda yalnızca bir alt küme gösterildiğinden özet o kümeden hesaplanır;
-  // diğer modlarda dönemin tam istatistiği (stats prop) kullanılır.
-  const displayStats =
-    options.scope === "open" ? computeVoucherStats(visibleVouchers) : stats;
+  // Özet: liste süzülmediyse (tüm günler görünüyorsa) dönemin tam istatistiği
+  // kullanılır; "open" kapsamında ya da bir tik kapatılıp günler süzüldüğünde
+  // özet gösterilen kümeden hesaplanır ki alttaki rakamlar listeyle tutarlı kalsın.
+  const isFiltered = !options.paid || !options.unpaid;
+  const displayStats = useMemo(
+    () =>
+      options.scope === "open" || isFiltered
+        ? computeVoucherStats(sortedVouchers)
+        : stats,
+    [options.scope, isFiltered, sortedVouchers, stats],
+  );
 
   const isMarked = options.scope === "marked";
 
