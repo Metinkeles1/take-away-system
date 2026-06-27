@@ -26,6 +26,9 @@ const CAPACITY_WARN = 7;
 const PIN_SEL = `<div style="transform:translate(-50%,-50%);display:grid;place-items:center;width:28px;height:28px;border-radius:9999px;background:#16a34a;color:#fff;border:2px solid #fff;box-shadow:0 2px 4px rgba(0,0,0,.35)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div>`;
 const PIN_FREE = `<div style="transform:translate(-50%,-50%);width:22px;height:22px;border-radius:9999px;background:#fff;border:3px solid #4f46e5;box-shadow:0 2px 4px rgba(0,0,0,.3)"></div>`;
 const PIN_FREE_APPROX = `<div style="transform:translate(-50%,-50%);width:22px;height:22px;border-radius:9999px;background:#fff;border:3px dashed #d97706;box-shadow:0 2px 4px rgba(0,0,0,.3)"></div>`;
+// Konumu hiç bulunamayan pinsiz — göstermelik olarak dükkan çevresine konur.
+// Gri "?" → "yeri kesin değil, seçebilirsin ama konum güvenilmez" sinyali.
+const PIN_UNKNOWN = `<div style="transform:translate(-50%,-50%);display:grid;place-items:center;width:22px;height:22px;border-radius:9999px;background:#fff;border:3px dashed #94a3b8;color:#64748b;font:700 12px/1 system-ui,sans-serif;box-shadow:0 2px 4px rgba(0,0,0,.3)">?</div>`;
 const PIN_TAKEN = `<div style="transform:translate(-50%,-50%);width:18px;height:18px;border-radius:9999px;background:#94a3b8;border:2px solid #fff;opacity:.65"></div>`;
 const PIN_SHOP = `<div style="transform:translate(-50%,-50%);display:grid;place-items:center;width:28px;height:28px;border-radius:9999px;background:#0f172a;color:#fff;border:2px solid #fff;box-shadow:0 2px 4px rgba(0,0,0,.35)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 7l2-4h16l2 4"/><path d="M4 7v13h16V7"/><path d="M9 20v-6h6v6"/></svg></div>`;
 
@@ -86,10 +89,33 @@ export function PoolMapSelect({
         )
       : [];
 
+  // Harita merkezi — dükkan, yoksa ilk pinli, yoksa İstanbul. Konumu bulunamayan
+  // pinsizlerin "göstermelik" yerleştirileceği referans.
+  const mapCenter = shopLocation ??
+    selPinned[0]?.customer.geo ?? { lat: 41.0082, lng: 28.9784 };
+
+  // Geocode hiç tutmayan pinsizler: haritada kaybolmasın diye dükkan çevresine
+  // küçük bir halka şeklinde (üst üste binmesin) göstermelik konur. Konum güvenilmez
+  // (gri "?"), ama kurye tüm siparişleri görüp seçebilir.
+  const isUnlocated = (o: Order) => !o.customer.geo && !approxCoords[o.id];
+  const unlocated = selPinless.filter((o) => isUnlocated(o));
+  const fallbackById = new Map<string, { lat: number; lng: number }>();
+  const RING = 0.0009; // ~90-100 m
+  unlocated.forEach((o, i) => {
+    const ang = (i / Math.max(1, unlocated.length)) * Math.PI * 2;
+    fallbackById.set(o.id, {
+      lat: mapCenter.lat + RING * Math.cos(ang),
+      lng: mapCenter.lng + RING * Math.sin(ang),
+    });
+  });
+
+  // Bir paketin harita koordinatı: pinli → kendi; pinsiz → geocode; o da yoksa
+  // dükkan çevresi göstermelik. Böylece TÜM siparişler haritada görünür/seçilebilir.
   const coordOf = (o: Order): { lat: number; lng: number } | null => {
     if (o.customer.geo) return { lat: o.customer.geo.lat, lng: o.customer.geo.lng };
     const a = approxCoords[o.id];
-    return a ? { lat: a.lat, lng: a.lng } : null;
+    if (a) return { lat: a.lat, lng: a.lng };
+    return fallbackById.get(o.id) ?? null;
   };
   const onMapStops = selectable.filter((o) => coordOf(o));
 
@@ -259,11 +285,18 @@ export function PoolMapSelect({
     for (const o of onMapStops) {
       const c = coordOf(o)!;
       const sel = selected.has(o.id);
-      const approx = !o.customer.geo;
+      // Pinli → indigo; geocode'lu yaklaşık → turuncu; konumu yok (göstermelik) → gri ?.
+      const html = sel
+        ? PIN_SEL
+        : o.customer.geo
+          ? PIN_FREE
+          : approxCoords[o.id]
+            ? PIN_FREE_APPROX
+            : PIN_UNKNOWN;
       const m = L.marker([c.lat, c.lng], {
         icon: L.divIcon({
           className: "",
-          html: sel ? PIN_SEL : approx ? PIN_FREE_APPROX : PIN_FREE,
+          html,
           iconSize: sel ? [28, 28] : [22, 22],
         }),
       }).addTo(layer);
@@ -282,10 +315,11 @@ export function PoolMapSelect({
   const selectedTotal = selectedOrders.reduce((s, o) => s + o.total, 0);
 
   // Seçilenlerin (pinli + geocode'lu pinsiz) yakınlık sırası toplam mesafesi.
+  // Konumu bulunamayanlar (göstermelik dükkan yakını) mesafeyi bozmasın → hariç.
   const selectedMeters = (() => {
     const withGeo: Order[] = selectedOrders
       .map((o) => {
-        const c = coordOf(o);
+        const c = o.customer.geo ?? approxCoords[o.id];
         return c
           ? ({
               ...o,
