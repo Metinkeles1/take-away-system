@@ -20,28 +20,11 @@ import {
 // Kurye sayfası için teslim edilmesi gereken siparişler.
 // Sadece aktif (teslim/iptal olmamış) siparişleri döner — public sayfa olduğu
 // için tüm geçmişi taşımayız, en yeni en üstte.
-// Adresi karşılaştırma anahtarına indirger: küçük harf, noktalama → boşluk,
-// boşlukları sıkıştır. addressDetail (kat/daire) konumu değiştirmediği için
-// HARİÇ; adres + ilçe yeter. Böylece "No:5" vs "No 5" gibi ufak farklar pini
-// düşürmez ama farklı sokak/mahalle yakalanır.
-function addrKey(c: { address?: string; district?: string }): string {
-  return [c.address, c.district]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-// Daha önce pinlenmiş konum varsa (telefon eşleşmesi) order.customer.geo'ya
-// iliştiririz; böylece aynı kişi AYNI adrese tekrar sipariş verince pin hazır gelir.
-// Eşleşme kuralı (dengeli):
-//  • Kayıtlı pinde adres (geoAddress) VARSA → ancak sipariş adresiyle eşleşirse
-//    kullan (farklı adrese eski pin iliştirme → yanlış konum bug'ını önler).
-//  • Adres kaydı YOKSA (eski kayıtlar) → geriye dönük uyum için yine iliştir;
-//    aksi halde mevcut tüm pinler birden "pinsiz" görünürdü. İlk teslimde pin
-//    adresiyle yeniden kaydedilir, sonraki sefer kesin eşleşme devreye girer.
+// Daha önce pinlenmiş konum varsa (müşteri = telefon eşleşmesi), onu
+// order.customer.geo'ya iliştiririz; böylece aynı kişi tekrar sipariş verdiğinde
+// pin hazır gelir ve "Yol Tarifi" metin geocode yerine kesin koordinata gider.
+// Telefon eşleşmesi yeterli (adres metni karşılaştırılmaz) — kurye yanlış görürse
+// karttaki "Konumu düzelt" ile günceller.
 export async function getCourierOrders(): Promise<Order[]> {
   await connectDB();
 
@@ -54,19 +37,12 @@ export async function getCourierOrders(): Promise<Order[]> {
   // Bu siparişlerdeki müşterilerin kayıtlı pinlerini tek sorguda çek.
   const phones = [...new Set(docs.map((d) => (d.customer as Order["customer"]).phone))];
   const savedCustomers = await CustomerModel.find({ phone: { $in: phones } })
-    .select("phone geo geoAddress")
+    .select("phone geo")
     .lean();
-  const savedByPhone = new Map<
-    string,
-    { geo?: GeoPoint; geoAddress?: string }
-  >();
+  const geoByPhone = new Map<string, GeoPoint | undefined>();
   for (const c of savedCustomers) {
-    const rec = c as unknown as {
-      phone: string;
-      geo?: GeoPoint;
-      geoAddress?: string;
-    };
-    savedByPhone.set(rec.phone, { geo: rec.geo, geoAddress: rec.geoAddress });
+    const rec = c as unknown as { phone: string; geo?: GeoPoint };
+    geoByPhone.set(rec.phone, rec.geo);
   }
 
   // Bu müşterilerin açık hesapları — kurye kapıda "eski borcu var" uyarısı görsün.
@@ -74,13 +50,8 @@ export async function getCourierOrders(): Promise<Order[]> {
 
   return docs.map((doc) => {
     const customer = doc.customer as Order["customer"];
-    // Siparişin kendi pini varsa onu kullan; yoksa müşterinin kayıtlı pinine düş.
-    // Kayıtlı pinde adres varsa eşleşmeli; yoksa (eski kayıt) geriye dönük iliştir.
-    const saved = savedByPhone.get(customer.phone);
-    const addrMatches =
-      !saved?.geoAddress || saved.geoAddress === addrKey(customer);
-    const fallbackGeo = saved?.geo && addrMatches ? saved.geo : undefined;
-    const geo = customer.geo ?? fallbackGeo;
+    // Siparişin kendi pini varsa onu, yoksa müşteriye (telefon) kayıtlı pini kullan.
+    const geo = customer.geo ?? geoByPhone.get(customer.phone);
 
     return {
       id: doc.id,
@@ -133,12 +104,8 @@ export async function saveDeliveryLocation(
   if (!doc) return;
 
   const customer = (doc as unknown as { customer: Order["customer"] }).customer;
-  // Müşteriye (telefon) kaydet — pinin hangi adrese ait olduğunu da yaz ki sonraki
-  // siparişlerde yalnızca AYNI adreste otomatik iliştirilebilsin (addrKey ile eşleşme).
-  await CustomerModel.updateOne(
-    { phone: customer.phone },
-    { $set: { geo, geoAddress: addrKey(customer) } },
-  );
+  // Müşteriye (telefon) kaydet — sonraki siparişlerde pin hazır gelsin.
+  await CustomerModel.updateOne({ phone: customer.phone }, { $set: { geo } });
 }
 
 // Kurye bir siparişi üstlenir ("Tüm Paketler"de check'ler). Yarış durumunda
