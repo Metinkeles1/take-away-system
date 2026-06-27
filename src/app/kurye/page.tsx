@@ -131,12 +131,22 @@ function fullAddress(o: Order): string {
     .join(", ");
 }
 
-// Tek durağa Google yol tarifi: pinliyse kesin koordinat, değilse metin adresi
-// (Google geocode eder). Alt bardaki "Git" butonu bunu kullanır.
+// Tek durağa Google haritası. Alt bardaki "Git" butonu bunu kullanır.
+// PİNLİ: kesin koordinata git AMA üstünde KENDİ etiketimiz (müşteri · adres) görünsün.
+// (Çıplak koordinat verince Google, noktayı en yakın işletmeyle etiketliyor — örn.
+//  karşıdaki dükkânın adı — kurye "burası değil ki" diye şaşırıyordu. q=lat,lng(Etiket)
+//  formatı pini tam yerde gösterir ama etiket bizim metnimiz olur.)
+// PİNSİZ: metin adresi (Google geocode eder).
 function singleStopMapsUrl(o: Order): string {
-  return o.customer.geo
-    ? `https://www.google.com/maps/search/?api=1&query=${o.customer.geo.lat},${o.customer.geo.lng}`
-    : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullAddress(o))}`;
+  const geo = o.customer.geo;
+  if (geo) {
+    const label = [o.customer.name, o.customer.address]
+      .filter(Boolean)
+      .join(" · ")
+      .replace(/[()]/g, " ");
+    return `https://www.google.com/maps?q=${geo.lat},${geo.lng}(${encodeURIComponent(label)})`;
+  }
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullAddress(o))}`;
 }
 
 // "Teslim edildi" bildirimi — sade: adres — ödeme tipi — Teslim edildi.
