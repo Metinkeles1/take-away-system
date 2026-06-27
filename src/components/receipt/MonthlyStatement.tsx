@@ -16,8 +16,6 @@ import {
   shortPortion,
   type ReceiptOptions,
   DEFAULT_RECEIPT_OPTIONS,
-  filterVouchersByScope,
-  computeVoucherStats,
 } from "./corporateReceiptKit";
 
 /** Gün/ay kısaltması (+ çoklu dönemde yıl) + Türkçe gün adı. */
@@ -82,126 +80,77 @@ function VoucherDetail({ v }: { v: Voucher }) {
   );
 }
 
-/** "Ödenenleri işaretle" modundaki kutucuk: dolu (✓) ödendi, boş açık. */
-function StatusBox({ checked }: { checked: boolean }) {
+/** Sol baştaki durum işareti: dolu kutu+✓ = ödendi, içi boş = açık. */
+function StatusMark({ paid }: { paid: boolean }) {
   return (
     <span
       style={{
         display: "inline-flex",
         alignItems: "center",
         justifyContent: "center",
-        width: "17px",
-        height: "17px",
+        width: "18px",
+        height: "18px",
         border: "2px solid #000",
-        borderRadius: "3px",
-        backgroundColor: checked ? "#000" : "#fff",
+        borderRadius: "4px",
+        backgroundColor: paid ? "#000" : "#fff",
         color: "#fff",
-        fontSize: "12px",
+        fontSize: "13px",
         fontWeight: 800,
         lineHeight: 1,
         flexShrink: 0,
       }}
     >
-      {checked ? "✓" : ""}
+      {paid ? "✓" : ""}
     </span>
   );
 }
 
-/**
- * Grup başlığı: ÖDENENLER / AÇIK + gün sayısı. Sade, altı kalın çizgili;
- * solunda grup tipini gösteren mini kutucuk (dolu = ödenen, boş = açık).
- */
-function GroupHeader({
-  label,
-  count,
-  filled,
-}: {
-  label: string;
-  count: number;
-  filled: boolean;
-}) {
+/** Açık / kısmi durumunu vurgulayan küçük etiket. */
+function StatusTag({ children }: { children: React.ReactNode }) {
   return (
-    <div
+    <span
       style={{
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        borderBottom: "2px solid #000",
-        paddingBottom: "4px",
         fontSize: FS_SMALL,
         fontWeight: 800,
-        letterSpacing: "1px",
-        marginBottom: "8px",
+        border: "1px solid #000",
+        borderRadius: "3px",
+        padding: "0 4px",
+        whiteSpace: "nowrap",
       }}
     >
-      <span style={{ display: "flex", alignItems: "center", gap: "7px" }}>
-        <span
-          style={{
-            width: "13px",
-            height: "13px",
-            border: "2px solid #000",
-            borderRadius: "3px",
-            backgroundColor: filled ? "#000" : "#fff",
-            flexShrink: 0,
-          }}
-        />
-        {label}
-      </span>
-      <span style={{ fontVariantNumeric: "tabular-nums" }}>{count} GÜN</span>
-    </div>
+      {children}
+    </span>
   );
 }
 
-/** Üst durum şeridi: bir bakışta açık gün sayısı + kalan borç. */
-function StatusBar({ openCount, totalCount, openAmount }: {
-  openCount: number;
-  totalCount: number;
-  openAmount: string;
+/** Tek gün satırı: durum işareti + tarih + tutar + (opsiyonel) ürün dökümü. */
+function DayRow({
+  v,
+  showDetail,
+  withYear,
+  last,
+}: {
+  v: Voucher;
+  showDetail: boolean;
+  withYear: boolean;
+  last: boolean;
 }) {
+  const { dateShort, weekday } = formatVoucherDate(v.date, withYear);
+  const partial = !v.paid && v.paidAmount > 0;
+  const remaining = v.total - v.paidAmount;
   return (
     <div
       style={{
         display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        border: "2px solid #000",
-        borderRadius: "4px",
-        padding: "5px 8px",
-        fontSize: FS_SMALL,
-        fontWeight: 700,
-        marginBottom: "10px",
+        gap: "8px",
+        alignItems: "flex-start",
+        marginBottom: last ? "0" : "7px",
+        paddingBottom: last ? "0" : "7px",
+        borderBottom: last ? "none" : "2px dashed #bbb",
       }}
     >
-      <span>
-        {totalCount} günün <span style={{ fontWeight: 800 }}>{openCount}&apos;ü açık</span>
-      </span>
-      <span>
-        Açık:{" "}
-        <span style={{ fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>
-          {openAmount}
-        </span>
-      </span>
-    </div>
-  );
-}
-
-/** Bir gün satırı (kutucuklu). marked modunda kullanılır. */
-function MarkedDayRow({
-  v,
-  showAmount,
-  withYear,
-}: {
-  v: Voucher;
-  showAmount: boolean;
-  withYear: boolean;
-}) {
-  const { dateShort, weekday } = formatVoucherDate(v.date, withYear);
-  const remaining = v.total - v.paidAmount;
-  const partial = !v.paid && v.paidAmount > 0;
-  return (
-    <div style={{ display: "flex", gap: "7px", alignItems: "flex-start", marginBottom: "7px" }}>
       <div style={{ paddingTop: "1px" }}>
-        <StatusBox checked={v.paid} />
+        <StatusMark paid={v.paid} />
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div
@@ -217,61 +166,34 @@ function MarkedDayRow({
             {dateShort}{" "}
             <span style={{ fontWeight: 600, fontSize: FS_SMALL }}>{weekday}</span>
           </span>
-          {showAmount && (
-            <span
-              style={{
-                textAlign: "right",
-                whiteSpace: "nowrap",
-                fontVariantNumeric: "tabular-nums",
-                fontWeight: 800,
-                flexShrink: 0,
-              }}
-            >
-              {formatCurrency(v.total)}
-            </span>
-          )}
-        </div>
-
-        <VoucherDetail v={v} />
-
-        {partial && (
-          <div
+          <span
             style={{
-              fontSize: FS_SMALL,
-              fontWeight: 700,
-              marginTop: "2px",
-              border: "1px dashed #000",
-              borderRadius: "3px",
-              padding: "1px 4px",
-              display: "inline-block",
+              textAlign: "right",
+              whiteSpace: "nowrap",
+              fontVariantNumeric: "tabular-nums",
+              fontWeight: 800,
+              flexShrink: 0,
             }}
           >
-            Kısmi: {formatCurrency(v.paidAmount)} ödendi · kalan{" "}
-            {formatCurrency(remaining)}
+            {formatCurrency(v.total)}
+          </span>
+        </div>
+
+        {showDetail && <VoucherDetail v={v} />}
+
+        {/* Durum: ödenmemişse açık/kısmi vurgusu */}
+        {!v.paid && (
+          <div style={{ marginTop: "3px" }}>
+            {partial ? (
+              <StatusTag>
+                KISMİ · kalan {formatCurrency(remaining)}
+              </StatusTag>
+            ) : (
+              <StatusTag>AÇIK</StatusTag>
+            )}
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-/** marked modunda bir grubun ara toplam satırı. */
-function SubtotalRow({ label, amount }: { label: string; amount: string }) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "baseline",
-        borderTop: "2px solid #000",
-        paddingTop: "3px",
-        marginTop: "1px",
-        fontSize: FS_NORMAL,
-        fontWeight: 800,
-      }}
-    >
-      <span>{label}</span>
-      <span style={{ fontVariantNumeric: "tabular-nums" }}>{amount}</span>
     </div>
   );
 }
@@ -300,51 +222,17 @@ export default function MonthlyStatement({
     })}`;
   }, []);
 
-  // Ödeme durumuna göre süz, sonra eski → yeni sırala (ekstre tarih sırasına göre).
-  const visibleVouchers = useMemo(
-    () => filterVouchersByScope(vouchers, options.scope),
-    [vouchers, options.scope],
-  );
-  // "Tahsil edilen" / "Açık bakiye" tikleri yalnızca alttaki özet satırını değil
-  // listedeki günleri de süzer: ödenmiş günler options.paid'e, açık (tam ödenmemiş)
-  // günler options.unpaid'e bağlı görünür.
-  const paymentScopedVouchers = useMemo(
-    () =>
-      visibleVouchers.filter((v) => (v.paid ? options.paid : options.unpaid)),
-    [visibleVouchers, options.paid, options.unpaid],
-  );
+  // Tek liste: tüm günler eski → yeni sırayla; her satırda ödendi/açık işareti.
   const sortedVouchers = useMemo(
     () =>
-      [...paymentScopedVouchers].sort(
+      [...vouchers].sort(
         (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
       ),
-    [paymentScopedVouchers],
-  );
-  // Özet: liste süzülmediyse (tüm günler görünüyorsa) dönemin tam istatistiği
-  // kullanılır; "open" kapsamında ya da bir tik kapatılıp günler süzüldüğünde
-  // özet gösterilen kümeden hesaplanır ki alttaki rakamlar listeyle tutarlı kalsın.
-  const isFiltered = !options.paid || !options.unpaid;
-  const displayStats = useMemo(
-    () =>
-      options.scope === "open" || isFiltered
-        ? computeVoucherStats(sortedVouchers)
-        : stats,
-    [options.scope, isFiltered, sortedVouchers, stats],
+    [vouchers],
   );
 
-  const isMarked = options.scope === "marked";
-
-  // marked modunda ödenmiş / açık gruplarına ayır + ara toplamlar.
-  const { paidDays, openDays, paidSubtotal, openRemaining } = useMemo(() => {
-    const paid = sortedVouchers.filter((v) => v.paid);
-    const open = sortedVouchers.filter((v) => !v.paid);
-    return {
-      paidDays: paid,
-      openDays: open,
-      paidSubtotal: paid.reduce((s, v) => s + v.total, 0),
-      openRemaining: open.reduce((s, v) => s + (v.total - v.paidAmount), 0),
-    };
-  }, [sortedVouchers]);
+  const allPaid = stats.unpaid <= 0.005;
+  const showDetail = options.itemPrices;
 
   return (
     <ReceiptShell>
@@ -374,7 +262,25 @@ export default function MonthlyStatement({
 
       <Divider dashed />
 
-      {/* Fişler */}
+      {/* Durum açıklaması: ✓ = ödendi, içi boş = açık */}
+      <div
+        style={{
+          display: "flex",
+          gap: "12px",
+          fontSize: FS_SMALL,
+          fontWeight: 700,
+          marginBottom: "6px",
+        }}
+      >
+        <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+          <StatusMark paid={true} /> Ödendi
+        </span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+          <StatusMark paid={false} /> Açık
+        </span>
+      </div>
+
+      {/* Gün listesi */}
       {sortedVouchers.length === 0 ? (
         <div
           style={{
@@ -384,147 +290,32 @@ export default function MonthlyStatement({
             fontWeight: 700,
           }}
         >
-          {options.scope === "open"
-            ? "Açık (ödenmemiş) fiş bulunmuyor."
-            : "Bu ayda fiş bulunmuyor."}
+          Bu dönemde fiş bulunmuyor.
         </div>
-      ) : isMarked ? (
-        /* ── "Ödenenleri işaretle": durum şeridi + iki gruplu ekstre (açık önce) ── */
-        <>
-          <StatusBar
-            openCount={openDays.length}
-            totalCount={sortedVouchers.length}
-            openAmount={formatCurrency(openRemaining)}
-          />
-
-          {openDays.length > 0 && (
-            <div style={{ marginBottom: paidDays.length > 0 ? "12px" : "0" }}>
-              <GroupHeader label="AÇIK" count={openDays.length} filled={false} />
-              {openDays.map((v) => (
-                <MarkedDayRow
-                  key={v.id}
-                  v={v}
-                  showAmount={options.itemPrices}
-                  withYear={multiPeriod}
-                />
-              ))}
-              {options.total && (
-                <SubtotalRow
-                  label="Kalan Borç"
-                  amount={formatCurrency(openRemaining)}
-                />
-              )}
-            </div>
-          )}
-
-          {paidDays.length > 0 && (
-            <div>
-              <GroupHeader label="ÖDENENLER" count={paidDays.length} filled={true} />
-              {paidDays.map((v) => (
-                <MarkedDayRow
-                  key={v.id}
-                  v={v}
-                  showAmount={options.itemPrices}
-                  withYear={multiPeriod}
-                />
-              ))}
-              {options.total && (
-                <SubtotalRow
-                  label="Ara Toplam"
-                  amount={formatCurrency(paidSubtotal)}
-                />
-              )}
-            </div>
-          )}
-        </>
       ) : (
-        /* ── "Tümü" / "Sadece açık": düz tarih listesi ── */
-        <>
-          <SectionTitle>Fişler</SectionTitle>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              fontSize: FS_SMALL,
-              fontWeight: 800,
-              borderBottom: "2px solid #000",
-              paddingBottom: "3px",
-              marginBottom: "5px",
-            }}
-          >
-            <span>TARİH</span>
-            {options.itemPrices && <span>TUTAR</span>}
-          </div>
-
-          {sortedVouchers.map((v, vi) => {
-            const { dateShort, weekday } = formatVoucherDate(v.date, multiPeriod);
-            const isLast = vi === sortedVouchers.length - 1;
-            return (
-              <div
-                key={v.id}
-                style={{
-                  marginBottom: isLast ? "0" : "7px",
-                  paddingBottom: isLast ? "0" : "7px",
-                  borderBottom: isLast ? "none" : "2px dashed #bbb",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    gap: "6px",
-                    fontSize: FS_NORMAL,
-                    alignItems: "baseline",
-                  }}
-                >
-                  <span style={{ whiteSpace: "nowrap", fontWeight: 800 }}>
-                    {dateShort}{" "}
-                    <span style={{ fontWeight: 600, fontSize: FS_SMALL }}>
-                      {weekday}
-                    </span>
-                  </span>
-                  {options.itemPrices && (
-                    <span
-                      style={{
-                        textAlign: "right",
-                        whiteSpace: "nowrap",
-                        fontVariantNumeric: "tabular-nums",
-                        fontWeight: 800,
-                        flexShrink: 0,
-                      }}
-                    >
-                      {formatCurrency(v.total)}
-                    </span>
-                  )}
-                </div>
-
-                <VoucherDetail v={v} />
-              </div>
-            );
-          })}
-        </>
+        sortedVouchers.map((v, i) => (
+          <DayRow
+            key={v.id}
+            v={v}
+            showDetail={showDetail}
+            withYear={multiPeriod}
+            last={i === sortedVouchers.length - 1}
+          />
+        ))
       )}
 
       <Divider />
 
-      {/* Özet */}
-      <Row left="Fiş Sayısı" right={String(displayStats.count)} />
-      {options.total && (
-        <Row left="Toplam" right={formatCurrency(displayStats.total)} />
-      )}
-      {options.paid && (
-        <Row left="Tahsil Edilen" right={formatCurrency(displayStats.paid)} />
-      )}
-      {options.unpaid && (
-        <Row left="Açık Bakiye" right={formatCurrency(displayStats.unpaid)} bold />
-      )}
+      {/* Özet: her zaman toplam / ödenen / kalan borç */}
+      <Row left="Fiş Sayısı" right={String(stats.count)} />
+      <Row left="Toplam" right={formatCurrency(stats.total)} />
+      <Row left="Ödenen" right={formatCurrency(stats.paid)} />
 
-      {options.total &&
-        (isMarked ? (
-          <GrandTotal label="KALAN BORÇ" amount={formatCurrency(openRemaining)} />
-        ) : (
-          <GrandTotal amount={formatCurrency(displayStats.total)} />
-        ))}
+      {allPaid ? (
+        <GrandTotal label="DURUM" amount="TAMAMI ÖDENDİ" />
+      ) : (
+        <GrandTotal label="KALAN BORÇ" amount={formatCurrency(stats.unpaid)} />
+      )}
 
       <Divider dashed />
 

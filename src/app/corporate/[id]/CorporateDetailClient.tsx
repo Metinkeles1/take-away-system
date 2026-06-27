@@ -816,6 +816,8 @@ export default function CorporateDetailClient({
         title={`${formatPeriodLabel(period)} Ekstresi`}
         filterable
         storageKey="receipt-opts:statement"
+        optionDefs={[{ key: "itemPrices", label: "Ürün detayı" }]}
+        showScope={false}
       >
         {(opts) => (
           <MonthlyStatement

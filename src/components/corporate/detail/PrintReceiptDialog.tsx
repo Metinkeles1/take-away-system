@@ -30,6 +30,8 @@ export function PrintReceiptDialog({
   children,
   filterable = false,
   storageKey,
+  optionDefs = RECEIPT_OPTION_DEFS,
+  showScope = true,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -38,6 +40,10 @@ export function PrintReceiptDialog({
   children: React.ReactNode | ((opts: ReceiptOptions) => React.ReactNode);
   filterable?: boolean;
   storageKey?: string;
+  // Gösterilecek "Fişte Göster" tikleri (varsayılan: tümü).
+  optionDefs?: { key: ReceiptToggleKey; label: string }[];
+  // "Ödeme durumu" mod butonları gösterilsin mi (varsayılan: evet).
+  showScope?: boolean;
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const handlePrint = useReactToPrint({
@@ -112,7 +118,7 @@ export function PrintReceiptDialog({
               Fişte Göster
             </p>
             <div className="grid grid-cols-2 gap-x-3 gap-y-2">
-              {RECEIPT_OPTION_DEFS.map((def) => (
+              {optionDefs.map((def) => (
                 <label
                   key={def.key}
                   className="flex cursor-pointer select-none items-center gap-2 text-sm"
@@ -126,28 +132,30 @@ export function PrintReceiptDialog({
               ))}
             </div>
 
-            <div className="mt-3 border-t pt-3">
-              <p className="mb-1.5 text-xs font-semibold text-muted-foreground">
-                Ödeme durumu
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {PAYMENT_SCOPE_DEFS.map((def) => (
-                  <button
-                    key={def.value}
-                    type="button"
-                    onClick={() => setScope(def.value)}
-                    className={cn(
-                      "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
-                      opts.scope === def.value
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-input hover:bg-muted",
-                    )}
-                  >
-                    {def.label}
-                  </button>
-                ))}
+            {showScope && (
+              <div className="mt-3 border-t pt-3">
+                <p className="mb-1.5 text-xs font-semibold text-muted-foreground">
+                  Ödeme durumu
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {PAYMENT_SCOPE_DEFS.map((def) => (
+                    <button
+                      key={def.value}
+                      type="button"
+                      onClick={() => setScope(def.value)}
+                      className={cn(
+                        "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
+                        opts.scope === def.value
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-input hover:bg-muted",
+                      )}
+                    >
+                      {def.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
           </div>
         )}
 
