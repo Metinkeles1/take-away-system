@@ -32,6 +32,7 @@ export function PrintReceiptDialog({
   storageKey,
   optionDefs = RECEIPT_OPTION_DEFS,
   showScope = true,
+  scopeDefs = PAYMENT_SCOPE_DEFS,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -44,6 +45,8 @@ export function PrintReceiptDialog({
   optionDefs?: { key: ReceiptToggleKey; label: string }[];
   // "Ödeme durumu" mod butonları gösterilsin mi (varsayılan: evet).
   showScope?: boolean;
+  // "Ödeme durumu" filtre seçenekleri (varsayılan: tümü/sadece açık/ödenenleri işaretle).
+  scopeDefs?: { value: PaymentScope; label: string }[];
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const handlePrint = useReactToPrint({
@@ -138,7 +141,7 @@ export function PrintReceiptDialog({
                   Ödeme durumu
                 </p>
                 <div className="flex flex-wrap gap-1.5">
-                  {PAYMENT_SCOPE_DEFS.map((def) => (
+                  {scopeDefs.map((def) => (
                     <button
                       key={def.value}
                       type="button"

@@ -16,6 +16,8 @@ import {
   shortPortion,
   type ReceiptOptions,
   DEFAULT_RECEIPT_OPTIONS,
+  filterVouchersByScope,
+  computeVoucherStats,
 } from "./corporateReceiptKit";
 
 /** Gün/ay kısaltması (+ çoklu dönemde yıl) + Türkçe gün adı. */
@@ -222,16 +224,25 @@ export default function MonthlyStatement({
     })}`;
   }, []);
 
-  // Tek liste: tüm günler eski → yeni sırayla; her satırda ödendi/açık işareti.
+  // Ödeme durumu filtresi (tümü / sadece ödenen / sadece açık), sonra tarih sırası.
+  // Tek liste; her satırda ödendi/açık işareti durur.
   const sortedVouchers = useMemo(
     () =>
-      [...vouchers].sort(
+      [...filterVouchersByScope(vouchers, options.scope)].sort(
         (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
       ),
-    [vouchers],
+    [vouchers, options.scope],
   );
 
-  const allPaid = stats.unpaid <= 0.005;
+  // Filtre uygulandıysa özet gösterilen kümeden hesaplanır ki rakamlar listeyle
+  // tutarlı kalsın; "tümü"de dönemin tam istatistiği (stats prop) kullanılır.
+  const displayStats = useMemo(
+    () =>
+      options.scope === "all" ? stats : computeVoucherStats(sortedVouchers),
+    [options.scope, stats, sortedVouchers],
+  );
+
+  const allPaid = displayStats.unpaid <= 0.005;
   const showDetail = options.itemPrices;
 
   return (
@@ -290,7 +301,11 @@ export default function MonthlyStatement({
             fontWeight: 700,
           }}
         >
-          Bu dönemde fiş bulunmuyor.
+          {options.scope === "open"
+            ? "Açık (ödenmemiş) fiş bulunmuyor."
+            : options.scope === "paid"
+              ? "Ödenmiş fiş bulunmuyor."
+              : "Bu dönemde fiş bulunmuyor."}
         </div>
       ) : (
         sortedVouchers.map((v, i) => (
@@ -307,14 +322,14 @@ export default function MonthlyStatement({
       <Divider />
 
       {/* Özet: her zaman toplam / ödenen / kalan borç */}
-      <Row left="Fiş Sayısı" right={String(stats.count)} />
-      <Row left="Toplam" right={formatCurrency(stats.total)} />
-      <Row left="Ödenen" right={formatCurrency(stats.paid)} />
+      <Row left="Fiş Sayısı" right={String(displayStats.count)} />
+      <Row left="Toplam" right={formatCurrency(displayStats.total)} />
+      <Row left="Ödenen" right={formatCurrency(displayStats.paid)} />
 
       {allPaid ? (
         <GrandTotal label="DURUM" amount="TAMAMI ÖDENDİ" />
       ) : (
-        <GrandTotal label="KALAN BORÇ" amount={formatCurrency(stats.unpaid)} />
+        <GrandTotal label="KALAN BORÇ" amount={formatCurrency(displayStats.unpaid)} />
       )}
 
       <Divider dashed />

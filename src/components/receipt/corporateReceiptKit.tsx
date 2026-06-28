@@ -77,7 +77,7 @@ export const Divider = ({ dashed }: { dashed?: boolean }) => (
  *  - marked: tüm fişler, ödenenlerin yanına ✓ (yalnızca gün gün ekstrede anlamlı;
  *            ürün özetinde fiş bazlı ödeme olduğundan "all" gibi davranır)
  */
-export type PaymentScope = "all" | "open" | "marked";
+export type PaymentScope = "all" | "open" | "paid" | "marked";
 
 export interface ReceiptOptions {
   itemPrices: boolean; // ürün/gün satır tutarları
@@ -111,12 +111,20 @@ export const PAYMENT_SCOPE_DEFS: { value: PaymentScope; label: string }[] = [
   { value: "marked", label: "Ödenenleri işaretle" },
 ];
 
-/** Ödeme durumu kapsamına göre fişleri süzer. "open" → tam ödenmemiş fişler. */
+/** Aylık ekstre için ödeme durumu filtresi: tümü / sadece ödenen / sadece açık. */
+export const STATEMENT_SCOPE_DEFS: { value: PaymentScope; label: string }[] = [
+  { value: "all", label: "Tümü" },
+  { value: "paid", label: "Sadece ödenen" },
+  { value: "open", label: "Sadece açık" },
+];
+
+/** Ödeme durumu kapsamına göre fişleri süzer. "open" → açık, "paid" → ödenmiş. */
 export function filterVouchersByScope(
   vouchers: Voucher[],
   scope: PaymentScope,
 ): Voucher[] {
   if (scope === "open") return vouchers.filter((v) => !v.paid);
+  if (scope === "paid") return vouchers.filter((v) => v.paid);
   return vouchers;
 }
 

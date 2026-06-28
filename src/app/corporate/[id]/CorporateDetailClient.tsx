@@ -89,6 +89,7 @@ import { StatCard } from "@/components/corporate/detail/StatCard";
 import { VoucherList } from "@/components/corporate/detail/VoucherList";
 import { PerPersonVoucherDialog } from "@/components/corporate/detail/PerPersonVoucherDialog";
 import { PrintReceiptDialog } from "@/components/corporate/detail/PrintReceiptDialog";
+import { STATEMENT_SCOPE_DEFS } from "@/components/receipt/corporateReceiptKit";
 
 export default function CorporateDetailClient({
   corporate,
@@ -817,7 +818,7 @@ export default function CorporateDetailClient({
         filterable
         storageKey="receipt-opts:statement"
         optionDefs={[{ key: "itemPrices", label: "Ürün detayı" }]}
-        showScope={false}
+        scopeDefs={STATEMENT_SCOPE_DEFS}
       >
         {(opts) => (
           <MonthlyStatement
