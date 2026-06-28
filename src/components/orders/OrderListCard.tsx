@@ -11,7 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { type Order, type OrderStatus } from "@/types";
-import { cn, formatCurrency, formatDate } from "@/lib/utils";
+import { cn, formatCurrency, formatDate, toLocalPhone } from "@/lib/utils";
 import { RelativeTime } from "@/components/RelativeTime";
 import { CustomerOpenAccountsBadge } from "@/components/orders/CustomerOpenAccountsBadge";
 import { ORDER_STATUS_CONFIG, ORDER_STATUS_ORDER } from "@/lib/orderStatus";
@@ -136,7 +136,7 @@ function OrderListCardImpl({ order, onStatusChange }: OrderListCardProps) {
             <p className="font-medium">{order.customer.name}</p>
             {order.customer.phone && (
               <a
-                href={`tel:${order.customer.phone}`}
+                href={`tel:${toLocalPhone(order.customer.phone)}`}
                 onClick={(e) => e.stopPropagation()}
                 className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 hover:underline"
               >

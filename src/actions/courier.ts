@@ -16,6 +16,11 @@ import {
   getOpenAccountsByPhone,
   openAccountsExcluding,
 } from "@/lib/orders/openAccounts";
+import {
+  getGeoByPhone,
+  geoForPhone,
+  phoneMatchRegex,
+} from "@/lib/customers/geoByPhone";
 
 // Kurye sayfası için teslim edilmesi gereken siparişler.
 // Sadece aktif (teslim/iptal olmamış) siparişleri döner — public sayfa olduğu
@@ -35,15 +40,10 @@ export async function getCourierOrders(): Promise<Order[]> {
     .lean();
 
   // Bu siparişlerdeki müşterilerin kayıtlı pinlerini tek sorguda çek.
+  // Eşleştirme telefonun SADECE rakamlarına göre yapılır (getGeoByPhone); aynı
+  // müşterinin "0555…"/"+90 555…"/"555…" gibi farklı formatları aynı pini bulsun.
   const phones = [...new Set(docs.map((d) => (d.customer as Order["customer"]).phone))];
-  const savedCustomers = await CustomerModel.find({ phone: { $in: phones } })
-    .select("phone geo")
-    .lean();
-  const geoByPhone = new Map<string, GeoPoint | undefined>();
-  for (const c of savedCustomers) {
-    const rec = c as unknown as { phone: string; geo?: GeoPoint };
-    geoByPhone.set(rec.phone, rec.geo);
-  }
+  const geoByPhone = await getGeoByPhone(phones);
 
   // Bu müşterilerin açık hesapları — kurye kapıda "eski borcu var" uyarısı görsün.
   const openByPhone = await getOpenAccountsByPhone(phones);
@@ -51,7 +51,7 @@ export async function getCourierOrders(): Promise<Order[]> {
   return docs.map((doc) => {
     const customer = doc.customer as Order["customer"];
     // Siparişin kendi pini varsa onu, yoksa müşteriye (telefon) kayıtlı pini kullan.
-    const geo = customer.geo ?? geoByPhone.get(customer.phone);
+    const geo = customer.geo ?? geoForPhone(geoByPhone, customer.phone);
 
     return {
       id: doc.id,
@@ -104,8 +104,33 @@ export async function saveDeliveryLocation(
   if (!doc) return;
 
   const customer = (doc as unknown as { customer: Order["customer"] }).customer;
-  // Müşteriye (telefon) kaydet — sonraki siparişlerde pin hazır gelsin.
-  await CustomerModel.updateOne({ phone: customer.phone }, { $set: { geo } });
+  // Müşteriye kaydet — sonraki siparişlerde pin hazır gelsin. Aynı müşterinin
+  // numarası farklı formatta kayıtlı olabileceğinden önce RAKAM-BAZLI ararız;
+  // varsa onu güncelleriz. Yoksa yeni kayıt açarız (id `cust-<rakamlar>` —
+  // mevcut kayıt bulunamadığı için unique id çakışması olmaz).
+  const rx = phoneMatchRegex(customer.phone);
+  const existing = rx
+    ? ((await CustomerModel.findOne({ phone: rx })
+        .select("_id")
+        .lean()) as { _id: unknown } | null)
+    : null;
+  if (existing) {
+    await CustomerModel.updateOne({ _id: existing._id }, { $set: { geo } });
+  } else {
+    await CustomerModel.updateOne(
+      { phone: customer.phone },
+      {
+        $set: { geo },
+        $setOnInsert: {
+          id: `cust-${customer.phone.replace(/\D/g, "")}`,
+          name: customer.name,
+          phone: customer.phone,
+          address: customer.address,
+        },
+      },
+      { upsert: true },
+    );
+  }
 }
 
 // Kurye bir siparişi üstlenir ("Tüm Paketler"de check'ler). Yarış durumunda

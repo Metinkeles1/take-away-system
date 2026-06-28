@@ -24,7 +24,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { formatCurrency, formatDate, cn } from "@/lib/utils";
+import { formatCurrency, formatDate, toLocalPhone, cn } from "@/lib/utils";
 import {
   daysOpen,
   agingLevel,
@@ -114,7 +114,7 @@ const OpenAccountRow = memo(function OpenAccountRow({
             <p className="font-medium">{order.customer.name}</p>
             {order.customer.phone && (
               <a
-                href={`tel:${order.customer.phone}`}
+                href={`tel:${toLocalPhone(order.customer.phone)}`}
                 className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
               >
                 <Phone className="h-3 w-3" />

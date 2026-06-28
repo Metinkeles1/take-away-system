@@ -3,6 +3,7 @@
 import { connectDB } from "@/lib/mongodb";
 import CustomerModel from "@/models/Customer";
 import OrderModel from "@/models/Order";
+import { toLocalPhone } from "@/lib/utils";
 import {
   type CustomerOrderSummary,
   type OrderItem,
@@ -34,13 +35,15 @@ export async function upsertCustomer(
 ): Promise<void> {
   await connectDB();
 
+  // Telefonu tek standarda çek (0 + 10 hane) — kayıt ve eşleşme tutarlı olsun.
+  const phone = toLocalPhone(customer.phone);
   await CustomerModel.findOneAndUpdate(
-    { phone: customer.phone },
+    { phone },
     {
       $set: {
         id: customer.id,
         name: customer.name,
-        phone: customer.phone,
+        phone,
         address: customer.address,
         addressDetail: customer.addressDetail,
       },
@@ -115,7 +118,7 @@ export async function updateCustomer(
   await connectDB();
   await CustomerModel.findOneAndUpdate(
     { id },
-    { $set: data },
+    { $set: { ...data, phone: toLocalPhone(data.phone) } },
   );
 }
 
@@ -127,7 +130,7 @@ export async function createCustomer(
   await CustomerModel.create({
     id: customer.id,
     name: customer.name,
-    phone: customer.phone,
+    phone: toLocalPhone(customer.phone),
     address: customer.address,
     addressDetail: customer.addressDetail,
     orderCount: 0,

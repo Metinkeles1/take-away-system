@@ -82,3 +82,22 @@ export function formatPhone(phone: string): string {
   }
   return phone;
 }
+
+// Telefonu EŞLEŞTİRME anahtarına çevirir: yalnızca rakamlar, son 10 hane.
+// "0555 123 45 67", "+90 555 123 45 67", "905551234567" → hepsi "5551234567".
+// Aynı müşterinin farklı formatta yazılmış numaraları (pin hatırlama, açık hesap
+// vb.) tutarlı eşleşsin diye DB sorgu/okuma tarafında kullanılır. Görsel biçim
+// için formatPhone'u kullan; bu fonksiyon depolama/görüntü için DEĞİL.
+export function phoneKey(phone: string): string {
+  return phone.replace(/\D/g, "").slice(-10);
+}
+
+// Telefonu KAYIT/ARAMA için tek standarda çevirir: başında 0, ardından 10 hane
+// ("05551234567" / "02123653403"). Boşluk/+90/0 ne girilirse girilsin son 10
+// haneyi alıp başına 0 koyar. Böylece "Ara" (tel:) düğmesi her zaman çalışır ve
+// DB'de tutarlı saklanır. 10 hane çıkmazsa (eksik/garip giriş) sadece rakamları
+// döndürür — veriyi kaybetmemek için.
+export function toLocalPhone(raw: string): string {
+  const k = phoneKey(raw);
+  return k.length === 10 ? `0${k}` : raw.replace(/\D/g, "");
+}

@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { connectDB } from "@/lib/mongodb";
 import OrderModel from "@/models/Order";
-import CustomerModel from "@/models/Customer";
+import { getGeoByPhone, geoForPhone } from "@/lib/customers/geoByPhone";
+import { toLocalPhone } from "@/lib/utils";
 import {
   cancelTrendyolPackage,
   deliverTrendyolPackage,
@@ -83,25 +84,6 @@ function periodCutoff(period: OrdersPeriod): Date | null {
   return new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 }
 
-// ─── Siparişleri getir (canlı pencere) ─────────────────────────────────────────
-// Verilen telefonlara müşteri kaydında kayıtlı pini (geo) tek sorguda çeker.
-// Kurye teslimatta pinlediğinde konum müşteri kaydına da yazılır; böylece aynı
-// kişinin diğer siparişlerinde de pin hazır gelir.
-async function getGeoByPhone(
-  phones: string[],
-): Promise<Map<string, GeoPoint | undefined>> {
-  const unique = [...new Set(phones)];
-  const customers = await CustomerModel.find({ phone: { $in: unique } })
-    .select("phone geo")
-    .lean();
-  const map = new Map<string, GeoPoint | undefined>();
-  for (const c of customers) {
-    const rec = c as unknown as { phone: string; geo?: GeoPoint };
-    map.set(rec.phone, rec.geo);
-  }
-  return map;
-}
-
 // Kısmi tahsilat alanlarını doc'tan çıkarır (DB → Order eşlemesinde tekrarı önler).
 function ledgerFields(doc: unknown): {
   payments?: PaymentRecord[];
@@ -127,12 +109,13 @@ function deliveryFields(doc: unknown): {
 }
 
 // Siparişin kendi pini varsa onu, yoksa müşteriye (telefon) kayıtlı pini kullanır.
+// Eşleştirme telefonun rakamlarına göre (geoForPhone) — format farkını yok sayar.
 function withFallbackGeo(
   customer: Order["customer"],
-  geoByPhone: Map<string, GeoPoint | undefined>,
+  geoByPhone: Map<string, GeoPoint>,
 ): Order["customer"] {
   if (customer.geo) return customer;
-  const geo = geoByPhone.get(customer.phone);
+  const geo = geoForPhone(geoByPhone, customer.phone);
   return geo ? { ...customer, geo } : customer;
 }
 
@@ -240,11 +223,17 @@ export async function createOrder(
     // ibanName ve ibanNumber DB'ye kaydedilmez, sadece UI'da (fiş) kullanılır
     const { ...paymentForDB } = order.payment;
 
+    // Telefonu tek standarda çek (0 + 10 hane) — "Ara" düğmesi çalışsın, eşleşme tutsun.
+    const customerForDB = {
+      ...order.customer,
+      phone: toLocalPhone(order.customer.phone),
+    };
+
     await OrderModel.create({
       id: order.id,
       orderNumber: order.orderNumber,
       items: order.items,
-      customer: order.customer,
+      customer: customerForDB,
       payment: paymentForDB,
       status: order.status ?? "pending",
       notes: order.notes,

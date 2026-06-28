@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { connectDB } from "@/lib/mongodb";
 import OrderModel from "@/models/Order";
 import { notifyOrdersChanged } from "@/lib/pusher/server";
+import { toLocalPhone } from "@/lib/utils";
 import { type CustomerInfo, type OrderItem } from "@/types";
 
 interface UpdateOrderDetailsInput {
@@ -47,7 +48,8 @@ export async function updateOrderDetails(
       { id },
       {
         items: input.items,
-        customer: input.customer,
+        // Telefonu tek standarda çek (0 + 10 hane).
+        customer: { ...input.customer, phone: toLocalPhone(input.customer.phone) },
         notes: input.notes ?? "",
         subtotal,
         total,
