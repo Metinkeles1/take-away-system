@@ -239,10 +239,11 @@ export async function getDashboardOverview(
     return { label, revenue: b.revenue, orders: b.orders };
   });
 
+  // Komuta merge'i için tam liste; tüketiciler kendi limitini uygular.
   const topProducts = [...productMap.entries()]
     .map(([name, d]) => ({ name, ...d }))
     .sort((a, b) => b.quantity - a.quantity)
-    .slice(0, 5);
+    .slice(0, 50);
 
   const channels = [...channelMap.entries()]
     .map(([src, d]) => ({

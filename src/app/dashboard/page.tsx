@@ -199,8 +199,9 @@ export default function DashboardPage() {
   const subtitle = `${label} özeti`;
 
   // ─── Sıralı listeler için veri hazırla ───────────────────────
-  const maxProductQty = Math.max(1, ...(data?.topProducts ?? []).map((p) => p.quantity));
-  const productItems: RankItem[] = (data?.topProducts ?? []).map((p) => ({
+  const topProductsList = (data?.topProducts ?? []).slice(0, 8);
+  const maxProductQty = Math.max(1, ...topProductsList.map((p) => p.quantity));
+  const productItems: RankItem[] = topProductsList.map((p) => ({
     id: p.name,
     label: p.name,
     primary: `${p.quantity} adet`,

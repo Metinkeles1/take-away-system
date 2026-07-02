@@ -814,7 +814,10 @@ async function computeTrendyolDashboardStats(
   const productMap = new Map<string, { quantity: number; revenue: number }>();
   for (const p of completed) {
     for (const line of p.lines ?? []) {
-      const qty = line.items?.length ?? 1;
+      // Adet = iptal edilmemiş kalem sayısı (her items[] girdisi bir birim).
+      // items yoksa satır 1 adet sayılır; hepsi iptalse satır atlanır.
+      const qty = line.items ? line.items.filter((i) => !i.isCancelled).length : 1;
+      if (qty <= 0) continue;
       const unit = line.unitSellingPrice ?? line.price ?? 0;
       const cur = productMap.get(line.name) ?? { quantity: 0, revenue: 0 };
       cur.quantity += qty;
@@ -825,7 +828,7 @@ async function computeTrendyolDashboardStats(
   const topProducts = [...productMap.entries()]
     .map(([name, v]) => ({ name, ...v }))
     .sort((a, b) => b.quantity - a.quantity)
-    .slice(0, 20);
+    .slice(0, 50);
 
   // Son 8 sipariş — detay modal'ı için lines/address/customer alanları da dahil.
   // Trendyol API tek-paket endpoint'i sunmuyor; listeden çekilen veriyi modal

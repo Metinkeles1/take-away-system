@@ -244,7 +244,7 @@ function buildSplitProducts(
       trendyol: d.trendyol,
     }))
     .sort((a, b) => b.quantity - a.quantity)
-    .slice(0, 6);
+    .slice(0, 50);
 }
 
 function buildSplitPayments(

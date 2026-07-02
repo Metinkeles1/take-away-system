@@ -39,6 +39,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn, formatCurrencyShort } from "@/lib/utils";
 
 import {
@@ -172,6 +179,7 @@ export default function KomutaPage() {
 
   const [ordersOpen, setOrdersOpen] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
+  const [allProductsOpen, setAllProductsOpen] = useState(false);
 
   const [data, setData] = useState<KomutaOverview | null>(null);
   const [split, setSplit] = useState<ChannelSplitData | null>(null);
@@ -398,46 +406,39 @@ export default function KomutaPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {/* Kanal seçici */}
-            <div className="inline-flex rounded-lg border bg-muted/60 p-1">
-              {CHANNELS.map((c) => (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => setChannel(c.id)}
-                  className={cn(
-                    "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                    channel === c.id
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {c.label}
-                </button>
-              ))}
-            </div>
+            {/* Kanal seçici — dropdown (kompakt, mobil dostu) */}
+            <Select value={channel} onValueChange={(v) => setChannel(v as Channel)}>
+              <SelectTrigger className="w-26" aria-label="Kanal">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {CHANNELS.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
 
-            {/* Dönem seçici */}
-            <div className="inline-flex rounded-lg border bg-muted/60 p-1">
-              {PERIODS.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => {
-                    setPeriod(p.id);
-                    setDayOffset(0);
-                  }}
-                  className={cn(
-                    "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                    period === p.id
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
+            {/* Dönem seçici — dropdown */}
+            <Select
+              value={period}
+              onValueChange={(v) => {
+                setPeriod(v as DashboardPeriod);
+                setDayOffset(0);
+              }}
+            >
+              <SelectTrigger className="w-27.5" aria-label="Dönem">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PERIODS.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
 
             {/* Gezgin */}
             <div className="inline-flex items-center rounded-lg border bg-background">
@@ -607,6 +608,8 @@ export default function KomutaPage() {
                 showLegend={showLegend}
                 hint="Satıra tıkla → kendi/Trendyol kırılımı"
                 onItemClick={openProductSplit}
+                maxItems={5}
+                onShowAll={() => setAllProductsOpen(true)}
               />
               <KomutaRankList
                 title="Nasıl Ödendi"
@@ -847,6 +850,30 @@ export default function KomutaPage() {
           {mapOpen && (
             <OverviewRegionMap period={period} source={channel} dayOffset={dayOffset} />
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* En çok satan ürünlerin tamamı — modalda */}
+      <Dialog open={allProductsOpen} onOpenChange={setAllProductsOpen}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>En Çok Satan Ürünler</DialogTitle>
+            <DialogDescription>
+              {subtitle} · {splitProducts.length} ürün · satıra tıkla → kendi/Trendyol kırılımı
+            </DialogDescription>
+          </DialogHeader>
+          <KomutaRankList
+            bare
+            title="En Çok Satan Ürünler"
+            items={productItems}
+            isLoading={isLoading}
+            emptyText="Bu dönemde satış yok."
+            showLegend={showLegend}
+            onItemClick={(name) => {
+              setAllProductsOpen(false);
+              openProductSplit(name);
+            }}
+          />
         </DialogContent>
       </Dialog>
 
