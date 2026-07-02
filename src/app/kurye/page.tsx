@@ -37,8 +37,12 @@ import {
   claimManyOrders,
 } from "@/actions/courier";
 import {
-  getTrendyolCourierPackages,
+  syncTrendyolCourierPackages,
   deliverTrendyolCourierPackage,
+  claimTrendyolPackage,
+  unclaimTrendyolPackage,
+  claimManyTrendyolPackages,
+  shipTrendyolCourierPackage,
 } from "@/actions/trendyolCourier";
 import { getActiveCouriers, type Courier } from "@/actions/couriers";
 import { type ShopLocation, type ShopIban } from "@/actions/settings";
@@ -368,6 +372,8 @@ export default function KuryePage() {
   const [active, setActive] = useState(0);
   const [confirming, setConfirming] = useState(false);
   const [deliveringId, setDeliveringId] = useState<string | null>(null);
+  // "Yola çıktım" (Trendyol manual-shipped) süren sipariş — butonda spinner için.
+  const [shippingId, setShippingId] = useState<string | null>(null);
   // Hangi modda kaydediliyor — doğru butonun üzerinde spinner göstermek için.
   const [deliverMode, setDeliverMode] = useState<"paid" | "open" | null>(null);
   const [deliverError, setDeliverError] = useState<string | null>(null);
@@ -403,6 +409,10 @@ export default function KuryePage() {
   const [trendyolLoading, setTrendyolLoading] = useState(false);
   const [trendyolFetched, setTrendyolFetched] = useState(false);
   const [trendyolError, setTrendyolError] = useState<string | null>(null);
+  // Elle "Yenile" basılınca ikon dönsün diye ayrı bayrak. load() arka plan
+  // poll'ünde sessiz çalışır (loading'i değiştirmez); manuel yenilemede görsel
+  // geri bildirim için bu gerekir — yoksa "çalışıyor mu?" belli olmuyor.
+  const [refreshing, setRefreshing] = useState(false);
   const startX = useRef<number | null>(null);
 
   const load = async () => {
@@ -410,11 +420,15 @@ export default function KuryePage() {
       // Tek round-trip: paketler + çoklu kurye modu + dükkan konumu birlikte gelir.
       const {
         orders: data,
+        trendyolOrders: ty,
         multiCourierMode: mode,
         shopLocation: shop,
         shopIban: iban,
       } = await getCourierBoard();
       setOrders(data);
+      // Trendyol siparişleri artık paylaşımlı depodan gelir → her kuryenin
+      // ekranında görünür. Sync (buton) Pusher yaydığı için otomatik tazelenir.
+      setTrendyolOrders(ty);
       setMultiCourierMode(mode);
       setShopLocation(shop);
       setShopIban(iban);
@@ -423,13 +437,15 @@ export default function KuryePage() {
     }
   };
 
-  // Trendyol siparişlerini tek seferlik çek (kurye butona basınca). Sürekli istek
-  // atılmaz; tekrar basılınca tazelenir. Env tanımlı değilse sessizce boş döner.
+  // Trendyol'dan taze çek → paylaşımlı depoyu güncelle → Pusher ile TÜM kurye
+  // ekranlarına yay. Sürekli istek atılmaz; sadece butona basınca. Env tanımlı
+  // değilse sessizce boş döner. Çeken kurye anında görsün diye sonucu da yazarız;
+  // diğer kuryeler Pusher → load() ile alır.
   const fetchTrendyol = async () => {
     setTrendyolLoading(true);
     setTrendyolError(null);
     try {
-      const res = await getTrendyolCourierPackages();
+      const res = await syncTrendyolCourierPackages();
       setTrendyolFetched(true);
       if (!res.ok) {
         setTrendyolError(res.error ?? "Trendyol siparişleri alınamadı");
@@ -440,6 +456,20 @@ export default function KuryePage() {
       setTrendyolError("Trendyol siparişleri alınamadı");
     } finally {
       setTrendyolLoading(false);
+    }
+  };
+
+  // "Yenile" butonu: hem paketleri hem (daha önce çekilmişse) Trendyol'u tazeler
+  // ve süre boyunca ikonu döndürür — kurye butonun çalıştığını net görür.
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        load(),
+        trendyolFetched ? fetchTrendyol() : Promise.resolve(),
+      ]);
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -505,13 +535,15 @@ export default function KuryePage() {
   }, []);
 
   // Tüm aktif paketler, en eski ilk sırada (havuz/checklist görünümü).
+  // Trendyol siparişleri de havuza katılır → çoklu kurye modunda üstlenilebilir
+  // (claim), tek kurye modunda hepsi doğrudan teslimatta görünür.
   const allSorted = useMemo(
     () =>
-      [...orders].sort(
+      [...orders, ...trendyolOrders].sort(
         (a, b) =>
           new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
       ),
-    [orders],
+    [orders, trendyolOrders],
   );
 
   // "Teslimat" akışı:
@@ -521,18 +553,16 @@ export default function KuryePage() {
   //  • Tek kurye modunda AYRIM YOK → tüm aktif paketler görünür. Çoklu moddan
   //    kalan kurye damgaları (Mehmet/Ayşe vb.) yok sayılır ki hiçbir sipariş
   //    "başka kuryede" diye görünmez kalmasın. Damga silinmez; panel/gün sonunda durur.
-  // Teslimat listesi = kendi paketlerim + (varsa) çekilen Trendyol siparişleri.
-  // Trendyol siparişleri DB'de olmadığından claim/havuz modeline GİRMEZ; doğrudan
-  // teslimat listesinde herkese görünür ve rotaya katılır. En eski ilk sırada.
-  const sorted = useMemo(() => {
-    const own = multiCourierMode
-      ? allSorted.filter((o) => o.courier === courier)
-      : allSorted;
-    return [...own, ...trendyolOrders].sort(
-      (a, b) =>
-        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-    );
-  }, [allSorted, courier, multiCourierMode, trendyolOrders]);
+  // Teslimat listesi: çoklu kurye modunda üstlendiğim paketler (Trendyol dahil,
+  // artık claim'e girer); tek kurye modunda tüm aktif paketler. allSorted zaten
+  // Trendyol'u içerdiği için ayrı ekleme yok. En eski ilk sırada.
+  const sorted = useMemo(
+    () =>
+      multiCourierMode
+        ? allSorted.filter((o) => o.courier === courier)
+        : allSorted,
+    [allSorted, courier, multiCourierMode],
+  );
   const deliverableCount = sorted.length;
   // Başka kuryelerin üstlendiği (bana görünmeyen) paket sayısı — boş durum mesajı.
   const othersCount = allSorted.length - deliverableCount;
@@ -675,6 +705,30 @@ export default function KuryePage() {
     }
   };
 
+  // "Yola çıktım" (yalnızca Trendyol, henüz yola çıkmamış paketler): Trendyol'a
+  // manual-shipped atar, başarılıysa kartı "yolda"ya çeker → "Teslim" adımı açılır.
+  // Cache güncellenip Pusher yayıldığı için diğer kuryeler de günceli görür.
+  const handleShipTrendyol = async (o: Order) => {
+    setShippingId(o.id);
+    setDeliverError(null);
+    try {
+      const res = await shipTrendyolCourierPackage(o.externalRef ?? "");
+      if (!res.ok) {
+        setDeliverError(res.error ?? "Yola çıkış kaydedilemedi");
+        return;
+      }
+      setTrendyolOrders((prev) =>
+        prev.map((x) =>
+          x.id === o.id ? { ...x, status: "on-the-way" } : x,
+        ),
+      );
+    } catch {
+      setDeliverError("Yola çıkış kaydedilemedi");
+    } finally {
+      setShippingId(null);
+    }
+  };
+
   const clearPayError = (id: string) =>
     setPayErrors((e) => {
       const next = { ...e };
@@ -802,15 +856,23 @@ export default function KuryePage() {
     if (o.courier && !mine) return;
 
     setClaimingId(o.id);
-    // Optimistic
-    setOrders((prev) =>
+    const isTrendyol = o.source === "trendyol";
+    // Optimistic — Trendyol ayrı state'te tutulur, kendi siparişler orders'ta.
+    const setter = isTrendyol ? setTrendyolOrders : setOrders;
+    setter((prev) =>
       prev.map((x) =>
         x.id === o.id ? { ...x, courier: mine ? undefined : courier } : x,
       ),
     );
-    const res = mine
-      ? await unclaimOrder(o.id, courier)
-      : await claimOrder(o.id, courier);
+    // Trendyol claim'i packageId (externalRef) ile; kendi siparişler doc id ile.
+    const ref = o.externalRef ?? "";
+    const res = isTrendyol
+      ? mine
+        ? await unclaimTrendyolPackage(ref, courier)
+        : await claimTrendyolPackage(ref, courier)
+      : mine
+        ? await unclaimOrder(o.id, courier)
+        : await claimOrder(o.id, courier);
     setClaimingId(null);
     if (!res.ok) {
       // Çakışma/başarısızlık → sunucudaki gerçek duruma senkronla.
@@ -824,25 +886,58 @@ export default function KuryePage() {
     if (!courier) return;
     const free = allSorted.filter((o) => !o.courier);
     if (free.length === 0) return;
-    setOrders((prev) =>
+    // Optimistic — hem kendi siparişler hem Trendyol.
+    setOrders((prev) => prev.map((x) => (x.courier ? x : { ...x, courier })));
+    setTrendyolOrders((prev) =>
       prev.map((x) => (x.courier ? x : { ...x, courier })),
     );
-    const res = await claimManyOrders(
-      free.map((o) => o.id),
-      courier,
-    );
-    if (!res.ok) await load(); // çakışma/başarısızlık → gerçek duruma senkronla
+    // Kaynağa göre böl: kendi siparişler doc id, Trendyol packageId (externalRef).
+    const dbIds = free
+      .filter((o) => o.source !== "trendyol")
+      .map((o) => o.id);
+    const tyIds = free
+      .filter((o) => o.source === "trendyol")
+      .map((o) => o.externalRef ?? "")
+      .filter(Boolean);
+    const [r1, r2] = await Promise.all([
+      dbIds.length
+        ? claimManyOrders(dbIds, courier)
+        : Promise.resolve({ ok: true }),
+      tyIds.length
+        ? claimManyTrendyolPackages(tyIds, courier)
+        : Promise.resolve({ ok: true }),
+    ]);
+    if (!r1.ok || !r2.ok) await load(); // çakışma/başarısızlık → gerçek duruma
   };
 
   // Haritadan seçilen paketleri tek seferde üstlen (optimistic + tek bulk çağrı).
   const claimSelected = async (ids: string[]) => {
     if (!courier || ids.length === 0) return;
     const idSet = new Set(ids);
+    // Seçilen id'lerin karşılığı order'lar (kaynak + externalRef için gerekir).
+    const picked = allSorted.filter((o) => idSet.has(o.id) && !o.courier);
     setOrders((prev) =>
       prev.map((x) => (idSet.has(x.id) && !x.courier ? { ...x, courier } : x)),
     );
-    const res = await claimManyOrders(ids, courier);
-    if (!res.ok) await load();
+    setTrendyolOrders((prev) =>
+      prev.map((x) => (idSet.has(x.id) && !x.courier ? { ...x, courier } : x)),
+    );
+    const dbIds = picked
+      .filter((o) => o.source !== "trendyol")
+      .map((o) => o.id);
+    const tyIds = picked
+      .filter((o) => o.source === "trendyol")
+      .map((o) => o.externalRef ?? "")
+      .filter(Boolean);
+    const [r1, r2] = await Promise.all([
+      dbIds.length
+        ? claimManyOrders(dbIds, courier)
+        : Promise.resolve({ ok: true }),
+      tyIds.length
+        ? claimManyTrendyolPackages(tyIds, courier)
+        : Promise.resolve({ ok: true }),
+    ]);
+    if (!r1.ok || !r2.ok) await load();
   };
 
   // Hibrit "Konumu Pinle": önce GPS dene. İYİ doğruluk gelirse otomatik kaydet
@@ -951,37 +1046,44 @@ export default function KuryePage() {
         <div className="mx-auto flex max-w-md items-center justify-between px-4 py-3">
           <button
             onClick={changeCourier}
-            className="flex items-center gap-2.5 rounded-xl py-1 pr-2 text-left transition active:scale-95"
+            className="flex min-w-0 items-center gap-2.5 rounded-xl py-1 pr-2 text-left transition active:scale-95"
             title="Kuryeyi değiştir"
           >
-            <span className="grid h-9 w-9 place-items-center rounded-full bg-lime-500/20 text-sm font-bold text-lime-300">
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-lime-500/20 text-sm font-bold text-lime-300">
               {courier ? courier.slice(0, 2).toUpperCase() : "🛵"}
             </span>
-            <div>
+            <div className="min-w-0">
               <h1 className="flex items-center gap-1 text-base font-bold leading-tight">
-                {courier ?? "Teslimat"}
-                <UserRound className="h-3.5 w-3.5 text-slate-400" />
+                <span className="truncate">{courier ?? "Teslimat"}</span>
+                <UserRound className="h-3.5 w-3.5 shrink-0 text-slate-400" />
               </h1>
-              <p className="text-[11px] text-slate-400">değiştirmek için dokun</p>
+              <p className="truncate text-[11px] text-slate-400">
+                değiştirmek için dokun
+              </p>
             </div>
           </button>
-          <div className="flex items-center gap-1.5">
+          <div className="flex shrink-0 items-center gap-1.5">
             {/* Trendyol siparişlerini tek seferlik çek (teslimat sekmesinde).
                 Sürekli istek atılmaz; tekrar basınca tazelenir. */}
             {activeTab === "mine" && (
               <button
                 onClick={() => void fetchTrendyol()}
                 disabled={trendyolLoading}
-                className="flex items-center gap-1.5 rounded-full bg-orange-500/20 px-3 py-1.5 text-xs font-bold text-orange-300 transition active:scale-95 disabled:opacity-60"
+                className="relative rounded-full bg-orange-500/20 p-2.5 text-orange-300 transition active:scale-90 disabled:opacity-60"
+                aria-label="Trendyol siparişlerini çek"
                 title="Trendyol siparişlerini çek"
               >
                 {trendyolLoading ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <Loader2 className="h-5 w-5 animate-spin" />
                 ) : (
-                  <Store className="h-3.5 w-3.5" />
+                  <Store className="h-5 w-5" />
                 )}
-                Trendyol
-                {trendyolOrders.length > 0 && ` ${trendyolOrders.length}`}
+                {/* Sayı, ikonun köşesinde rozet — yazı kaldırıldı, dar ekranda taşmaz. */}
+                {trendyolOrders.length > 0 && (
+                  <span className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-orange-500 px-1 text-[10px] font-bold text-white">
+                    {trendyolOrders.length}
+                  </span>
+                )}
               </button>
             )}
             {/* Gezi rotası tek giriş — teslimat sekmesinde ≥2 durak varsa. Alt sheet
@@ -989,18 +1091,28 @@ export default function KuryePage() {
             {activeTab === "mine" && canRoute && (
               <button
                 onClick={() => setRouteSheetOpen(true)}
-                className="flex items-center gap-1.5 rounded-full bg-indigo-500/20 px-3 py-1.5 text-xs font-bold text-indigo-300 transition active:scale-95"
+                aria-label="Rota"
+                title="Rota"
+                className="relative rounded-full bg-indigo-500/20 p-2.5 text-indigo-300 transition active:scale-90"
               >
-                <Navigation className="h-3.5 w-3.5 fill-indigo-300" />
-                Rota {routableCount}
+                <Navigation className="h-5 w-5 fill-indigo-300" />
+                <span className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-indigo-500 px-1 text-[10px] font-bold text-white">
+                  {routableCount}
+                </span>
               </button>
             )}
             <button
-              onClick={() => void load()}
+              onClick={() => void handleRefresh()}
+              disabled={refreshing}
               aria-label="Yenile"
-              className="rounded-full p-2.5 text-slate-300 transition hover:bg-white/10 active:scale-90"
+              className="rounded-full p-2.5 text-slate-300 transition hover:bg-white/10 active:scale-90 disabled:opacity-60"
             >
-              <RefreshCw className={cn("h-5 w-5", loading && "animate-spin")} />
+              <RefreshCw
+                className={cn(
+                  "h-5 w-5",
+                  (loading || refreshing) && "animate-spin",
+                )}
+              />
             </button>
           </div>
         </div>
@@ -1225,22 +1337,41 @@ export default function KuryePage() {
                 >
                   <Navigation className="h-5 w-5 fill-white" /> Git
                 </a>
-                <button
-                  onClick={() => {
-                    setDeliverError(null);
-                    setConfirming(true);
-                  }}
-                  disabled={deliveringId === current.id}
-                  className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-emerald-600 py-4 text-base font-bold text-white shadow-sm shadow-emerald-600/25 transition active:scale-[0.98] disabled:opacity-60"
-                >
-                  {deliveringId === current.id ? (
-                    <Loader2 className="h-5 w-5 animate-spin" />
-                  ) : (
-                    <>
-                      <CheckCircle2 className="h-5 w-5" /> Teslim
-                    </>
-                  )}
-                </button>
+                {/* Trendyol + henüz yola çıkmamış → önce "Yola çıktım" (manual-shipped).
+                    Yola çıkınca (status on-the-way) normal "Teslim" adımı açılır. */}
+                {current.source === "trendyol" &&
+                current.status !== "on-the-way" ? (
+                  <button
+                    onClick={() => void handleShipTrendyol(current)}
+                    disabled={shippingId === current.id}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-indigo-600 py-4 text-base font-bold text-white shadow-sm shadow-indigo-600/25 transition active:scale-[0.98] disabled:opacity-60"
+                  >
+                    {shippingId === current.id ? (
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    ) : (
+                      <>
+                        <Navigation className="h-5 w-5 fill-white" /> Yola çıktım
+                      </>
+                    )}
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setDeliverError(null);
+                      setConfirming(true);
+                    }}
+                    disabled={deliveringId === current.id}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-emerald-600 py-4 text-base font-bold text-white shadow-sm shadow-emerald-600/25 transition active:scale-[0.98] disabled:opacity-60"
+                  >
+                    {deliveringId === current.id ? (
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    ) : (
+                      <>
+                        <CheckCircle2 className="h-5 w-5" /> Teslim
+                      </>
+                    )}
+                  </button>
+                )}
               </>
             ) : (
               <div className="flex w-full flex-col gap-2">
@@ -1750,6 +1881,12 @@ function PoolList({
                 <span className="text-sm font-bold text-slate-900">
                   #{o.orderNumber}
                 </span>
+                {o.source === "trendyol" && (
+                  <span className="inline-flex items-center gap-1 rounded-md bg-orange-100 px-1.5 py-0.5 text-[10px] font-bold text-orange-700">
+                    <Store className="h-3 w-3" />
+                    Trendyol
+                  </span>
+                )}
                 {pay && (
                   <span
                     className={cn(

@@ -21,6 +21,7 @@ import {
   geoForPhone,
   phoneMatchRegex,
 } from "@/lib/customers/geoByPhone";
+import { getStoredTrendyolCourierOrders } from "@/actions/trendyolCourier";
 
 // Kurye sayfası için teslim edilmesi gereken siparişler.
 // Sadece aktif (teslim/iptal olmamış) siparişleri döner — public sayfa olduğu
@@ -233,19 +234,25 @@ export async function claimManyOrders(
 // Kurye ekranının tek round-trip beslemesi: aktif paketler + çoklu kurye modu
 // birlikte döner. Eskiden mod her poll'da AYRI bir sunucu çağrısıyla çekiliyordu;
 // artık siparişlerle aynı turda (paralel sorgu) gelir → ekstra gidiş-dönüş yok.
+// trendyolOrders: paylaşımlı depodaki Trendyol STORE siparişleri (API'ye
+// dokunmaz, sadece Mongo okur). Her poll'da geldiği için tüm kuryeler aynı canlı
+// listeyi görür; tazeleme "çek" butonuyla (syncTrendyolCourierPackages) yapılır.
 export async function getCourierBoard(): Promise<{
   orders: Order[];
+  trendyolOrders: Order[];
   multiCourierMode: boolean;
   shopLocation: ShopLocation | null;
   shopIban: ShopIban | null;
 }> {
-  const [orders, multiCourierMode, shopLocation, shopIban] = await Promise.all([
-    getCourierOrders(),
-    getMultiCourierMode(),
-    getShopLocation(),
-    getShopIban(),
-  ]);
-  return { orders, multiCourierMode, shopLocation, shopIban };
+  const [orders, trendyolOrders, multiCourierMode, shopLocation, shopIban] =
+    await Promise.all([
+      getCourierOrders(),
+      getStoredTrendyolCourierOrders(),
+      getMultiCourierMode(),
+      getShopLocation(),
+      getShopIban(),
+    ]);
+  return { orders, trendyolOrders, multiCourierMode, shopLocation, shopIban };
 }
 
 // Kurye üstlenmeyi bırakır (check'i kaldırır) → sipariş havuza döner. Güvenlik:

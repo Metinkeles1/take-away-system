@@ -90,6 +90,12 @@ export function mapTrendyolPackageToOrder(p: TrendyolPackage): Order {
   const { method, mealCardBrand } = mapTrendyolPayment(p.payment);
   const createdAt = new Date(p.packageCreationDate);
 
+  // Trendyol paket statüsü → dahili Order.status. Shipped = kurye yola çıkmış
+  // (henüz teslim değil) → "on-the-way" (kartta "Teslim" görünür). Picking/Invoiced
+  // = henüz hazırlık/bekleme → "preparing" (kartta "Yola çıktım" adımı görünür).
+  const status: Order["status"] =
+    p.packageStatus === "Shipped" ? "on-the-way" : "preparing";
+
   return {
     id: `ty-${p.id}`,
     orderNumber: Number(p.orderNumber) || 0,
@@ -102,7 +108,7 @@ export function mapTrendyolPackageToOrder(p: TrendyolPackage): Order {
       geo,
     },
     payment: { method, mealCardBrand },
-    status: "on-the-way",
+    status,
     notes: p.customerNote || undefined,
     subtotal: p.totalPrice,
     deliveryFee: 0,
