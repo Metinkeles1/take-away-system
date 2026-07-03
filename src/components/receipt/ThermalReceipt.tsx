@@ -269,6 +269,50 @@ const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptProps>(
               {draft.customer.addressDetail && <div>{draft.customer.addressDetail}</div>}
             </div>
 
+            {/* KURYE NOTU — siparişin notu kurye için en kritik bilgi olabilir
+                (zil çalma, kat, kapıda üstü, vb.). Müşteri bilgisinin hemen
+                altında, siyah zeminli iri bir kutuda ki kurye kaçırmasın.
+                Termal yazıcıda dolu siyah bar en net basan öğedir. */}
+            {draft.notes && (
+              <div
+                style={{
+                  border: "2px solid #000",
+                  borderRadius: "4px",
+                  marginTop: "8px",
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  style={{
+                    background: "#000",
+                    color: "#fff",
+                    fontSize: FONT_SIZE_XSMALL,
+                    fontWeight: 800,
+                    letterSpacing: "1.5px",
+                    textAlign: "center",
+                    padding: "3px 0",
+                    textTransform: "uppercase",
+                    WebkitPrintColorAdjust: "exact",
+                    printColorAdjust: "exact",
+                  }}
+                >
+                  ★ KURYE NOTU ★
+                </div>
+                <div
+                  style={{
+                    fontSize: FONT_SIZE_LARGE,
+                    fontWeight: 700,
+                    lineHeight: 1.3,
+                    padding: "6px 8px",
+                    textAlign: "center",
+                    wordBreak: "break-word",
+                  }}
+                >
+                  {draft.notes}
+                </div>
+              </div>
+            )}
+
             <Divider dashed />
 
             <SectionTitle>Sipariş Kalemleri</SectionTitle>
@@ -544,21 +588,6 @@ const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptProps>(
                   </div>
                 )}
               </div>
-            )}
-
-            {draft.notes && (
-              <>
-                <Divider dashed />
-                <SectionTitle>Sipariş Notu</SectionTitle>
-                <div
-                  style={{
-                    fontSize: FONT_SIZE_NORMAL,
-                    wordBreak: "break-word",
-                  }}
-                >
-                  {draft.notes}
-                </div>
-              </>
             )}
 
             <Divider />
