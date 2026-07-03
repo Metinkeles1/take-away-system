@@ -184,6 +184,10 @@ export interface TrendyolPackage {
     district?: string;
     neighborhood?: string;
     addressDescription?: string;
+    // Bina detayları — address1'de çoğunlukla yok; kurye için kritik (kat/daire).
+    apartmentNumber?: string;
+    floor?: string;
+    doorNumber?: string;
     phone?: string;
     latitude?: string;
     longitude?: string;
@@ -603,8 +607,9 @@ export function createTestMealOrder(input: CreateTestMealOrderInput) {
       storeId: input.storeId,
       supplierId,
     },
-    coupon: null,
-    promotions: [],
+    // Kupon/promosyon KULLANILMIYOR → boş gönderilmeli. Doküman: dolu gönderilirse
+    // istek 400 döner. coupon anahtarı hiç eklenmez, promotions boş dizi.
+    promotions: [] as unknown[],
     payment: {
       isPaidWithMealCard: input.payment?.isPaidWithMealCard ?? false,
       mealCardType: input.payment?.mealCardType ?? "",

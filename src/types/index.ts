@@ -159,7 +159,10 @@ export interface Order {
   updatedAt: Date;
   // Pazaryeri entegrasyonu — manuel siparişler için boş
   source?: OrderSource;
-  externalRef?: string; // örn. Trendyol sipariş kodu
+  externalRef?: string; // pazaryeri paket/işlem kimliği (örn. Trendyol packageId — teslim çağrısı bununla)
+  // İnsan-okur pazaryeri sipariş numarası (Trendyol string olup çok uzun/alfanümerik
+  // olabildiği için number'a sığmaz). Kartta bu gösterilir; yoksa orderNumber kullanılır.
+  orderCode?: string;
   // Tahsilat durumu — "open" ise açık hesap (henüz ödenmedi). Varsayılan "paid".
   // Kısmi ödenen sipariş tamamı tahsil edilene kadar "open" kalır (kalan = alacak).
   paymentStatus?: PaymentStatus;

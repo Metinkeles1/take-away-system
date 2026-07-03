@@ -141,6 +141,12 @@ function fullAddress(o: Order): string {
     .join(", ");
 }
 
+// Kartta gösterilecek sipariş numarası. Trendyol no'su string olup number'a
+// sığmadığından orderCode taşınır; varsa onu, yoksa dahili orderNumber'ı göster.
+function displayOrderNo(o: Order): string {
+  return o.orderCode ?? String(o.orderNumber);
+}
+
 // Tek durağa Google haritası. Alt bardaki "Git" butonu bunu kullanır.
 // PİNLİ: kesin koordinata git AMA üstünde KENDİ etiketimiz (müşteri · adres) görünsün.
 // (Çıplak koordinat verince Google, noktayı en yakın işletmeyle etiketliyor — örn.
@@ -1878,8 +1884,8 @@ function PoolList({
 
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <span className="text-sm font-bold text-slate-900">
-                  #{o.orderNumber}
+                <span className="shrink-0 text-sm font-bold text-slate-900">
+                  #{displayOrderNo(o)}
                 </span>
                 {o.source === "trendyol" && (
                   <span className="inline-flex items-center gap-1 rounded-md bg-orange-100 px-1.5 py-0.5 text-[10px] font-bold text-orange-700">
@@ -2001,7 +2007,7 @@ function OrderCard({
               isTrendyol ? "bg-orange-400" : "bg-lime-400",
             )}
           />
-          #{o.orderNumber}
+          #{displayOrderNo(o)}
         </span>
         {isTrendyol && (
           <span className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-orange-500/20 px-2 py-0.5 text-xs font-bold text-orange-300">

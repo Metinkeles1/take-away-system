@@ -65,10 +65,39 @@ export function mapTrendyolPackageToOrder(p: TrendyolPackage): Order {
     [p.customer?.firstName, p.customer?.lastName].filter(Boolean).join(" ").trim() ||
     "Trendyol Müşteri";
 
+  // Hero adres = address1 (+address2). address1 zaten "mahalle, cadde/sokak no"
+  // içeriyor; başına neighborhood eklemek "Mevlana Mah Mevlana, ..." tekrarı
+  // yaratıyordu. Boşsa mahalle / tarif fallback.
+  const line = [a.address1, a.address2]
+    .map((s) => s?.trim())
+    .filter(Boolean)
+    .join(" ")
+    .trim();
   const address =
-    [a.address1, a.address2].filter(Boolean).join(" ").trim() ||
-    a.neighborhood ||
-    "Adres bilgisi yok";
+    line || a.neighborhood?.trim() || a.addressDescription?.trim() || "Adres bilgisi yok";
+
+  // Detay satırı: kat/daire (address1'de genelde yok) + adres tarifi. Tarif
+  // address1'i birebir tekrar ediyorsa eklenmez (gürültüyü azalt).
+  const building = [
+    a.floor ? `Kat ${a.floor}` : null,
+    a.doorNumber ? `Daire ${a.doorNumber}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const norm = (s?: string) =>
+    (s ?? "").toLocaleLowerCase("tr").replace(/[^0-9a-zçğıöşü]/gi, "");
+  const desc = a.addressDescription?.trim();
+  const descAdds = !!desc && norm(desc).length > 4 && !norm(line).includes(norm(desc));
+  const addressDetail =
+    [building || null, descAdds ? desc : null].filter(Boolean).join(" — ") ||
+    undefined;
+
+  // İlçe (+ il) — kartın alt satırında ve rota/harita adresinde görünür.
+  const district =
+    [a.district, a.city]
+      .map((s) => s?.trim())
+      .filter(Boolean)
+      .join(", ") || undefined;
 
   const items: OrderItem[] = p.lines.map((l) => {
     const unit = l.unitSellingPrice ?? l.price ?? 0;
@@ -98,13 +127,16 @@ export function mapTrendyolPackageToOrder(p: TrendyolPackage): Order {
 
   return {
     id: `ty-${p.id}`,
+    // orderNumber number tipinde (sıralama/uyumluluk için); insan-okur no orderCode'da.
     orderNumber: Number(p.orderNumber) || 0,
+    orderCode: p.orderNumber ? String(p.orderNumber) : undefined,
     items,
     customer: {
       name,
       phone: a.phone ?? p.callCenterPhone ?? "",
       address,
-      district: a.district || undefined,
+      addressDetail,
+      district,
       geo,
     },
     payment: { method, mealCardBrand },
