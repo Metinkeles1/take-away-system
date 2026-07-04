@@ -129,7 +129,7 @@ export function mapTrendyolPackageToOrder(p: TrendyolPackage): Order {
     id: `ty-${p.id}`,
     // orderNumber number tipinde (sıralama/uyumluluk için); insan-okur no orderCode'da.
     orderNumber: Number(p.orderNumber) || 0,
-    orderCode: p.orderNumber ? String(p.orderNumber) : undefined,
+    orderCode: p.orderId || undefined,
     items,
     customer: {
       name,
