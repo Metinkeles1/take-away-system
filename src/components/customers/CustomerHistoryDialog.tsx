@@ -11,11 +11,17 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { getCustomerOrderHistory } from "@/actions/customers";
 import { ORDER_STATUS_CONFIG } from "@/lib/orderStatus";
 import { formatCurrency, formatDate } from "@/lib/utils";
-import { type CustomerOrderSummary, type SavedCustomer } from "@/types";
+import { type CustomerOrderSummary } from "@/types";
 import { Receipt, ShoppingBag } from "lucide-react";
 
+type HistoryCustomer = {
+  name: string;
+  phone: string;
+  orderCount?: number;
+};
+
 interface CustomerHistoryDialogProps {
-  customer: SavedCustomer | null;
+  customer: HistoryCustomer | null;
   onClose: () => void;
 }
 
@@ -54,7 +60,7 @@ export const CustomerHistoryDialog = memo(function CustomerHistoryDialog({
             {customer?.name} — Sipariş Geçmişi
           </DialogTitle>
           <DialogDescription>
-            {customer?.orderCount ?? 0} sipariş kaydı
+            {ready ? orders.length : (customer?.orderCount ?? 0)} sipariş kaydı
           </DialogDescription>
         </DialogHeader>
 

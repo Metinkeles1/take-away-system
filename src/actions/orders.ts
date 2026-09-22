@@ -383,24 +383,44 @@ export async function getActiveOrdersCount(): Promise<number> {
 }
 
 // ─── Açık hesaplar (ödenmemiş siparişler) ───────────────────────────────────
-// Ödenmemiş açık hesapların yanında BUGÜN tahsil edilenleri de döndürür; tahsil
-// edilen kayıt listeden kaybolmasın, "Tahsil Edildi" olarak görünsün. paidAt
-// yalnızca açık hesap tahsil edilince yazıldığından, peşin siparişleri kapsamaz.
-export async function getOpenAccounts(): Promise<Order[]> {
+// Tahsilat geçmişinde yalnızca açık hesaptan kapatılmış siparişler görünür.
+// `paidAt` alanı peşin siparişlerde olmadığı için bu ayrımı güvenle yapar.
+export type OpenAccountsCollectionPeriod = "today" | "week" | "month" | "all";
+
+function collectionCutoff(period: OpenAccountsCollectionPeriod): Date | null {
+  if (period === "all") return null;
+
+  const now = new Date();
+  if (period === "today") {
+    now.setHours(0, 0, 0, 0);
+    return now;
+  }
+
+  const days = period === "week" ? 7 : 30;
+  return new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+}
+
+export async function getOpenAccounts(
+  collectionPeriod: OpenAccountsCollectionPeriod = "today",
+): Promise<Order[]> {
   await connectDB();
 
-  const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
+  const cutoff = collectionCutoff(collectionPeriod);
+  const collectedQuery = cutoff
+    ? { paymentStatus: "paid", paidAt: { $gte: cutoff } }
+    : { paymentStatus: "paid", paidAt: { $exists: true } };
 
-  // İptal edilen siparişler alacak sayılmaz — açık hesaplardan dışla.
+  // Açık borçlar daima gelir; tahsil edilmiş kayıtlar seçilen geçmiş döneminden
+  // gelir. İptal edilen siparişler alacak/tahsilat tarihi sayılmaz.
   const docs = await OrderModel.find({
     status: { $ne: "cancelled" },
     $or: [
       { paymentStatus: "open" },
-      { paymentStatus: "paid", paidAt: { $gte: startOfToday } },
+      collectedQuery,
     ],
   })
-    .sort({ createdAt: -1 })
+    .sort({ paidAt: -1, createdAt: -1 })
+    .limit(500)
     .lean();
 
   return docs.map((doc) => ({

@@ -2,16 +2,17 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { CustomerHistoryDialog } from "@/components/customers/CustomerHistoryDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Wallet,
-  Phone,
-  MapPin,
   ChevronRight,
+  ChevronDown,
   CheckCircle2,
   XCircle,
+  Receipt,
 } from "lucide-react";
 import {
   AlertDialog,
@@ -24,7 +25,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { formatCurrency, formatDate, toLocalPhone, cn } from "@/lib/utils";
+import { formatCurrency, toLocalPhone, cn, phoneKey } from "@/lib/utils";
 import {
   daysOpen,
   agingLevel,
@@ -39,6 +40,7 @@ import {
   collectOpenAccount,
   updateOrderStatus,
 } from "@/actions/orders";
+import type { OpenAccountsCollectionPeriod } from "@/actions/orders";
 import type { Order, PaymentInfo } from "@/types";
 import { toast } from "sonner";
 
@@ -51,170 +53,345 @@ const METHOD_LABEL: Record<string, string> = {
   iban: "IBAN",
 };
 
-// Tek satır — memoize: bir tahsilat sonrası diğer kartlar yeniden render olmasın.
-const OpenAccountRow = memo(function OpenAccountRow({
-  order,
-  onCollectClick,
-  onCancel,
+type HistoryCustomer = {
+  name: string;
+  phone: string;
+  orderCount?: number;
+};
+
+type OpenAccountCustomerGroup = {
+  key: string;
+  customer: {
+    name: string;
+    phone: string;
+    address: string;
+  };
+  openOrders: Order[];
+  totalDue: number;
+  oldestCreatedAt: Date;
+};
+
+type CollectionCustomerGroup = {
+  key: string;
+  customer: {
+    name: string;
+    phone: string;
+  };
+  orders: Order[];
+  total: number;
+  lastCollectedAt: Date;
+};
+
+const COLLECTION_PERIODS: { value: OpenAccountsCollectionPeriod; label: string }[] = [
+  { value: "today", label: "Bugün" },
+  { value: "week", label: "7 gün" },
+  { value: "month", label: "30 gün" },
+  { value: "all", label: "Tümü" },
+];
+
+// Bir müşterinin tahsilat geçmişi — varsayılan kapalı, satıra tıklanınca o
+// müşterinin tüm tahsilatları (bu dönem içinde) altta açılır.
+const CollectionCustomerRow = memo(function CollectionCustomerRow({
+  group,
 }: {
-  order: Order;
-  onCollectClick: (order: Order) => void;
-  onCancel: (order: Order) => void;
+  group: CollectionCustomerGroup;
 }) {
-  // Tahsil edilmiş açık hesap (bugün): listeden düşmez, "Tahsil Edildi" görünür.
-  const collected = order.paymentStatus === "paid";
+  const [expanded, setExpanded] = useState(false);
 
   return (
-    <Card className="overflow-hidden relative">
-      <div
-        className={cn(
-          "absolute left-0 top-0 bottom-0 w-1",
-          collected ? "bg-emerald-500" : "bg-amber-500",
-        )}
-      />
-      <CardContent className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4 p-4 pl-5">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <span className="font-bold text-lg">#{order.orderNumber}</span>
-            {collected ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 text-emerald-800 px-2 py-0.5 text-[11px] font-medium dark:bg-emerald-950 dark:text-emerald-300">
-                <CheckCircle2 className="h-3 w-3" />
-                Tahsil Edildi
-                {order.payment?.method && (
-                  <span className="opacity-80">
-                    · {METHOD_LABEL[order.payment.method] ?? order.payment.method}
-                  </span>
-                )}
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-[11px] font-medium dark:bg-amber-950 dark:text-amber-300">
-                Açık Hesap
-              </span>
-            )}
-            {/* Yaşlandırma — kaç gündür açık (3g+ sarı, 7g+ kırmızı). Tahsil edilende gizli. */}
-            {!collected &&
-              (() => {
-                const d = daysOpen(order.createdAt);
-                return (
-                  <span
-                    className={cn(
-                      "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold",
-                      AGING_BADGE_CLASS[agingLevel(d)],
-                    )}
-                  >
-                    {d <= 0 ? "bugün açıldı" : `${agingLabel(d)}dür açık`}
-                  </span>
-                );
-              })()}
-            <span className="text-[11px] text-muted-foreground">
-              <RelativeTime date={order.createdAt} />
+    <div>
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40"
+      >
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-xs font-semibold text-emerald-700 dark:bg-emerald-900/70 dark:text-emerald-300">
+          {initials(group.customer.name)}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="truncate font-medium">{group.customer.name}</span>
+            <span className="shrink-0 text-xs text-muted-foreground">
+              {group.orders.length} tahsilat
             </span>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <p className="font-medium">{order.customer.name}</p>
-            {order.customer.phone && (
-              <a
-                href={`tel:${toLocalPhone(order.customer.phone)}`}
-                className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Son tahsilat <RelativeTime date={group.lastCollectedAt} />
+          </p>
+        </div>
+        <span className="shrink-0 font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">
+          {formatCurrency(group.total)}
+        </span>
+        <ChevronDown
+          className={cn(
+            "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+            expanded && "rotate-180",
+          )}
+        />
+      </button>
+
+      {expanded && (
+        <div className="divide-y bg-muted/20">
+          {group.orders.map((order) => (
+            <div key={order.id} className="flex items-center gap-3 py-2.5 pl-16 pr-4">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="font-medium">#{order.orderNumber}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {METHOD_LABEL[order.payment.method] ?? order.payment.method}
+                  </span>
+                </div>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  <RelativeTime date={order.paidAt ?? order.updatedAt} />
+                </p>
+              </div>
+              <span className="shrink-0 font-semibold tabular-nums text-sm">
+                {formatCurrency(order.total)}
+              </span>
+              <Button variant="ghost" size="icon-sm" className="shrink-0" asChild>
+                <Link href={`/orders/${order.id}`} prefetch={false} title="Sipariş detayı">
+                  <ChevronRight className="h-4 w-4" />
+                </Link>
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+});
+
+const CollectionHistory = memo(function CollectionHistory({
+  groups,
+  orderCount,
+  period,
+  onPeriodChange,
+}: {
+  groups: CollectionCustomerGroup[];
+  orderCount: number;
+  period: OpenAccountsCollectionPeriod;
+  onPeriodChange: (period: OpenAccountsCollectionPeriod) => void;
+}) {
+  const total = groups.reduce((sum, g) => sum + g.total, 0);
+
+  return (
+    <Card className="overflow-hidden border-emerald-200/80 dark:border-emerald-900/70">
+      <CardContent className="p-0">
+        <div className="flex flex-col gap-3 border-b bg-emerald-50/60 px-4 py-3.5 dark:bg-emerald-950/20 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/70 dark:text-emerald-300">
+              <CheckCircle2 className="h-4.5 w-4.5" />
+            </span>
+            <div>
+              <h2 className="font-semibold">Tahsilat Geçmişi</h2>
+              <p className="text-xs text-muted-foreground">
+                {groups.length} müşteri · {orderCount} tahsilat · {formatCurrency(total)}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex w-full rounded-lg bg-background/70 p-1 ring-1 ring-emerald-200/70 dark:bg-background/30 dark:ring-emerald-900 sm:w-auto">
+            {COLLECTION_PERIODS.map((option) => (
+              <Button
+                key={option.value}
+                type="button"
+                size="sm"
+                variant={period === option.value ? "secondary" : "ghost"}
+                className={cn(
+                  "h-7 flex-1 px-2 text-xs sm:flex-none",
+                  period === option.value && "bg-emerald-600 text-white hover:bg-emerald-700",
+                )}
+                onClick={() => onPeriodChange(option.value)}
               >
-                <Phone className="h-3 w-3" />
-                {order.customer.phone}
+                {option.label}
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        {groups.length === 0 ? (
+          <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+            Bu dönemde tahsil edilmiş açık hesap bulunmuyor.
+          </div>
+        ) : (
+          <div className="divide-y">
+            {groups.map((group) => (
+              <CollectionCustomerRow key={group.key} group={group} />
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+});
+
+// Kart başlığındaki avatar için isim baş harfleri.
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  return parts
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase() ?? "")
+    .join("");
+}
+
+// Müşteri kartı: varsayılan kapalı — sadece özet (isim, yaş rozeti, toplam
+// borç) görünür. Detaya inmek isteyen sipariş listesini genişletir; geçmiş
+// simgesi tüm sipariş geçmişini ayrı bir diyalogda açar.
+const CustomerOpenAccountCard = memo(function CustomerOpenAccountCard({
+  group,
+  onCollectClick,
+  onCancel,
+  onViewHistory,
+}: {
+  group: OpenAccountCustomerGroup;
+  onCollectClick: (order: Order) => void;
+  onCancel: (order: Order) => void;
+  onViewHistory: (customer: HistoryCustomer) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const d = daysOpen(group.oldestCreatedAt);
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="flex items-center gap-3 p-3.5">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 text-sm font-semibold text-amber-800 dark:bg-amber-900 dark:text-amber-200">
+          {initials(group.customer.name)}
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="truncate font-semibold">{group.customer.name}</p>
+            <span
+              className={cn(
+                "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold",
+                AGING_BADGE_CLASS[agingLevel(d)],
+              )}
+            >
+              {d <= 0 ? "bugün açıldı" : `${agingLabel(d)}dür açık`}
+            </span>
+          </div>
+          <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+            {group.customer.phone && (
+              <a
+                href={`tel:${toLocalPhone(group.customer.phone)}`}
+                className="shrink-0 text-blue-600 hover:underline"
+              >
+                {group.customer.phone}
               </a>
             )}
+            {group.customer.phone && <span className="shrink-0">·</span>}
+            <span className="truncate">{group.customer.address}</span>
           </div>
-          <p className="text-sm text-muted-foreground truncate flex items-center gap-1 mt-0.5">
-            <MapPin className="h-3 w-3 shrink-0" />
-            {order.customer.address}
+        </div>
+
+        <div className="shrink-0 text-right">
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            {group.openOrders.length} sipariş
           </p>
-          <p className="text-[11px] text-muted-foreground mt-1">
-            {formatDate(order.createdAt)}
+          <p className="text-lg font-bold leading-tight tabular-nums text-amber-700 dark:text-amber-300">
+            {formatCurrency(group.totalDue)}
           </p>
         </div>
 
-        <div className="flex items-end md:flex-col md:items-end justify-between gap-2 md:min-w-50">
-          <div className="flex flex-col md:items-end">
-            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              {collected ? "Tutar" : "Kalan"}
-            </span>
-            <span
-              className={cn(
-                "text-xl font-bold leading-tight tabular-nums",
-                collected && "text-emerald-600 dark:text-emerald-400",
-              )}
-            >
-              {formatCurrency(
-                collected
-                  ? order.total
-                  : Math.max(0, order.total - (order.paidAmount ?? 0)),
-              )}
-            </span>
-            {/* Kısmi ödeme yapıldıysa ne kadar ödendiğini göster */}
-            {!collected && (order.paidAmount ?? 0) > 0 && (
-              <span className="text-[11px] text-amber-600 tabular-nums">
-                {formatCurrency(order.paidAmount ?? 0)} ödendi /{" "}
-                {formatCurrency(order.total)}
-              </span>
-            )}
-          </div>
-          {collected ? (
-            <Button variant="outline" size="sm" className="h-9" asChild>
-              <Link href={`/orders/${order.id}`} prefetch={false}>
-                <ChevronRight className="h-4 w-4" />
-              </Link>
-            </Button>
-          ) : (
-          <div className="flex gap-2 md:w-full">
-            <Button
-              size="sm"
-              className="h-9 flex-1 bg-amber-600 hover:bg-amber-700"
-              onClick={() => onCollectClick(order)}
-            >
-              <CheckCircle2 className="mr-1.5 h-4 w-4" />
-              Tahsil Et
-            </Button>
-            {/* İptal Et — sipariş iptal edilince açık hesaptan ve alacaktan düşer.
-                Geri alınamaz olduğu için onay sorulur. */}
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-9 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
-                  title="Siparişi iptal et"
-                >
-                  <XCircle className="h-4 w-4" />
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Siparişi iptal et?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    #{order.orderNumber} · {order.customer.name} ·{" "}
-                    {formatCurrency(order.total)} açık hesabı iptal edilecek.
-                    Sipariş &quot;İptal Edildi&quot; olarak işaretlenir ve
-                    alacaktan düşer. Bu işlem geri alınamaz.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Vazgeç</AlertDialogCancel>
-                  <AlertDialogAction
-                    variant="destructive"
-                    onClick={() => onCancel(order)}
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          title="Sipariş geçmişi"
+          className="shrink-0 text-muted-foreground"
+          onClick={() =>
+            onViewHistory({ name: group.customer.name, phone: group.customer.phone })
+          }
+        >
+          <Receipt className="h-4 w-4" />
+        </Button>
+
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          title={expanded ? "Daralt" : "Siparişleri göster"}
+          className="shrink-0 text-muted-foreground"
+          onClick={() => setExpanded((v) => !v)}
+        >
+          <ChevronDown className={cn("h-4 w-4 transition-transform", expanded && "rotate-180")} />
+        </Button>
+      </div>
+
+      {expanded && (
+        <div className="divide-y border-t">
+          {group.openOrders.map((order) => {
+            const remaining = Math.max(0, order.total - (order.paidAmount ?? 0));
+            const partialPaid = (order.paidAmount ?? 0) > 0;
+
+            return (
+              <div key={order.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="font-medium">#{order.orderNumber}</span>
+                    <span className="text-xs text-muted-foreground">
+                      <RelativeTime date={order.createdAt} />
+                    </span>
+                  </div>
+                  {partialPaid && (
+                    <p className="mt-0.5 text-[11px] text-amber-600 tabular-nums">
+                      {formatCurrency(order.paidAmount ?? 0)} ödendi / {formatCurrency(order.total)}
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <span className="mr-1 font-semibold tabular-nums">
+                    {formatCurrency(remaining)}
+                  </span>
+                  <Button
+                    size="sm"
+                    className="h-8 bg-amber-600 hover:bg-amber-700"
+                    onClick={() => onCollectClick(order)}
                   >
-                    İptal Et
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-            <Button variant="outline" size="sm" className="h-9" asChild>
-              <Link href={`/orders/${order.id}`} prefetch={false}>
-                <ChevronRight className="h-4 w-4" />
-              </Link>
-            </Button>
-          </div>
-          )}
+                    Tahsil Et
+                  </Button>
+                  <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+                    <Link href={`/orders/${order.id}`} prefetch={false} title="Sipariş detayı">
+                      <ChevronRight className="h-4 w-4" />
+                    </Link>
+                  </Button>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-red-500 hover:bg-red-50 hover:text-red-600"
+                        title="Siparişi iptal et"
+                      >
+                        <XCircle className="h-4 w-4" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Siparişi iptal et?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          #{order.orderNumber} · {order.customer.name} ·{" "}
+                          {formatCurrency(order.total)} açık hesabı iptal edilecek.
+                          Sipariş &quot;İptal Edildi&quot; olarak işaretlenir ve
+                          alacaktan düşer. Bu işlem geri alınamaz.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Vazgeç</AlertDialogCancel>
+                        <AlertDialogAction variant="destructive" onClick={() => onCancel(order)}>
+                          İptal Et
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
+              </div>
+            );
+          })}
         </div>
-      </CardContent>
+      )}
     </Card>
   );
 });
@@ -222,8 +399,11 @@ const OpenAccountRow = memo(function OpenAccountRow({
 export default function OpenAccountsPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const [collectionPeriod, setCollectionPeriod] =
+    useState<OpenAccountsCollectionPeriod>("today");
   const [target, setTarget] = useState<Order | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [historyCustomer, setHistoryCustomer] = useState<HistoryCustomer | null>(null);
 
   const mountedRef = useRef(true);
   const inFlightRef = useRef(false);
@@ -234,7 +414,7 @@ export default function OpenAccountsPage() {
     if (inFlightRef.current) return;
     inFlightRef.current = true;
     try {
-      const data = await getOpenAccounts();
+      const data = await getOpenAccounts(collectionPeriod);
       if (mountedRef.current) setOrders(data);
     } catch {
       // sessizce geç — bir sonraki tetikte tekrar denenir
@@ -242,7 +422,7 @@ export default function OpenAccountsPage() {
       inFlightRef.current = false;
       if (mountedRef.current) setLoading(false);
     }
-  }, []);
+  }, [collectionPeriod]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -287,6 +467,44 @@ export default function OpenAccountsPage() {
     [openOrders],
   );
 
+  const groupedOpen = useMemo(() => {
+    const map = new Map<string, OpenAccountCustomerGroup>();
+
+    for (const order of sortedOpen) {
+      const key = phoneKey(order.customer.phone) || `${order.customer.name}|${order.customer.address}`;
+      const current = map.get(key);
+      const remaining = Math.max(0, order.total - (order.paidAmount ?? 0));
+
+      if (!current) {
+        map.set(key, {
+          key,
+          customer: {
+            name: order.customer.name,
+            phone: order.customer.phone,
+            address: order.customer.address,
+          },
+          openOrders: [order],
+          totalDue: remaining,
+          oldestCreatedAt: new Date(order.createdAt),
+        });
+        continue;
+      }
+
+      current.openOrders.push(order);
+      current.totalDue += remaining;
+      if (+new Date(order.createdAt) < +new Date(current.oldestCreatedAt)) {
+        current.oldestCreatedAt = new Date(order.createdAt);
+      }
+      if (!current.customer.phone && order.customer.phone) {
+        current.customer.phone = order.customer.phone;
+      }
+    }
+
+    return [...map.values()].sort(
+      (a, b) => +new Date(a.oldestCreatedAt) - +new Date(b.oldestCreatedAt),
+    );
+  }, [sortedOpen]);
+
   // Tahsil edilenler — en son tahsil edilen en üstte.
   const sortedCollected = useMemo(
     () =>
@@ -297,10 +515,52 @@ export default function OpenAccountsPage() {
     [collectedOrders],
   );
 
+  // Tahsilat geçmişini müşteri bazında grupla — her müşteri tek satır, en son
+  // tahsilatı olan müşteri en üstte.
+  const groupedCollected = useMemo(() => {
+    const map = new Map<string, CollectionCustomerGroup>();
+
+    for (const order of sortedCollected) {
+      const key = phoneKey(order.customer.phone) || `${order.customer.name}|${order.id}`;
+      const current = map.get(key);
+      const collectedAt = new Date(order.paidAt ?? order.updatedAt);
+
+      if (!current) {
+        map.set(key, {
+          key,
+          customer: { name: order.customer.name, phone: order.customer.phone },
+          orders: [order],
+          total: order.total,
+          lastCollectedAt: collectedAt,
+        });
+        continue;
+      }
+
+      current.orders.push(order);
+      current.total += order.total;
+      if (+collectedAt > +current.lastCollectedAt) {
+        current.lastCollectedAt = collectedAt;
+      }
+    }
+
+    return [...map.values()].sort(
+      (a, b) => +b.lastCollectedAt - +a.lastCollectedAt,
+    );
+  }, [sortedCollected]);
+
   const handleCollectClick = useCallback((order: Order) => {
     setTarget(order);
     setDialogOpen(true);
   }, []);
+
+  const handleCollectionPeriodChange = useCallback(
+    (period: OpenAccountsCollectionPeriod) => {
+      if (period === collectionPeriod) return;
+      setLoading(true);
+      setCollectionPeriod(period);
+    },
+    [collectionPeriod],
+  );
 
   const handleCancel = useCallback(
     async (order: Order) => {
@@ -359,7 +619,7 @@ export default function OpenAccountsPage() {
         <div className="min-w-0">
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Açık Hesaplar</h1>
           <p className="mt-0.5 text-xs sm:text-sm text-muted-foreground">
-            Ödemesi alınmamış {openOrders.length} sipariş
+            Ödemesi alınmamış {groupedOpen.length} müşteri · {openOrders.length} hesap
           </p>
         </div>
         <div className="shrink-0 rounded-xl bg-amber-50 ring-1 ring-amber-200 px-4 py-2 text-right dark:bg-amber-950/40">
@@ -382,43 +642,34 @@ export default function OpenAccountsPage() {
               </div>
             ))}
           </div>
-        ) : orders.length === 0 ? (
-          <Card>
-            <CardContent className="flex flex-col items-center justify-center py-20 text-muted-foreground">
-              <Wallet className="mb-4 h-16 w-16 opacity-20" />
-              <p className="text-lg font-medium">Açık hesap yok</p>
-              <p className="mt-1 text-sm">Tüm siparişlerin ödemesi alınmış.</p>
-            </CardContent>
-          </Card>
         ) : (
           <div className="space-y-3">
-            {sortedOpen.map((order) => (
-              <OpenAccountRow
-                key={order.id}
-                order={order}
-                onCollectClick={handleCollectClick}
-                onCancel={handleCancel}
-              />
-            ))}
-
-            {/* Bugün tahsil edilenler — listeden düşmez, ayrı başlık altında. */}
-            {sortedCollected.length > 0 && (
-              <div className="pt-2">
-                <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Bugün Tahsil Edilenler ({sortedCollected.length})
-                </p>
-                <div className="space-y-3">
-                  {sortedCollected.map((order) => (
-                    <OpenAccountRow
-                      key={order.id}
-                      order={order}
-                      onCollectClick={handleCollectClick}
-                      onCancel={handleCancel}
-                    />
-                  ))}
-                </div>
-              </div>
+            {groupedOpen.length === 0 ? (
+              <Card>
+                <CardContent className="flex flex-col items-center justify-center py-14 text-muted-foreground">
+                  <Wallet className="mb-3 h-12 w-12 opacity-20" />
+                  <p className="font-medium">Açık hesap yok</p>
+                  <p className="mt-1 text-sm">Tüm açık hesapların tahsilatı tamamlanmış.</p>
+                </CardContent>
+              </Card>
+            ) : (
+              groupedOpen.map((group) => (
+                <CustomerOpenAccountCard
+                  key={group.key}
+                  group={group}
+                  onCollectClick={handleCollectClick}
+                  onCancel={handleCancel}
+                  onViewHistory={setHistoryCustomer}
+                />
+              ))
             )}
+
+            <CollectionHistory
+              groups={groupedCollected}
+              orderCount={sortedCollected.length}
+              period={collectionPeriod}
+              onPeriodChange={handleCollectionPeriodChange}
+            />
           </div>
         )}
       </div>
@@ -428,6 +679,11 @@ export default function OpenAccountsPage() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         onCollect={handleCollect}
+      />
+
+      <CustomerHistoryDialog
+        customer={historyCustomer}
+        onClose={() => setHistoryCustomer(null)}
       />
     </main>
   );
