@@ -674,7 +674,19 @@ export default function KomutaPage() {
         {view === "operasyon" && !tyOnly && (
           <>
             <SectionTitle>Teslimat</SectionTitle>
-            <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+            <section className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+              <InsightStat
+                label="Sipariş"
+                value={
+                  data ? fmtInt((bd?.own.orderCount ?? 0) + (bd?.trendyol.orderCount ?? 0)) : "—"
+                }
+                sub={
+                  channel === "all"
+                    ? `Kendi ${fmtInt(bd?.own.orderCount ?? 0)} · TY ${fmtInt(bd?.trendyol.orderCount ?? 0)}`
+                    : undefined
+                }
+                isLoading={isLoading}
+              />
               <InsightStat
                 label="Zamanında Teslim"
                 value={insights ? `%${insights.delivery.onTimeRate.toFixed(0)}` : "—"}
