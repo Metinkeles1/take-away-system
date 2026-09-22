@@ -18,11 +18,20 @@ import type { TrendyolPackage } from "./client";
 // Trendyol ödeme tipini panelin ödeme yöntemine eşler. Online ödenmiş (kart /
 // yemek kartı online) siparişlerde kurye tahsilat YAPMAZ — rozet yine de doğru
 // görünsün diye yöntem işaretlenir. Kapıda ödeme (PAY_WITH_ON_DELIVERY) tahsilatlıdır.
+//
+// GÜVENLİK NOTU: payment alanı beklenmedik/eksik gelirse (Trendyol API'sinden
+// ender de olsa payment boş dönebilir) yöntemi "online" varsaymak TEHLİKELİ —
+// kurye tahsilat yapmayı atlar ve işletme parayı kaybeder. Bu yüzden tanınmayan
+// durumlarda "cash" varsayılır (kurye ekrandan elle düzeltebilir) ve terminale
+// uyarı basılır ki gerçek veri görülüp eşleme netleştirilebilsin.
 function mapTrendyolPayment(payment?: TrendyolPackage["payment"]): {
   method: PaymentMethod;
   mealCardBrand?: MealCardBrand;
 } {
-  if (!payment) return { method: "online" };
+  if (!payment) {
+    console.warn("[trendyol payment] payment alanı boş geldi — 'cash' varsayıldı.");
+    return { method: "cash" };
+  }
 
   const brandFromSource = (raw?: string): MealCardBrand | undefined => {
     const s = (raw ?? "").toUpperCase();
@@ -35,21 +44,39 @@ function mapTrendyolPayment(payment?: TrendyolPackage["payment"]): {
     return undefined;
   };
 
-  if (payment.paymentType === "PAY_WITH_MEAL_CARD") {
+  const paymentType = (payment.paymentType ?? "").toString().trim().toUpperCase();
+
+  if (paymentType === "PAY_WITH_MEAL_CARD") {
     return {
       method: "meal_card",
       mealCardBrand: brandFromSource(payment.mealCard?.cardSourceType ?? undefined),
     };
   }
-  if (payment.paymentType === "PAY_WITH_ON_DELIVERY") {
-    const t = (payment.onDelivery?.paymentType ?? "").toUpperCase();
+  if (paymentType === "PAY_WITH_ON_DELIVERY") {
+    const t = (payment.onDelivery?.paymentType ?? "").toString().trim().toUpperCase();
     if (t === "CASH") return { method: "cash" };
     if (t === "CARD") return { method: "card" };
-    // Kapıda Pluxee/Multinet/Edenred/Setcard/... kart/kod → yemek kartı
-    return { method: "meal_card", mealCardBrand: brandFromSource(t) };
+    if (t) {
+      // Kapıda Pluxee/Multinet/Edenred/Setcard/Metropol/Tokenflex/Payekart/iWallet
+      // kart veya kod ile ödeme → yemek kartı.
+      return { method: "meal_card", mealCardBrand: brandFromSource(t) };
+    }
+    // onDelivery.paymentType boş geldi ama kapıda ödeme seçilmiş — tahsilat
+    // gerektiği kesin, tür belirsiz. "cash" güvenli varsayım (kurye düzeltebilir).
+    console.warn(
+      "[trendyol payment] PAY_WITH_ON_DELIVERY ama onDelivery.paymentType boş — 'cash' varsayıldı.",
+    );
+    return { method: "cash" };
   }
-  // PAY_WITH_CARD → online ödenmiş kart (kurye tahsilat yapmaz)
-  return { method: "online" };
+  if (paymentType === "PAY_WITH_CARD") {
+    // Online ödenmiş kart (kurye tahsilat yapmaz).
+    return { method: "online" };
+  }
+  // Tanınmayan/boş paymentType — güvenli taraf: tahsilatlı say.
+  console.warn(
+    `[trendyol payment] tanınmayan paymentType="${payment.paymentType}" — 'cash' varsayıldı.`,
+  );
+  return { method: "cash" };
 }
 
 export function mapTrendyolPackageToOrder(p: TrendyolPackage): Order {
@@ -119,6 +146,16 @@ export function mapTrendyolPackageToOrder(p: TrendyolPackage): Order {
   const { method, mealCardBrand } = mapTrendyolPayment(p.payment);
   const createdAt = new Date(p.packageCreationDate);
 
+  // Kurye tahsilat tutarı: p.totalPrice indirimden ÖNCEKİ (brüt) tutardır —
+  // promotions/coupon.totalSellerAmount = satıcının karşıladığı indirim kısmı,
+  // bu formül trendyolDashboard.ts'teki hakediş hesabıyla AYNI ve Trendyol
+  // Satışlar sayfasıyla doğrulanmıştır. Düşülmezse kurye kapıda müşteriden
+  // indirimsiz (yüksek) tutar talep eder.
+  const sellerDiscount =
+    (p.promotions ?? []).reduce((s, pr) => s + (pr.totalSellerAmount ?? 0), 0) +
+    (p.coupon?.totalSellerAmount ?? 0);
+  const netTotal = Math.max((p.totalPrice ?? 0) - sellerDiscount, 0);
+
   // Trendyol paket statüsü → dahili Order.status. Shipped = kurye yola çıkmış
   // (henüz teslim değil) → "on-the-way" (kartta "Teslim" görünür). Picking/Invoiced
   // = henüz hazırlık/bekleme → "preparing" (kartta "Yola çıktım" adımı görünür).
@@ -142,9 +179,9 @@ export function mapTrendyolPackageToOrder(p: TrendyolPackage): Order {
     payment: { method, mealCardBrand },
     status,
     notes: p.customerNote || undefined,
-    subtotal: p.totalPrice,
+    subtotal: netTotal,
     deliveryFee: 0,
-    total: p.totalPrice,
+    total: netTotal,
     source: "trendyol",
     externalRef: p.id, // packageId — manual-delivered çağrısı bununla yapılır
     createdAt,
