@@ -38,8 +38,7 @@ export function orderStopsByProximity(
 }
 
 // Sıralı durakları tek Google Maps yol-tarifi linkine çevirir. Son durak
-// "destination", aradakiler "waypoints" (verilen sırayı korur). origin VERİLMEZ
-// → navigasyon kuryenin anlık konumundan başlar (yolda da basılabilir).
+// "destination", aradakiler "waypoints" (verilen sırayı korur).
 // Parametreler URL-encode'lu (virgül %2C, ayraç %7C) — Google Maps URL API kabul eder.
 //
 // pinlessTextStops: koordinatı olmayan (pinsiz) durakların metin adresleri.
