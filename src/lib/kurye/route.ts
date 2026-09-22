@@ -46,20 +46,42 @@ export function orderStopsByProximity(
 // Verilirse pinli durakların SONUNA eklenir; Google bunları geocode eder.
 // Koordinatları olmadığı için yakınlık sıralamasına giremezler → sona eklenir,
 // kurye gerekirse Google'da düzeltir. (İsabet düşük olabilir — bilinçli ödün.)
+//
+// extraCoordStops: koordinatı SONRADAN bulunmuş (geocode edilmiş) durakların
+// lat/lng'i. Google'ın mobil uygulaması "waypoints" alanında koordinat ve düz
+// metni KARIŞIK verince bazen bozuluyor (bazı duraklar atlanıyor / tek durağa
+// düşüyor) — bu yüzden mümkün olduğunca her şeyi koordinata çevirip
+// (extraCoordStops) yalnızca gerçekten hiç bulunamayanları metin olarak en
+// sona (pinlessTextStops) ekliyoruz.
+//
+// origin: kuryenin taze GPS konumu (bkz. getFreshDeviceLocation). Boş
+// bırakılırsa Google Maps kendi "anlık konum" algısını kullanır — kapalı
+// alanda/GPS henüz sabitlenmemişken bu, rotanın kuryenin GERÇEK yerinden
+// FARKLI bir noktadan başlamasına yol açabiliyordu; çağıran taraf tıklama
+// anında taze bir GPS fix'i alıp buraya verir.
+//
+// Google'ın URL API'si en fazla 9 "waypoints" + 1 "destination" destekler;
+// üstü sessizce bozulabiliyor. MAX_GOOGLE_STOPS bunu garanti altına alır.
+const MAX_GOOGLE_STOPS = 10;
+
 export function buildGoogleRouteUrl(
   orderedStops: Order[],
+  extraCoordStops: { lat: number; lng: number }[] = [],
   pinlessTextStops: string[] = [],
+  origin?: { lat: number; lng: number } | null,
 ): string {
   const pts = [
     ...orderedStops.map((o) => `${o.customer.geo!.lat},${o.customer.geo!.lng}`),
+    ...extraCoordStops.map((c) => `${c.lat},${c.lng}`),
     ...pinlessTextStops.filter((s) => s.trim().length > 0),
-  ];
+  ].slice(0, MAX_GOOGLE_STOPS);
   if (pts.length === 0) return "https://www.google.com/maps";
   const params = new URLSearchParams({
     api: "1",
     destination: pts[pts.length - 1],
     travelmode: "driving",
   });
+  if (origin) params.set("origin", `${origin.lat},${origin.lng}`);
   const waypoints = pts.slice(0, -1).join("|");
   if (waypoints) params.set("waypoints", waypoints);
   return `https://www.google.com/maps/dir/?${params.toString()}`;

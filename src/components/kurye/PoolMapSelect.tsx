@@ -18,7 +18,11 @@ import type { Order } from "@/types";
 import type { ShopLocation } from "@/actions/settings";
 import { cn, formatCurrency, formatDistance, haversineMeters } from "@/lib/utils";
 import { buildGoogleRouteUrl, orderStopsByProximity } from "@/lib/kurye/route";
-import { geocodeOrderParts, type GeoHit } from "@/lib/kurye/geocode";
+import {
+  geocodeOrderParts,
+  getFreshDeviceLocation,
+  type GeoHit,
+} from "@/lib/kurye/geocode";
 
 // Bu sayının üstünde seçimde nazik uyarı (motorla taşıma + Google ~10 durak sınırı).
 const CAPACITY_WARN = 7;
@@ -66,6 +70,8 @@ export function PoolMapSelect({
   const [geocoding, setGeocoding] = useState(false);
   // claim modunda üstlendikten sonra: seçilen paketler (yol tarifi ekranı).
   const [claimedView, setClaimedView] = useState<Order[] | null>(null);
+  // Yol tarifi linkine taze GPS (origin) eklenirken kısa bekleme — buton spinner'ı.
+  const [routeLocating, setRouteLocating] = useState(false);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -342,15 +348,38 @@ export function PoolMapSelect({
     return sum;
   })();
 
-  // Verilen paketler için Google rota linki (pinli koordinat + pinsiz metin).
-  const routeUrlFor = (list: Order[]) =>
-    buildGoogleRouteUrl(
-      orderStopsByProximity(
-        list.filter((o) => o.customer.geo),
-        shopLocation,
-      ),
-      list.filter((o) => !o.customer.geo).map(fullTextAddress),
+  // Verilen paketler için Google rota linki. Pinsizler MÜMKÜNSE geocode'lu
+  // (approxCoords) koordinatla eklenir — koordinat + düz metnin karışık gitmesi
+  // Google'ın mobil uygulamasında bazen bozulup tek durağa düşmesine yol açıyordu.
+  // Yalnızca gerçekten hiç bulunamayanlar (approxCoords'ta da yoksa) metin kalır.
+  const routeUrlFor = (list: Order[], origin?: { lat: number; lng: number } | null) => {
+    const pinned = list.filter((o) => o.customer.geo);
+    const pinless = list.filter((o) => !o.customer.geo);
+    const approxResolved = pinless
+      .filter((o) => approxCoords[o.id])
+      .map((o) => approxCoords[o.id]);
+    const unresolved = pinless.filter((o) => !approxCoords[o.id]);
+    return buildGoogleRouteUrl(
+      orderStopsByProximity(pinned, shopLocation),
+      approxResolved,
+      unresolved.map(fullTextAddress),
+      origin,
     );
+  };
+
+  // Butona basılır basılmaz taze GPS al (origin) → yeni sekmeyi SENKRON aç
+  // (popup engelleyiciden kaçmak için önce boş sekme, sonra href ata), sonra
+  // rota linkini gerçek hedefe yönlendir.
+  const openRoute = async (list: Order[]) => {
+    if (routeLocating) return;
+    setRouteLocating(true);
+    const win = typeof window !== "undefined" ? window.open("", "_blank") : null;
+    const origin = await getFreshDeviceLocation();
+    const url = routeUrlFor(list, origin);
+    if (win) win.location.href = url;
+    else if (typeof window !== "undefined") window.open(url, "_blank");
+    setRouteLocating(false);
+  };
 
   const confirmClaim = async () => {
     if (selected.size === 0 || claiming || !onClaim) return;
@@ -508,27 +537,33 @@ export function PoolMapSelect({
             >
               Kapat
             </button>
-            <a
-              href={routeUrlFor(claimedView)}
-              target="_blank"
-              rel="noreferrer"
-              className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-indigo-600 py-4 text-base font-bold text-white shadow-sm shadow-indigo-600/25 transition active:scale-[0.98]"
+            <button
+              onClick={() => void openRoute(claimedView)}
+              disabled={routeLocating}
+              className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-indigo-600 py-4 text-base font-bold text-white shadow-sm shadow-indigo-600/25 transition active:scale-[0.98] disabled:opacity-70"
             >
-              <Navigation className="h-5 w-5 fill-white" />
+              {routeLocating ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : (
+                <Navigation className="h-5 w-5 fill-white" />
+              )}
               Yol Tarifi Al ({claimedView.length} durak)
-            </a>
+            </button>
           </div>
         ) : mode === "route" ? (
           selected.size > 0 ? (
-            <a
-              href={routeUrlFor(selectedOrders)}
-              target="_blank"
-              rel="noreferrer"
-              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-indigo-600 py-4 text-base font-bold text-white shadow-sm shadow-indigo-600/25 transition active:scale-[0.98]"
+            <button
+              onClick={() => void openRoute(selectedOrders)}
+              disabled={routeLocating}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-indigo-600 py-4 text-base font-bold text-white shadow-sm shadow-indigo-600/25 transition active:scale-[0.98] disabled:opacity-70"
             >
-              <Navigation className="h-5 w-5 fill-white" />
+              {routeLocating ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : (
+                <Navigation className="h-5 w-5 fill-white" />
+              )}
               Seçilenlere Yol Tarifi ({selected.size} durak)
-            </a>
+            </button>
           ) : (
             <button
               disabled

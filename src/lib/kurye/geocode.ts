@@ -87,3 +87,21 @@ export async function geocodeOrderParts(
   }
   return null;
 }
+
+// Taze cihaz GPS konumu (kısa zaman aşımı — rota linkine "origin" olarak eklemek
+// için). Google Maps origin verilmezse KENDİ önbelleğindeki/ağ tabanlı konumu
+// kullanabiliyor; kapalı alanda (dükkanın içi) bu, kuryenin gerçek yerinden
+// FARKLI bir noktadan rota başlatılmasına yol açıyordu. Burada bilerek taze bir
+// fix alıp URL'e gömüyoruz ki rota her zaman kuryenin GERÇEK konumundan başlasın.
+// Başarısız/reddedilirse null döner — çağıran taraf origin'i boş bırakıp eski
+// (Google'ın kendi konumu) davranışına düşer.
+export async function getFreshDeviceLocation(): Promise<GeoHit | null> {
+  if (typeof navigator === "undefined" || !navigator.geolocation) return null;
+  return new Promise((resolve) => {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout: 6000, maximumAge: 10000 },
+    );
+  });
+}

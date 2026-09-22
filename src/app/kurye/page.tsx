@@ -66,6 +66,11 @@ import {
 import { LocationPicker, type LatLng } from "@/components/kurye/LocationPicker";
 import { PoolMapSelect } from "@/components/kurye/PoolMapSelect";
 import { orderStopsByProximity, buildGoogleRouteUrl } from "@/lib/kurye/route";
+import {
+  geocodeOrderParts,
+  getFreshDeviceLocation,
+  type GeoHit,
+} from "@/lib/kurye/geocode";
 
 // Pusher (websocket) anlık güncellemeyi sağlar; bu poll yalnızca emniyet ağı
 // (Pusher devre dışıysa / kaçan olay için). Bu yüzden seyrek tutulur.
@@ -606,6 +611,68 @@ export default function KuryePage() {
   // Rotaya girebilecek toplam durak (pinli + pinsiz). ≥2 ise rota anlamlı.
   const routableCount = orderedRoute.length + unpinnedStops.length;
   const canRoute = routableCount >= 2;
+
+  // Pinsizleri arka planda geocode et — "Tüm rotaya yol tarifi" linkinde
+  // koordinat + düz metnin KARIŞIK gitmesi Google Maps uygulamasında bazen
+  // bozulup tek durağa düşmesine yol açıyordu; mümkün olanı koordinata çeviriyoruz.
+  const [unpinnedGeo, setUnpinnedGeo] = useState<Record<string, GeoHit>>({});
+  const [routeLocating, setRouteLocating] = useState(false);
+  const unpinnedKey = unpinnedStops.map((o) => o.id).join(",");
+  useEffect(() => {
+    if (unpinnedStops.length === 0) {
+      setUnpinnedGeo({});
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const found: Record<string, GeoHit> = {};
+      for (const o of unpinnedStops) {
+        if (cancelled) return;
+        const hit = await geocodeOrderParts(
+          {
+            address: o.customer.address,
+            detail: o.customer.addressDetail,
+            district: o.customer.district,
+          },
+          {
+            near: shopLocation
+              ? { lat: shopLocation.lat, lng: shopLocation.lng }
+              : undefined,
+          },
+        );
+        if (hit) found[o.id] = hit;
+      }
+      if (!cancelled) setUnpinnedGeo(found);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unpinnedKey]);
+
+  // "Tüm rotaya yol tarifi" linki: geocode'lu pinsizler koordinat olarak,
+  // yalnızca gerçekten bulunamayanlar metin olarak eklenir; origin butona
+  // basılır basılmaz alınan taze GPS'tir (bkz. openFullRoute).
+  const unpinnedResolved = unpinnedStops
+    .filter((o) => unpinnedGeo[o.id])
+    .map((o) => unpinnedGeo[o.id]);
+  const unpinnedUnresolved = unpinnedStops.filter((o) => !unpinnedGeo[o.id]);
+  const openFullRoute = async () => {
+    if (routeLocating) return;
+    setRouteLocating(true);
+    setRouteSheetOpen(false);
+    const win = typeof window !== "undefined" ? window.open("", "_blank") : null;
+    const origin = await getFreshDeviceLocation();
+    const url = buildGoogleRouteUrl(
+      orderedRoute,
+      unpinnedResolved,
+      unpinnedUnresolved.map(fullAddress),
+      origin,
+    );
+    if (win) win.location.href = url;
+    else if (typeof window !== "undefined") window.open(url, "_blank");
+    setRouteLocating(false);
+  };
 
   const go = (i: number) => {
     setConfirming(false);
@@ -1520,19 +1587,18 @@ export default function KuryePage() {
               </button>
             </div>
             <div className="space-y-2.5">
-              <a
-                href={buildGoogleRouteUrl(
-                  orderedRoute,
-                  unpinnedStops.map(fullAddress),
-                )}
-                target="_blank"
-                rel="noreferrer"
-                onClick={() => setRouteSheetOpen(false)}
-                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-indigo-600 py-4 text-base font-bold text-white shadow-sm shadow-indigo-600/25 transition active:scale-[0.98]"
+              <button
+                onClick={() => void openFullRoute()}
+                disabled={routeLocating}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-indigo-600 py-4 text-base font-bold text-white shadow-sm shadow-indigo-600/25 transition active:scale-[0.98] disabled:opacity-70"
               >
-                <Navigation className="h-5 w-5 fill-white" />
+                {routeLocating ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <Navigation className="h-5 w-5 fill-white" />
+                )}
                 Tüm rotaya yol tarifi ({routableCount})
-              </a>
+              </button>
               <button
                 onClick={() => {
                   setRouteSheetOpen(false);
