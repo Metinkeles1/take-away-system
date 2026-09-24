@@ -70,6 +70,9 @@ export function PoolMapSelect({
   const [geocoding, setGeocoding] = useState(false);
   // claim modunda üstlendikten sonra: seçilen paketler (yol tarifi ekranı).
   const [claimedView, setClaimedView] = useState<Order[] | null>(null);
+  const [claimedApproxCoords, setClaimedApproxCoords] = useState<
+    Record<string, GeoHit> | null
+  >(null);
   // Yol tarifi linkine taze GPS (origin) eklenirken kısa bekleme — buton spinner'ı.
   const [routeLocating, setRouteLocating] = useState(false);
 
@@ -139,6 +142,7 @@ export function PoolMapSelect({
     if (open) {
       setSelected(new Set());
       setClaimedView(null);
+      setClaimedApproxCoords(null);
     }
   }, [open]);
 
@@ -147,7 +151,7 @@ export function PoolMapSelect({
   useEffect(() => {
     if (!open) return;
     if (selPinless.length === 0) {
-      setApproxCoords({});
+      setGeocoding(false);
       return;
     }
     let cancelled = false;
@@ -352,13 +356,18 @@ export function PoolMapSelect({
   // (approxCoords) koordinatla eklenir — koordinat + düz metnin karışık gitmesi
   // Google'ın mobil uygulamasında bazen bozulup tek durağa düşmesine yol açıyordu.
   // Yalnızca gerçekten hiç bulunamayanlar (approxCoords'ta da yoksa) metin kalır.
-  const routeUrlFor = (list: Order[], origin?: { lat: number; lng: number } | null) => {
+  const routeUrlFor = (
+    list: Order[],
+    origin?: { lat: number; lng: number } | null,
+    approxSource?: Record<string, GeoHit> | null,
+  ) => {
+    const coords = approxSource ?? approxCoords;
     const pinned = list.filter((o) => o.customer.geo);
     const pinless = list.filter((o) => !o.customer.geo);
     const approxResolved = pinless
-      .filter((o) => approxCoords[o.id])
-      .map((o) => approxCoords[o.id]);
-    const unresolved = pinless.filter((o) => !approxCoords[o.id]);
+      .filter((o) => coords[o.id])
+      .map((o) => coords[o.id]);
+    const unresolved = pinless.filter((o) => !coords[o.id]);
     return buildGoogleRouteUrl(
       orderStopsByProximity(pinned, shopLocation),
       approxResolved,
@@ -370,24 +379,37 @@ export function PoolMapSelect({
   // Butona basılır basılmaz taze GPS al (origin) → yeni sekmeyi SENKRON aç
   // (popup engelleyiciden kaçmak için önce boş sekme, sonra href ata), sonra
   // rota linkini gerçek hedefe yönlendir.
-  const openRoute = async (list: Order[]) => {
+  const openRoute = async (
+    list: Order[],
+    approxSource?: Record<string, GeoHit> | null,
+  ) => {
     if (routeLocating) return;
     setRouteLocating(true);
-    const win = typeof window !== "undefined" ? window.open("", "_blank") : null;
-    const origin = await getFreshDeviceLocation();
-    const url = routeUrlFor(list, origin);
-    if (win) win.location.href = url;
-    else if (typeof window !== "undefined") window.open(url, "_blank");
-    setRouteLocating(false);
+    try {
+      const win =
+        typeof window !== "undefined" ? window.open("", "_blank") : null;
+      const origin = await getFreshDeviceLocation();
+      const url = routeUrlFor(list, origin, approxSource);
+      if (win) win.location.href = url;
+      else if (typeof window !== "undefined") window.open(url, "_blank");
+    } finally {
+      setRouteLocating(false);
+    }
   };
 
   const confirmClaim = async () => {
     if (selected.size === 0 || claiming || !onClaim) return;
     setClaiming(true);
     const picked = orders.filter((o) => selected.has(o.id));
-    await onClaim([...selected]);
-    setClaiming(false);
-    setClaimedView(picked);
+    try {
+      await onClaim([...selected]);
+      // Üstlendikten sonra listeden düşse bile rota için geocode edilmiş yaklaşık
+      // koordinatları koru.
+      setClaimedApproxCoords(approxCoords);
+      setClaimedView(picked);
+    } finally {
+      setClaiming(false);
+    }
   };
 
   const summaryLine =
@@ -538,7 +560,7 @@ export function PoolMapSelect({
               Kapat
             </button>
             <button
-              onClick={() => void openRoute(claimedView)}
+              onClick={() => void openRoute(claimedView, claimedApproxCoords)}
               disabled={routeLocating}
               className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-indigo-600 py-4 text-base font-bold text-white shadow-sm shadow-indigo-600/25 transition active:scale-[0.98] disabled:opacity-70"
             >
