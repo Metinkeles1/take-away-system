@@ -2,7 +2,6 @@
 
 import { connectDB } from "@/lib/mongodb";
 import OrderModel from "@/models/Order";
-import CustomerModel from "@/models/Customer";
 import { type GeoPoint, type Order } from "@/types";
 import { notifyOrdersChanged } from "@/lib/pusher/server";
 import {
@@ -16,11 +15,8 @@ import {
   getOpenAccountsByPhone,
   openAccountsExcluding,
 } from "@/lib/orders/openAccounts";
-import {
-  getGeoByPhone,
-  geoForPhone,
-  phoneMatchRegex,
-} from "@/lib/customers/geoByPhone";
+import { getAddressBook, geoForCustomer } from "@/lib/customers/geoByPhone";
+import { saveAddressGeo } from "@/lib/customers/recordAddress";
 import { getStoredTrendyolCourierOrders } from "@/actions/trendyolCourier";
 
 // Kurye sayfası için teslim edilmesi gereken siparişler.
@@ -40,19 +36,19 @@ export async function getCourierOrders(): Promise<Order[]> {
     .sort({ createdAt: -1 })
     .lean();
 
-  // Bu siparişlerdeki müşterilerin kayıtlı pinlerini tek sorguda çek.
-  // Eşleştirme telefonun SADECE rakamlarına göre yapılır (getGeoByPhone); aynı
-  // müşterinin "0555…"/"+90 555…"/"555…" gibi farklı formatları aynı pini bulsun.
+  // Bu siparişlerdeki müşterilerin adres/pin listesini tek sorguda çek.
+  // Telefon eşleşmesi rakam bazlı (format farkı yok sayılır); pin ise siparişin
+  // ADRESİNE göre seçilir (bkz. geoForCustomer).
   const phones = [...new Set(docs.map((d) => (d.customer as Order["customer"]).phone))];
-  const geoByPhone = await getGeoByPhone(phones);
+  const addressBook = await getAddressBook(phones);
 
   // Bu müşterilerin açık hesapları — kurye kapıda "eski borcu var" uyarısı görsün.
   const openByPhone = await getOpenAccountsByPhone(phones);
 
   return docs.map((doc) => {
     const customer = doc.customer as Order["customer"];
-    // Siparişin kendi pini varsa onu, yoksa müşteriye (telefon) kayıtlı pini kullan.
-    const geo = customer.geo ?? geoForPhone(geoByPhone, customer.phone);
+    // Siparişin kendi pini varsa onu, yoksa müşterinin bu adresine kayıtlı pini.
+    const geo = customer.geo ?? geoForCustomer(addressBook, customer);
 
     return {
       id: doc.id,
@@ -105,33 +101,9 @@ export async function saveDeliveryLocation(
   if (!doc) return;
 
   const customer = (doc as unknown as { customer: Order["customer"] }).customer;
-  // Müşteriye kaydet — sonraki siparişlerde pin hazır gelsin. Aynı müşterinin
-  // numarası farklı formatta kayıtlı olabileceğinden önce RAKAM-BAZLI ararız;
-  // varsa onu güncelleriz. Yoksa yeni kayıt açarız (id `cust-<rakamlar>` —
-  // mevcut kayıt bulunamadığı için unique id çakışması olmaz).
-  const rx = phoneMatchRegex(customer.phone);
-  const existing = rx
-    ? ((await CustomerModel.findOne({ phone: rx })
-        .select("_id")
-        .lean()) as { _id: unknown } | null)
-    : null;
-  if (existing) {
-    await CustomerModel.updateOne({ _id: existing._id }, { $set: { geo } });
-  } else {
-    await CustomerModel.updateOne(
-      { phone: customer.phone },
-      {
-        $set: { geo },
-        $setOnInsert: {
-          id: `cust-${customer.phone.replace(/\D/g, "")}`,
-          name: customer.name,
-          phone: customer.phone,
-          address: customer.address,
-        },
-      },
-      { upsert: true },
-    );
-  }
+  // Müşterinin İLGİLİ adresine kaydet — o adrese sonraki siparişte pin hazır
+  // gelsin. Aynı numaranın başka adresinin pini değişmez.
+  await saveAddressGeo(customer, geo);
 }
 
 // Kurye bir siparişi üstlenir ("Tüm Paketler"de check'ler). Yarış durumunda

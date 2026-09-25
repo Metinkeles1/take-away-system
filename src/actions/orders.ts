@@ -3,7 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { connectDB } from "@/lib/mongodb";
 import OrderModel from "@/models/Order";
-import { getGeoByPhone, geoForPhone } from "@/lib/customers/geoByPhone";
+import {
+  getAddressBook,
+  geoForCustomer,
+  type AddressBook,
+} from "@/lib/customers/geoByPhone";
 import { recordCustomerAddress } from "@/lib/customers/recordAddress";
 import { toLocalPhone } from "@/lib/utils";
 import {
@@ -14,7 +18,6 @@ import {
 } from "@/lib/integrations/trendyol/client";
 import {
   type CustomerOpenAccounts,
-  type GeoPoint,
   type MealCardBrand,
   type Order,
   type OrderStatus,
@@ -109,14 +112,14 @@ function deliveryFields(doc: unknown): {
   };
 }
 
-// Siparişin kendi pini varsa onu, yoksa müşteriye (telefon) kayıtlı pini kullanır.
-// Eşleştirme telefonun rakamlarına göre (geoForPhone) — format farkını yok sayar.
+// Siparişin kendi pini varsa onu, yoksa müşterinin BU ADRESİNE kayıtlı pini
+// kullanır (aynı numaranın başka adresinin pini ödünç alınmaz).
 function withFallbackGeo(
   customer: Order["customer"],
-  geoByPhone: Map<string, GeoPoint>,
+  addressBook: AddressBook,
 ): Order["customer"] {
   if (customer.geo) return customer;
-  const geo = geoForPhone(geoByPhone, customer.phone);
+  const geo = geoForCustomer(addressBook, customer);
   return geo ? { ...customer, geo } : customer;
 }
 
@@ -147,16 +150,16 @@ export async function getOrders(period: OrdersPeriod = "week"): Promise<Order[]>
   const phones = docs.map((d) => (d.customer as Order["customer"]).phone);
   const openByPhone = await getOpenAccountsByPhone(phones);
 
-  // Kurye ekranıyla aynı mantık: siparişin kendi pini yoksa, müşteriye (telefon)
-  // kayıtlı pini kullan. Aksi halde kurye bir önceki teslimatta pinlediği konumu
+  // Kurye ekranıyla aynı mantık: siparişin kendi pini yoksa, müşterinin bu
+  // adresine kayıtlı pini kullan. Aksi halde kurye bir önceki teslimatta pinlediği konumu
   // görürken, bu sipariş henüz pinlenmediği için bilgisayarda konum boş kalıyordu.
-  const geoByPhone = await getGeoByPhone(phones);
+  const addressBook = await getAddressBook(phones);
 
   return docs.map((doc) => ({
     id: doc.id,
     orderNumber: doc.orderNumber,
     items: doc.items as Order["items"],
-    customer: withFallbackGeo(doc.customer as Order["customer"], geoByPhone),
+    customer: withFallbackGeo(doc.customer as Order["customer"], addressBook),
     payment: doc.payment as Order["payment"],
     status: doc.status as Order["status"],
     notes: doc.notes ?? undefined,
@@ -187,15 +190,15 @@ export async function getOrderById(id: string): Promise<Order | null> {
   if (!doc) return null;
 
   const customer = doc.customer as Order["customer"];
-  // Siparişin kendi pini yoksa müşteriye (telefon) kayıtlı pini kullan — kurye
-  // ekranıyla tutarlı olsun (bkz. getCourierOrders).
-  const geoByPhone = customer.geo ? null : await getGeoByPhone([customer.phone]);
+  // Siparişin kendi pini yoksa müşterinin bu adresine kayıtlı pini kullan —
+  // kurye ekranıyla tutarlı olsun (bkz. getCourierOrders).
+  const addressBook = customer.geo ? null : await getAddressBook([customer.phone]);
 
   return {
     id: doc.id,
     orderNumber: doc.orderNumber,
     items: doc.items as Order["items"],
-    customer: geoByPhone ? withFallbackGeo(customer, geoByPhone) : customer,
+    customer: addressBook ? withFallbackGeo(customer, addressBook) : customer,
     payment: doc.payment as Order["payment"],
     status: doc.status as Order["status"],
     notes: doc.notes ?? undefined,

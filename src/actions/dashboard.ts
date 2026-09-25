@@ -3,6 +3,7 @@
 import { connectDB } from "@/lib/mongodb";
 import OrderModel from "@/models/Order";
 import CustomerModel from "@/models/Customer";
+import { getAddressBook, geoForCustomer } from "@/lib/customers/geoByPhone";
 import ProductModel from "@/models/Product";
 import { type OrderSource } from "@/types";
 import {
@@ -746,6 +747,8 @@ export async function getOrderRegions(
       "customer.name": 1,
       "customer.phone": 1,
       "customer.address": 1,
+      "customer.addressDetail": 1,
+      "customer.addressId": 1,
       "customer.district": 1,
       "customer.geo": 1,
       "payment.method": 1,
@@ -768,21 +771,9 @@ export async function getOrderRegions(
         .filter((p): p is string => !!p),
     ),
   ];
-  const geoByPhone = new Map<string, { lat: number; lng: number }>();
-  if (phonesNeedingGeo.length > 0) {
-    const custs = await CustomerModel.find({ phone: { $in: phonesNeedingGeo } })
-      .select({ phone: 1, geo: 1 })
-      .lean();
-    for (const c of custs) {
-      const rec = c as unknown as {
-        phone: string;
-        geo?: { lat?: number; lng?: number };
-      };
-      const lat = parseFiniteCoord(rec.geo?.lat);
-      const lng = parseFiniteCoord(rec.geo?.lng);
-      if (lat !== null && lng !== null) geoByPhone.set(rec.phone, { lat, lng });
-    }
-  }
+  // Pin siparişin ADRESİNE göre seçilir (aynı numaranın başka adresi değil).
+  const addressBook =
+    phonesNeedingGeo.length > 0 ? await getAddressBook(phonesNeedingGeo) : new Map();
 
   const payments: Record<PaymentKey, number> = {
     cash: 0, card: 0, online: 0, meal_card: 0, iban: 0,
@@ -818,15 +809,21 @@ export async function getOrderRegions(
     ).trim();
     const district = districtRaw || "Bilinmiyor";
 
-    // Önce siparişin kendi pini; yoksa müşteri kaydındaki (telefon) pin.
+    // Önce siparişin kendi pini; yoksa müşterinin bu adresine kayıtlı pin.
     const ownGeo = (o.customer as unknown as {
       geo?: { lat?: number; lng?: number };
     }).geo;
     let lat = parseFiniteCoord(ownGeo?.lat);
     let lng = parseFiniteCoord(ownGeo?.lng);
     if (lat === null || lng === null) {
-      const phone = (o.customer as unknown as { phone?: string }).phone;
-      const fallback = phone ? geoByPhone.get(phone) : undefined;
+      const fb = geoForCustomer(
+        addressBook,
+        o.customer as unknown as Parameters<typeof geoForCustomer>[1],
+      );
+      const fbLat = parseFiniteCoord(fb?.lat);
+      const fbLng = parseFiniteCoord(fb?.lng);
+      const fallback =
+        fbLat !== null && fbLng !== null ? { lat: fbLat, lng: fbLng } : undefined;
       if (fallback) {
         lat = fallback.lat;
         lng = fallback.lng;

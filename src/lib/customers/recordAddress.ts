@@ -7,7 +7,7 @@ import {
   normalizeCustomerAddresses,
   pickDefaultAddress,
 } from "@/lib/customers/addresses";
-import type { CustomerAddress, CustomerInfo } from "@/types";
+import type { CustomerAddress, CustomerInfo, GeoPoint } from "@/types";
 
 type CustomerDoc = Record<string, unknown> & { _id: unknown };
 
@@ -33,9 +33,8 @@ export async function findCustomerByPhone(
 }
 
 // Adres listesini + varsayılanın üst seviye kopyasını (address/addressDetail)
-// birlikte yazmak için $set gövdesi. Üst seviye `geo`ya DOKUNMAZ: kurye pini
-// şimdilik telefon bazlı üst seviye geo'dan okunuyor; yeni adres eklenince o
-// pin silinmesin.
+// birlikte yazmak için $set gövdesi. Üst seviye `geo` da varsayılan adresin
+// pini olur (eski uyum); pin okuyucuları adres bazlıdır (bkz. geoForCustomer).
 export function addressesSetFields(
   addresses: CustomerAddress[],
   defaultAddressId?: string,
@@ -46,6 +45,7 @@ export function addressesSetFields(
     defaultAddressId: defaultAddressId ?? null,
     address: def?.address ?? "",
     addressDetail: def?.addressDetail ?? null,
+    geo: def?.geo ?? null,
   };
 }
 
@@ -137,4 +137,56 @@ export async function recordCustomerAddress(
     },
   );
   return addressId;
+}
+
+// Kuryenin teslimatta yakaladığı pini müşterinin İLGİLİ adresine yazar:
+// siparişin bağlı olduğu adres id'si, yoksa adres metni eşleşmesi; hiçbiri
+// yoksa adres müşteriye yeni adres olarak eklenir (pin başka adresin üzerine
+// asla yazılmaz). Müşteri kaydı yoksa oluşturulur.
+export async function saveAddressGeo(
+  customer: Pick<
+    CustomerInfo,
+    "name" | "phone" | "address" | "addressDetail" | "district" | "addressId"
+  >,
+  geo: GeoPoint,
+): Promise<void> {
+  let existing = await findCustomerByPhone(customer.phone);
+  let addressId = customer.addressId;
+  if (!existing) {
+    addressId = await recordCustomerAddress(customer, { countOrder: false });
+    existing = await findCustomerByPhone(customer.phone);
+    if (!existing) return;
+  }
+
+  const { addresses, defaultAddressId } = normalizeCustomerAddresses(
+    existing as Parameters<typeof normalizeCustomerAddresses>[0],
+  );
+  let target = addressId
+    ? addresses.find((a) => a.id === addressId)
+    : undefined;
+  target ??= findMatchingAddress(
+    addresses,
+    customer.address,
+    customer.addressDetail,
+  );
+
+  const next: CustomerAddress[] = target
+    ? addresses.map((a) => (a.id === target.id ? { ...a, geo } : a))
+    : [
+        ...addresses,
+        {
+          id: newAddressId(),
+          address: customer.address,
+          addressDetail: customer.addressDetail || undefined,
+          district: customer.district || undefined,
+          geo,
+          useCount: 0,
+          lastUsedAt: new Date(),
+        },
+      ];
+
+  await CustomerModel.updateOne(
+    { _id: existing._id },
+    { $set: addressesSetFields(next, defaultAddressId) },
+  );
 }

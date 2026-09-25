@@ -11,6 +11,7 @@ import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import {
   type SavedCustomer,
+  type CustomerAddress,
   type PaymentMethod,
   type MealCardBrand,
   type OrderDraft,
@@ -62,20 +63,19 @@ export default function OrderSidePanel({
   const { isSubmitting, receiptRef, onComplete, onSaveEdit, onCancel } =
     useOrderSubmit();
 
-  // Müşteri listesini bir kez yükle (client-side filtre için)
+  // Müşteri listesini her mount'ta tazele (Müşteriler sayfasındaki
+  // değişiklikler sayfa yenilenmeden burada da görünsün).
   useEffect(() => {
-    if (savedCustomers.length === 0) {
-      void loadSavedCustomers();
-    }
+    void loadSavedCustomers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleSelectCustomer = (c: SavedCustomer) => {
+  const handleSelectCustomer = (c: SavedCustomer, a: CustomerAddress) => {
     setCustomer({
       name: c.phone,
       phone: c.phone,
-      address: c.address,
-      addressDetail: c.addressDetail,
+      address: a.address,
+      addressDetail: a.addressDetail,
     });
   };
 

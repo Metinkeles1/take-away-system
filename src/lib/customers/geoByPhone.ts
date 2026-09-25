@@ -1,8 +1,12 @@
 import CustomerModel from "@/models/Customer";
 import { phoneKey } from "@/lib/utils";
-import type { GeoPoint } from "@/types";
+import type { CustomerAddress, GeoPoint } from "@/types";
+import {
+  findMatchingAddress,
+  normalizeCustomerAddresses,
+} from "@/lib/customers/addresses";
 
-// Müşteri kaydındaki pini (geo) telefona göre çeker — AMA eşleştirme telefonun
+// Telefon eşleştirmesi — AMA eşleştirme telefonun
 // SADECE rakamlarına (son 10 hane) göre yapılır. Aynı müşterinin "0555 123 45 67",
 // "+90 555…", "5551234567" gibi farklı formatta yazılmış numaraları aynı pini
 // bulur. Eskiden birebir string eşleşmesi vardı; bir siparişte numara başka
@@ -20,36 +24,61 @@ export function phoneMatchRegex(phone: string): RegExp | null {
   return new RegExp(k.split("").join("\\D*") + "(?:\\D|$)");
 }
 
-export async function getGeoByPhone(
-  phones: string[],
-): Promise<Map<string, GeoPoint>> {
+// Telefon (son 10 hane) → müşterinin adres listesi. Pin artık ADRESE aittir;
+// bir siparişin pini, müşterinin o siparişin adresine ait pinidir
+// (bkz. geoForCustomer). Aynı numaranın başka adresinin pini ödünç alınmaz.
+export type AddressBook = Map<string, CustomerAddress[]>;
+
+export async function getAddressBook(phones: string[]): Promise<AddressBook> {
   const keys = [
     ...new Set(phones.map(phoneKey).filter((k) => k.length >= 7)),
   ];
   if (keys.length === 0) return new Map();
 
-  const ors = keys.map((k) => ({
-    // Rakamlar arası ayraç serbest; sonda başka rakam gelmesin (yanlış eşleşme önle).
-    phone: new RegExp(k.split("").join("\\D*") + "(?:\\D|$)"),
-  }));
+  const ors = keys.map((k) => ({ phone: phoneMatchRegex(k) as RegExp }));
 
-  const customers = await CustomerModel.find({ geo: { $ne: null }, $or: ors })
-    .select("phone geo")
+  // Yalnızca pini olan kayıtlar (eski üst seviye geo ya da adres pini).
+  const customers = await CustomerModel.find({
+    $and: [
+      { $or: ors },
+      { $or: [{ geo: { $ne: null } }, { "addresses.geo": { $ne: null } }] },
+    ],
+  })
+    .select("phone address addressDetail geo addresses defaultAddressId orderCount updatedAt")
     .lean();
 
-  const map = new Map<string, GeoPoint>();
+  const book: AddressBook = new Map();
   for (const c of customers) {
-    const rec = c as unknown as { phone: string; geo?: GeoPoint };
-    if (rec.geo) map.set(phoneKey(rec.phone), rec.geo);
+    const rec = c as unknown as { phone: string };
+    const { addresses } = normalizeCustomerAddresses(
+      c as Parameters<typeof normalizeCustomerAddresses>[0],
+    );
+    book.set(phoneKey(rec.phone), addresses);
   }
-  return map;
+  return book;
 }
 
-// getGeoByPhone'un döndürdüğü map'ten bir siparişin telefonuna karşılık gelen
-// pini, format farkını yok sayarak okur.
-export function geoForPhone(
-  map: Map<string, GeoPoint>,
-  phone: string,
+// Siparişin adresine ait kayıtlı pin: önce siparişin bağlı olduğu adres id'si,
+// yoksa (eski/Trendyol siparişi) adres metni eşleşmesi. Bulunamazsa undefined.
+export function geoForCustomer(
+  book: AddressBook,
+  customer: {
+    phone?: string;
+    address?: string;
+    addressDetail?: string;
+    addressId?: string;
+  },
 ): GeoPoint | undefined {
-  return map.get(phoneKey(phone));
+  if (!customer.phone) return undefined;
+  const list = book.get(phoneKey(customer.phone));
+  if (!list) return undefined;
+  const byId = customer.addressId
+    ? list.find((a) => a.id === customer.addressId)
+    : undefined;
+  const hit =
+    byId ??
+    (customer.address
+      ? findMatchingAddress(list, customer.address, customer.addressDetail)
+      : undefined);
+  return hit?.geo;
 }

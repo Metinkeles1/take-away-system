@@ -1,4 +1,5 @@
 import { type SavedCustomer } from "@/types";
+import { pickDefaultAddress } from "@/lib/customers/addresses";
 
 // Google Contacts'ın beklediği tam başlık şeması. Sütun sayısı/sırası birebir
 // eşleşmeli — yoksa Drive Contacts içe aktarmayı reddediyor.
@@ -48,6 +49,19 @@ function buildFirstName(c: SavedCustomer): string {
   return phoneDigits ? `Müşteri ${phoneDigits.slice(-4)}` : "Müşteri";
 }
 
+// Varsayılan olmayan adresler (varsa) — " | " ile birleştirilmiş metin.
+// Not: Google Contacts import'u sütun sayısı/sırasının birebir eşleşmesini
+// istiyor (bkz. GOOGLE_HEADER yorumu), bu yüzden ayrı bir sütun açmak yerine
+// Notes alanına ekleniyor.
+function buildOtherAddresses(c: SavedCustomer): string {
+  if (!c.addresses || c.addresses.length <= 1) return "";
+  const def = pickDefaultAddress(c.addresses, c.defaultAddressId);
+  return c.addresses
+    .filter((a) => a.id !== def?.id)
+    .map((a) => (a.addressDetail ? `${a.address} - ${a.addressDetail}` : a.address))
+    .join(" | ");
+}
+
 // Adres + sipariş sayısı Notes'a — Google Contacts'ta arama yapılabilen alan
 function buildNotes(c: SavedCustomer): string {
   const parts: string[] = [];
@@ -58,6 +72,8 @@ function buildNotes(c: SavedCustomer): string {
   }
   if (c.addressDetail && c.addressDetail.trim()) parts.push(c.addressDetail.trim());
   if (c.orderCount > 0) parts.push(`Sipariş sayısı: ${c.orderCount}`);
+  const others = buildOtherAddresses(c);
+  if (others) parts.push(`Diğer adresler: ${others}`);
   return parts.join(" · ");
 }
 

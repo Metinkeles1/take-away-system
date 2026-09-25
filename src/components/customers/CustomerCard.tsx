@@ -48,6 +48,11 @@ export const CustomerCard = memo(function CustomerCard({
               {customer.address}
               {customer.addressDetail && ` - ${customer.addressDetail}`}
             </span>
+            {customer.addresses.length > 1 && (
+              <Badge variant="outline" className="shrink-0 text-xs">
+                +{customer.addresses.length - 1} adres
+              </Badge>
+            )}
           </div>
         </button>
         <div className="flex items-center gap-2 shrink-0">

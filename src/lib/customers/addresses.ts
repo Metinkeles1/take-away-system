@@ -9,7 +9,7 @@ export function addressKey(address: string, addressDetail?: string): string {
   const norm = (s?: string) =>
     (s ?? "")
       .toLocaleLowerCase("tr-TR")
-      .replace(/[.,;:/\\-_'"()]+/g, " ")
+      .replace(/[-.,;:/\\_'"()]+/g, " ")
       .replace(/\s+/g, " ")
       .trim();
   return `${norm(address)}|${norm(addressDetail)}`;

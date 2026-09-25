@@ -6,7 +6,7 @@
 
 import { connectDB } from "@/lib/mongodb";
 import OrderModel from "@/models/Order";
-import CustomerModel from "@/models/Customer";
+import { getAddressBook, geoForCustomer } from "@/lib/customers/geoByPhone";
 import { type OrderSource } from "@/types";
 import { istanbulDayStart } from "@/lib/datetime";
 import { estimateOrderNet } from "@/lib/commission";
@@ -397,6 +397,9 @@ export async function getOverviewPins(
       total: 1,
       createdAt: 1,
       "customer.phone": 1,
+      "customer.address": 1,
+      "customer.addressDetail": 1,
+      "customer.addressId": 1,
       "customer.district": 1,
       "customer.geo": 1,
     })
@@ -409,11 +412,18 @@ export async function getOverviewPins(
     status: string;
     total: number;
     createdAt: Date | string;
-    customer?: { phone?: string; district?: string; geo?: { lat?: number; lng?: number } };
+    customer?: {
+      phone?: string;
+      address?: string;
+      addressDetail?: string;
+      addressId?: string;
+      district?: string;
+      geo?: { lat?: number; lng?: number };
+    };
   };
   const rows = orders as unknown as Row[];
 
-  // Kendi geo'su olmayan siparişler için telefon→geo fallback.
+  // Kendi geo'su olmayan siparişler için müşterinin o adresine kayıtlı pin.
   const phonesNeedingGeo = [
     ...new Set(
       rows
@@ -422,18 +432,8 @@ export async function getOverviewPins(
         .filter((p): p is string => !!p),
     ),
   ];
-  const geoByPhone = new Map<string, { lat: number; lng: number }>();
-  if (phonesNeedingGeo.length > 0) {
-    const custs = await CustomerModel.find({ phone: { $in: phonesNeedingGeo } })
-      .select({ phone: 1, geo: 1 })
-      .lean();
-    for (const c of custs) {
-      const rec = c as unknown as { phone: string; geo?: { lat?: number; lng?: number } };
-      const lat = finiteCoord(rec.geo?.lat);
-      const lng = finiteCoord(rec.geo?.lng);
-      if (lat !== null && lng !== null) geoByPhone.set(rec.phone, { lat, lng });
-    }
-  }
+  const addressBook =
+    phonesNeedingGeo.length > 0 ? await getAddressBook(phonesNeedingGeo) : new Map();
 
   const pins: RegionPin[] = [];
   let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
@@ -442,10 +442,12 @@ export async function getOverviewPins(
     let lat = finiteCoord(o.customer?.geo?.lat);
     let lng = finiteCoord(o.customer?.geo?.lng);
     if (lat === null || lng === null) {
-      const fb = o.customer?.phone ? geoByPhone.get(o.customer.phone) : undefined;
-      if (fb) {
-        lat = fb.lat;
-        lng = fb.lng;
+      const fb = o.customer ? geoForCustomer(addressBook, o.customer) : undefined;
+      const fbLat = finiteCoord(fb?.lat);
+      const fbLng = finiteCoord(fb?.lng);
+      if (fbLat !== null && fbLng !== null) {
+        lat = fbLat;
+        lng = fbLng;
       }
     }
     if (lat === null || lng === null) continue;

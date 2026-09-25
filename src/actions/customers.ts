@@ -44,6 +44,13 @@ export async function getSavedCustomers(): Promise<SavedCustomer[]> {
   return docs.map((d) => docToCustomer(d as Record<string, unknown>));
 }
 
+// ─── Tek müşteri getir (adres işlemleri sonrası tazeleme) ─────────────────────
+export async function getSavedCustomer(id: string): Promise<SavedCustomer | null> {
+  await connectDB();
+  const doc = await CustomerModel.findOne({ id }).lean();
+  return doc ? docToCustomer(doc as Record<string, unknown>) : null;
+}
+
 // ─── İsim, telefon veya adrese göre ara ──────────────────────────────────────────────
 export async function searchCustomers(query: string): Promise<SavedCustomer[]> {
   await connectDB();

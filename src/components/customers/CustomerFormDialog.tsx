@@ -9,59 +9,56 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { type SavedCustomer } from "@/types";
+import { type CustomerAddress, type SavedCustomer } from "@/types";
 import { createCustomer, updateCustomer } from "@/actions/customers";
+import { CustomerAddressSection } from "./CustomerAddressSection";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
-interface CustomerFormState {
+interface NamePhoneState {
   name: string;
   phone: string;
+}
+
+interface CreateFormState extends NamePhoneState {
   address: string;
   addressDetail: string;
 }
 
-const EMPTY_FORM: CustomerFormState = {
+const EMPTY_FORM: CreateFormState = {
   name: "",
   phone: "",
   address: "",
   addressDetail: "",
 };
 
-function fromCustomer(c: SavedCustomer): CustomerFormState {
-  return {
-    name: c.name,
-    phone: c.phone,
-    address: c.address,
-    addressDetail: c.addressDetail ?? "",
-  };
+function fromCustomer(c: SavedCustomer): NamePhoneState {
+  return { name: c.name, phone: c.phone };
 }
 
-function validate(form: CustomerFormState): string | null {
+function validateNamePhone(form: NamePhoneState): string | null {
+  if (!form.name.trim() || !form.phone.trim()) {
+    return "Ad ve telefon zorunludur";
+  }
+  return null;
+}
+
+function validateCreate(form: CreateFormState): string | null {
   if (!form.name.trim() || !form.phone.trim() || !form.address.trim()) {
     return "Ad, telefon ve adres zorunludur";
   }
   return null;
 }
 
-function toPayload(form: CustomerFormState) {
-  return {
-    name: form.name.trim(),
-    phone: form.phone.trim(),
-    address: form.address.trim(),
-    addressDetail: form.addressDetail.trim() || undefined,
-  };
-}
-
-function CustomerFormFields({
+function NamePhoneFields({
   formData,
   setFormData,
 }: {
-  formData: CustomerFormState;
-  setFormData: React.Dispatch<React.SetStateAction<CustomerFormState>>;
+  formData: NamePhoneState;
+  setFormData: React.Dispatch<React.SetStateAction<NamePhoneState>>;
 }) {
   return (
-    <div className="grid gap-4 py-2">
+    <div className="grid gap-4">
       <div className="grid gap-2">
         <Label htmlFor="name">Ad Soyad *</Label>
         <Input
@@ -80,6 +77,19 @@ function CustomerFormFields({
           onChange={(e) => setFormData((p) => ({ ...p, phone: e.target.value }))}
         />
       </div>
+    </div>
+  );
+}
+
+function CreateAddressFields({
+  formData,
+  setFormData,
+}: {
+  formData: CreateFormState;
+  setFormData: React.Dispatch<React.SetStateAction<CreateFormState>>;
+}) {
+  return (
+    <div className="grid gap-4">
       <div className="grid gap-2">
         <Label htmlFor="address">Adres *</Label>
         <Input
@@ -119,35 +129,72 @@ export const CustomerFormDialog = memo(function CustomerFormDialog({
   onSuccess,
 }: CustomerFormDialogProps) {
   const isEdit = !!editing;
-  const [formData, setFormData] = useState<CustomerFormState>(EMPTY_FORM);
+  const [namePhone, setNamePhone] = useState<NamePhoneState>({ name: "", phone: "" });
+  const [createForm, setCreateForm] = useState<CreateFormState>(EMPTY_FORM);
   const [isSaving, setIsSaving] = useState(false);
+
+  // Düzenleme modunda adres listesinin yerel kopyası — adres işlemleri
+  // sunucudan tazelenince burada güncellenir, dialog kapanmaz.
+  const [addresses, setAddresses] = useState<CustomerAddress[]>([]);
+  const [defaultAddressId, setDefaultAddressId] = useState<string | undefined>();
 
   useEffect(() => {
     if (!open) return;
-    setFormData(editing ? fromCustomer(editing) : EMPTY_FORM);
-  }, [open, editing]);
+    if (editing) {
+      setNamePhone(fromCustomer(editing));
+      setAddresses(editing.addresses);
+      setDefaultAddressId(editing.defaultAddressId);
+    } else {
+      setCreateForm(EMPTY_FORM);
+    }
+    // editing sadece id ile değişirse yeniden senkronize et — dialog açıkken
+    // adres işlemleri sonrası editing referansı değişmediği için formu ezmez.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, editing?.id]);
 
   const handleSubmit = async () => {
-    const error = validate(formData);
+    if (isEdit && editing) {
+      const error = validateNamePhone(namePhone);
+      if (error) {
+        toast.error(error);
+        return;
+      }
+      setIsSaving(true);
+      try {
+        await updateCustomer(editing.id, {
+          name: namePhone.name.trim(),
+          phone: namePhone.phone.trim(),
+        });
+        toast.success("Müşteri güncellendi");
+        onOpenChange(false);
+        onSuccess();
+      } catch {
+        toast.error("Müşteri güncellenirken hata oluştu");
+      } finally {
+        setIsSaving(false);
+      }
+      return;
+    }
+
+    const error = validateCreate(createForm);
     if (error) {
       toast.error(error);
       return;
     }
     setIsSaving(true);
     try {
-      if (isEdit && editing) {
-        await updateCustomer(editing.id, toPayload(formData));
-        toast.success("Müşteri güncellendi");
-      } else {
-        await createCustomer({ id: crypto.randomUUID(), ...toPayload(formData) });
-        toast.success("Müşteri eklendi");
-      }
+      await createCustomer({
+        id: crypto.randomUUID(),
+        name: createForm.name.trim(),
+        phone: createForm.phone.trim(),
+        address: createForm.address.trim(),
+        addressDetail: createForm.addressDetail.trim() || undefined,
+      });
+      toast.success("Müşteri eklendi");
       onOpenChange(false);
       onSuccess();
     } catch {
-      toast.error(
-        isEdit ? "Müşteri güncellenirken hata oluştu" : "Müşteri eklenirken hata oluştu",
-      );
+      toast.error("Müşteri eklenirken hata oluştu");
     } finally {
       setIsSaving(false);
     }
@@ -155,11 +202,30 @@ export const CustomerFormDialog = memo(function CustomerFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md" aria-describedby={undefined}>
+      <DialogContent
+        className="sm:max-w-md max-h-[85vh] overflow-y-auto"
+        aria-describedby={undefined}
+      >
         <DialogHeader>
           <DialogTitle>{isEdit ? "Müşteri Düzenle" : "Yeni Müşteri Ekle"}</DialogTitle>
         </DialogHeader>
-        <CustomerFormFields formData={formData} setFormData={setFormData} />
+        <div className="grid gap-4 py-2">
+          <NamePhoneFields formData={namePhone} setFormData={setNamePhone} />
+          {isEdit && editing ? (
+            <CustomerAddressSection
+              customerId={editing.id}
+              addresses={addresses}
+              defaultAddressId={defaultAddressId}
+              onAddressesChange={(next, nextDefault) => {
+                setAddresses(next);
+                setDefaultAddressId(nextDefault);
+              }}
+              onSynced={onSuccess}
+            />
+          ) : (
+            <CreateAddressFields formData={createForm} setFormData={setCreateForm} />
+          )}
+        </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             İptal
