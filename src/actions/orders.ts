@@ -218,8 +218,12 @@ export async function getOrderById(id: string): Promise<Order | null> {
 }
 
 // ─── Sipariş kaydet ───────────────────────────────────────────────────────────
+// opts.updateSavedAddress: operatör seçtiği kayıtlı adresi düzeltip "Kayıtlı
+// adresi güncelle" dediyse — yeni adres eklenmez, o adres (order.customer.addressId)
+// güncellenir.
 export async function createOrder(
   order: Order,
+  opts?: { updateSavedAddress?: boolean },
 ): Promise<{ ok: boolean; error?: string }> {
   try {
     await connectDB();
@@ -238,6 +242,9 @@ export async function createOrder(
     try {
       customerForDB.addressId = await recordCustomerAddress(customerForDB, {
         countOrder: true,
+        updateAddressId: opts?.updateSavedAddress
+          ? order.customer.addressId
+          : undefined,
       });
     } catch (e) {
       console.error("[createOrder] müşteri adresi kaydedilemedi", e);

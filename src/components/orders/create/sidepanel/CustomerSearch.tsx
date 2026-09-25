@@ -4,9 +4,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { type CustomerAddress, type SavedCustomer } from "@/types";
 import { cn, formatPhone, phoneKey } from "@/lib/utils";
 import { findMatchingAddress, pickDefaultAddress } from "@/lib/customers/addresses";
-import { Phone, MapPin, Building2, BookUser, Plus } from "lucide-react";
+import { Phone, MapPin, Building2, BookUser } from "lucide-react";
 import { SectionTitle } from "./SectionTitle";
-import { CustomerAddressChips } from "./CustomerAddressChips";
 import { User } from "lucide-react";
 
 const AVATAR_COLORS = [
@@ -74,20 +73,10 @@ interface SuggestionGroup {
   addresses: CustomerAddress[];
 }
 
-type SuggestionRow =
-  | { kind: "address"; customer: SavedCustomer; addr: CustomerAddress }
-  | { kind: "new"; customer: SavedCustomer };
-
-type DisplayItem =
-  | { kind: "header"; customer: SavedCustomer; isFirstGroup: boolean }
-  | {
-      kind: "address";
-      customer: SavedCustomer;
-      addr: CustomerAddress;
-      rowIndex: number;
-      showBadge: boolean;
-    }
-  | { kind: "new"; customer: SavedCustomer; rowIndex: number };
+// Listede her satır tek bir adres (müşteri bilgisi satırın altında küçük yazı).
+// Ayrı "yeni adres" satırı yok: seçilen adres düzenlenirse sipariş tamamlanınca
+// sunucu onu zaten yeni adres olarak ekler.
+type SuggestionRow = { customer: SavedCustomer; addr: CustomerAddress };
 
 function sortAddresses(customer: SavedCustomer, addrs: CustomerAddress[]): CustomerAddress[] {
   const def = pickDefaultAddress(customer.addresses, customer.defaultAddressId);
@@ -114,6 +103,11 @@ interface CustomerSearchProps {
   addressDetail: string;
   phone: string;
   savedCustomers: SavedCustomer[];
+  // Listeden seçilen kayıtlı adres + operatör bu adresi düzeltiyorsa
+  // "yeni adres mi / kayıtlı adresi güncelle mi" seçimi.
+  selectedAddressId?: string;
+  updateSaved: boolean;
+  onUpdateSavedChange: (value: boolean) => void;
   autoFocus?: boolean;
   onAddressChange: (value: string) => void;
   onAddressDetailChange: (value: string) => void;
@@ -126,6 +120,9 @@ export function CustomerSearch({
   addressDetail,
   phone,
   savedCustomers,
+  selectedAddressId,
+  updateSaved,
+  onUpdateSavedChange,
   autoFocus,
   onAddressChange,
   onAddressDetailChange,
@@ -136,7 +133,6 @@ export function CustomerSearch({
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [rawHighlightedIndex, setHighlightedIndex] = useState(0);
   const searchRef = useRef<HTMLDivElement>(null);
-  const addressRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -153,9 +149,17 @@ export function CustomerSearch({
 
   // ── Öneri grupları: hangi alan yazılıyorsa ona göre filtrele ───────────
   const groups = useMemo<SuggestionGroup[]>(() => {
-    if (activeField === "phone" && phoneDigits.length >= 3) {
+    // Adres kutusuna sadece rakam yazıldıysa (ör. son 4 hane) numara araması yap —
+    // operatör hangi kutuya yazdığını düşünmek zorunda kalmasın.
+    const digitQuery =
+      activeField === "phone"
+        ? phoneDigits
+        : activeField === "address" && /^[\d\s+]+$/.test(addressQuery)
+          ? addressQuery.replace(/\D/g, "")
+          : "";
+    if (digitQuery.length >= 3) {
       const matched = savedCustomers.filter((c) =>
-        c.phone.replace(/\D/g, "").includes(phoneDigits),
+        c.phone.replace(/\D/g, "").includes(digitQuery),
       );
       return sortGroups(
         matched.map((c) => ({ customer: c, addresses: sortAddresses(c, c.addresses) })),
@@ -183,34 +187,16 @@ export function CustomerSearch({
     return [];
   }, [activeField, phoneDigits, addressQuery, savedCustomers]);
 
-  // ── Düz (klavye ile gezilebilir) satır listesi + görüntü listesi ───────
-  const { rows, displayItems } = useMemo(() => {
-    const rows: SuggestionRow[] = [];
-    const displayItems: DisplayItem[] = [];
-    groups.forEach((g, gIdx) => {
-      displayItems.push({ kind: "header", customer: g.customer, isFirstGroup: gIdx === 0 });
-      g.addresses.forEach((a, aIdx) => {
-        const rowIndex = rows.length;
-        rows.push({ kind: "address", customer: g.customer, addr: a });
-        displayItems.push({
-          kind: "address",
-          customer: g.customer,
-          addr: a,
-          rowIndex,
-          showBadge: aIdx === 0 && g.addresses.length > 1,
-        });
-      });
-      const rowIndex = rows.length;
-      rows.push({ kind: "new", customer: g.customer });
-      displayItems.push({ kind: "new", customer: g.customer, rowIndex });
-    });
-    return { rows, displayItems };
-  }, [groups]);
+  // ── Düz (klavye ile gezilebilir) satır listesi — her satır bir adres ───
+  const rows = useMemo<SuggestionRow[]>(
+    () => groups.flatMap((g) => g.addresses.map((a) => ({ customer: g.customer, addr: a }))),
+    [groups],
+  );
 
   const open = dropdownOpen && rows.length > 0;
   const highlightedIndex = rows.length === 0 ? 0 : Math.min(rawHighlightedIndex, rows.length - 1);
 
-  // ── Telefon tam eşleşen kayıtlı müşteri (chip'ler + "yeni adres" ipucu) ─
+  // ── Telefon tam eşleşen kayıtlı müşteri ("yeni adres" ipucu için) ─
   const exactPhoneKey = phoneKey(phone);
   const exactCustomer = useMemo(() => {
     if (exactPhoneKey.length !== 10) return undefined;
@@ -219,11 +205,18 @@ export function CustomerSearch({
   const activeAddress = exactCustomer
     ? findMatchingAddress(exactCustomer.addresses, address, addressDetail)
     : undefined;
+  // Seçilen kayıtlı adres metni değiştirildi mi (başka bir kayıtlı adresle de
+  // eşleşmiyorsa) → yeni adres / kayıtlı adresi güncelle seçimi gösterilir.
+  const selectedAddr =
+    exactCustomer && selectedAddressId
+      ? exactCustomer.addresses.find((a) => a.id === selectedAddressId)
+      : undefined;
+  const editingSelected = !!selectedAddr && addressQuery.length > 0 && !activeAddress;
   const showNewAddressHint =
-    !!exactCustomer && addressQuery.length > 0 && !activeAddress;
+    !!exactCustomer && addressQuery.length > 0 && !activeAddress && !selectedAddr;
 
   // ── Telefon yazılarak tamamlanınca (10 hane, tek eşleşme, adres boş) otomatik
-  // doldur. Effect DEĞİL, yazma anında: "+ Yeni adres" adresi boşaltınca
+  // doldur. Effect DEĞİL, yazma anında: operatör adresi silip yenisini yazarken
   // varsayılan adres geri dolmasın.
   const autoFillDefault = (value: string) => {
     const key = phoneKey(value);
@@ -232,12 +225,8 @@ export function CustomerSearch({
     if (matches.length !== 1) return;
     const def = pickDefaultAddress(matches[0].addresses, matches[0].defaultAddressId);
     if (!def) return;
-    onAddressChange(def.address);
-    onAddressDetailChange(def.addressDetail ?? "");
-  };
-
-  const focusAddressField = () => {
-    requestAnimationFrame(() => addressRef.current?.focus());
+    // Listeden seçmişçesine doldur — adres id'si de taşınsın ("güncelle" seçimi için).
+    onSelectCustomer(matches[0], def);
   };
 
   const handleAddressChange = (value: string) => {
@@ -256,14 +245,7 @@ export function CustomerSearch({
   };
 
   const handleRowSelect = (row: SuggestionRow) => {
-    if (row.kind === "address") {
-      onSelectCustomer(row.customer, row.addr);
-    } else {
-      onPhoneChange(row.customer.phone);
-      onAddressChange("");
-      onAddressDetailChange("");
-      focusAddressField();
-    }
+    onSelectCustomer(row.customer, row.addr);
     setDropdownOpen(false);
   };
 
@@ -294,104 +276,50 @@ export function CustomerSearch({
           Kayıtlı Müşteriler
         </span>
         <span className="ml-auto text-[10px] text-muted-foreground tabular-nums">
-          {groups.length} müşteri
+          {rows.length} adres
         </span>
       </div>
-      <ul className="max-h-80 overflow-y-auto scrollbar-hide">
-        {displayItems.map((item) => {
-          if (item.kind === "header") {
-            return (
-              <li
-                key={`h-${item.customer.id}`}
-                className={cn(
-                  "flex items-center gap-2 px-3 py-1.5 bg-muted/40",
-                  !item.isFirstGroup && "border-t",
-                )}
-              >
-                <CustomerAvatar customer={item.customer} />
-                <div className="min-w-0 flex-1">
-                  <div className="text-xs font-semibold tabular-nums truncate">
-                    {formatPhone(item.customer.phone)}
-                    {realName(item.customer) && (
-                      <span className="text-muted-foreground font-normal">
-                        {" · "}
-                        {highlightMatch(item.customer.name, activeQuery)}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <span className="text-[10px] text-muted-foreground shrink-0">
-                  {item.customer.orderCount} sipariş
-                </span>
-              </li>
-            );
-          }
-          if (item.kind === "address") {
-            const isActive = item.rowIndex === highlightedIndex;
-            const a = item.addr;
-            return (
-              <li key={`a-${item.customer.id}-${a.id}`}>
-                <button
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onMouseEnter={() => setHighlightedIndex(item.rowIndex)}
-                  onClick={() => handleRowSelect({ kind: "address", customer: item.customer, addr: a })}
-                  className={cn(
-                    "w-full pl-11 pr-3 py-2 text-left transition-colors flex items-start gap-2",
-                    isActive ? "bg-accent" : "hover:bg-accent/50",
-                  )}
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate leading-tight flex items-center gap-1">
-                      {a.geo && (
-                        <MapPin className="h-3 w-3 text-muted-foreground shrink-0" />
-                      )}
-                      <span className="truncate">
-                        {highlightMatch(a.address, activeQuery)}
-                        {a.addressDetail && (
-                          <span className="text-muted-foreground font-normal">
-                            {" · "}
-                            {highlightMatch(a.addressDetail, activeQuery)}
-                          </span>
-                        )}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex flex-col items-end gap-0.5 shrink-0">
-                    {item.showBadge && (
-                      <span className="inline-flex items-center rounded-full bg-primary/10 text-primary px-1.5 py-0.5 text-[10px] font-semibold">
-                        son kullanılan
-                      </span>
-                    )}
-                    <span className="text-[10px] text-muted-foreground tabular-nums">
-                      {a.useCount} kez
-                    </span>
-                  </div>
-                </button>
-              </li>
-            );
-          }
-          const isActive = item.rowIndex === highlightedIndex;
+          <ul className="max-h-80 overflow-y-auto scrollbar-hide">
+        {rows.map((row, idx) => {
+          const isActive = idx === highlightedIndex;
+          const { customer: c, addr: a } = row;
+          const name = realName(c);
           return (
-            <li key={`n-${item.customer.id}`}>
+            <li key={`${c.id}-${a.id}`}>
               <button
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}
-                onMouseEnter={() => setHighlightedIndex(item.rowIndex)}
-                onClick={() => handleRowSelect({ kind: "new", customer: item.customer })}
+                onMouseEnter={() => setHighlightedIndex(idx)}
+                onClick={() => handleRowSelect(row)}
                 className={cn(
-                  "w-full pl-11 pr-3 py-2 text-left transition-colors flex items-center gap-1.5 text-primary",
+                  "w-full px-3 py-2.5 text-left transition-colors flex items-start gap-3",
                   isActive ? "bg-accent" : "hover:bg-accent/50",
                 )}
               >
-                <Plus className="h-3.5 w-3.5 shrink-0" />
-                <span className="text-sm font-medium">Bu numaraya yeni adres</span>
+                <CustomerAvatar customer={c} />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium truncate leading-tight">
+                    {highlightMatch(a.address, activeQuery)}
+                    {a.addressDetail && (
+                      <span className="text-muted-foreground font-normal">
+                        {" · "}
+                        {highlightMatch(a.addressDetail, activeQuery)}
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground tabular-nums truncate">
+                    {a.geo && <MapPin className="h-3 w-3 shrink-0" />}
+                    <span className="truncate">
+                      {formatPhone(c.phone)}
+                      {name && <> · {highlightMatch(name, activeQuery)}</>}
+                    </span>
+                  </div>
+                </div>
               </button>
             </li>
           );
         })}
-      </ul>
-      <div className="border-t bg-muted/30 px-3 py-1.5 text-[10px] text-muted-foreground flex items-center gap-3">
+      </ul>   <div className="border-t bg-muted/30 px-3 py-1.5 text-[10px] text-muted-foreground flex items-center gap-3">
         <span>
           <kbd className="px-1 py-0.5 rounded bg-background ring-1 ring-foreground/10 font-mono text-[9px]">
             ↑↓
@@ -422,7 +350,6 @@ export function CustomerSearch({
         <div className="relative">
           <MapPin className="absolute left-3 top-3 h-4 w-4 text-muted-foreground pointer-events-none" />
           <Textarea
-            ref={addressRef}
             placeholder="Açık adres (mahalle, cadde, sokak, no)"
             value={address}
             onChange={(e) => handleAddressChange(e.target.value)}
@@ -439,6 +366,19 @@ export function CustomerSearch({
           {showNewAddressHint && (
             <p className="mt-1 text-[11px] text-muted-foreground">
               Bu adres müşteriye yeni adres olarak eklenecek
+            </p>
+          )}
+          {editingSelected && (
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              {updateSaved ? "Kayıtlı adres güncellenecek" : "Yeni adres olarak eklenecek"}
+              {" · "}
+              <button
+                type="button"
+                onClick={() => onUpdateSavedChange(!updateSaved)}
+                className="font-medium text-primary hover:underline"
+              >
+                {updateSaved ? "Geri al" : "Kayıtlı adresi güncelle"}
+              </button>
             </p>
           )}
         </div>
@@ -473,22 +413,6 @@ export function CustomerSearch({
           {open && activeField === "phone" && renderDropdown()}
         </div>
 
-        {/* Aynı numaraya kayıtlı birden fazla adres varsa hızlı seçim */}
-        {exactCustomer && exactCustomer.addresses.length >= 2 && (
-          <CustomerAddressChips
-            addresses={sortAddresses(exactCustomer, exactCustomer.addresses)}
-            activeAddressId={activeAddress?.id}
-            onSelect={(a) => {
-              onAddressChange(a.address);
-              onAddressDetailChange(a.addressDetail ?? "");
-            }}
-            onNew={() => {
-              onAddressChange("");
-              onAddressDetailChange("");
-              focusAddressField();
-            }}
-          />
-        )}
       </div>
     </section>
   );

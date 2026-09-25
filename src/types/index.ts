@@ -189,6 +189,9 @@ export interface OrderDraft {
   customer: Partial<CustomerInfo>;
   payment: Partial<PaymentInfo>;
   notes?: string;
+  // Seçilen kayıtlı adres (customer.addressId) değiştirildiyse: true → o adres
+  // güncellenir; false/boş → değişen hâli yeni adres olarak eklenir.
+  updateSavedAddress?: boolean;
 }
 
 // ─── Form Validasyon Şemaları için tipler ─────────────────────────────────────

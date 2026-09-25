@@ -12,6 +12,8 @@ interface UpdateOrderDetailsInput {
   items: OrderItem[];
   customer: CustomerInfo;
   notes?: string;
+  // Seçilen kayıtlı adres (customer.addressId) yeni adres yerine güncellensin.
+  updateSavedAddress?: boolean;
 }
 
 // Manuel oluşturulan siparişlerin kalem/müşteri/not bilgisini günceller.
@@ -55,6 +57,9 @@ export async function updateOrderDetails(
     try {
       customer.addressId = await recordCustomerAddress(customer, {
         countOrder: false,
+        updateAddressId: input.updateSavedAddress
+          ? input.customer.addressId
+          : undefined,
       });
     } catch (e) {
       console.error("[updateOrderDetails] müşteri adresi kaydedilemedi", e);

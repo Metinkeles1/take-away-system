@@ -56,6 +56,7 @@ interface OrderStore {
   updateQuantity: (itemKey: string, quantity: number) => void;
   updateItemNote: (itemKey: string, note: string) => void;
   setCustomer: (customer: Partial<CustomerInfo>) => void;
+  setUpdateSavedAddress: (value: boolean) => void;
   setPayment: (payment: Partial<PaymentInfo>) => void;
   setNotes: (notes: string) => void;
 
@@ -239,6 +240,11 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
     }));
   },
 
+  // ── Kayıtlı adres güncellensin mi (yeni adres yerine) ─────────────────
+  setUpdateSavedAddress: (value) => {
+    set((state) => ({ draft: { ...state.draft, updateSavedAddress: value } }));
+  },
+
   // ── Müşteri bilgisi set et ─────────────────────────────────────────────
   setCustomer: (customer) => {
     set((state) => ({
@@ -302,7 +308,9 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
     const order = buildOrderFromDraft(draft);
 
     // DB'ye kaydet
-    const result = await createOrder(order);
+    const result = await createOrder(order, {
+      updateSavedAddress: draft.updateSavedAddress,
+    });
     if (!result.ok) {
       return null;
     }
@@ -353,6 +361,7 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
       items: draft.items,
       customer: draft.customer as CustomerInfo,
       notes: draft.notes,
+      updateSavedAddress: draft.updateSavedAddress,
     });
 
     if (!result.ok) return { ok: false, error: result.error };

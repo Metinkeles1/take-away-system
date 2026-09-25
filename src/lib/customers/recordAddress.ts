@@ -56,12 +56,13 @@ export function addressesSetFields(
 //   - Eşleşmezse müşteriye YENİ adres olarak eklenir — eskisinin üzerine yazılmaz.
 //   - Müşteri hiç yoksa oluşturulur.
 // countOrder=false: sipariş düzenleme — yeni sipariş sayılmaz, sadece adres eklenir.
+// updateAddressId: yeni adres eklemek yerine bu kayıtlı adresi güncelle.
 export async function recordCustomerAddress(
   customer: Pick<
     CustomerInfo,
     "name" | "phone" | "address" | "addressDetail" | "district"
   >,
-  opts: { countOrder: boolean },
+  opts: { countOrder: boolean; updateAddressId?: string },
 ): Promise<string> {
   const phone = toLocalPhone(customer.phone);
   const now = new Date();
@@ -95,9 +96,31 @@ export async function recordCustomerAddress(
     customer.addressDetail,
   );
 
+  // Operatör "Kayıtlı adresi güncelle" dediyse: seçtiği adres yerinde düzeltilir
+  // (pin ve kullanım sayısı korunur). Yeni metin başka bir kayıtlı adresle
+  // birebir aynıysa o adres kullanılır — çift kayıt oluşmasın.
+  const updateTarget = opts.updateAddressId
+    ? addresses.find((a) => a.id === opts.updateAddressId)
+    : undefined;
+
   let addressId: string;
   let next: CustomerAddress[];
-  if (match) {
+  if (updateTarget && (!match || match.id === updateTarget.id)) {
+    addressId = updateTarget.id;
+    next = addresses.map((a) =>
+      a.id === updateTarget.id
+        ? {
+            ...a,
+            address: customer.address,
+            addressDetail: customer.addressDetail || undefined,
+            district: customer.district || a.district,
+            ...(opts.countOrder
+              ? { useCount: a.useCount + 1, lastUsedAt: now }
+              : {}),
+          }
+        : a,
+    );
+  } else if (match) {
     addressId = match.id;
     next = addresses.map((a) =>
       a.id === match.id && opts.countOrder

@@ -47,6 +47,7 @@ export default function OrderSidePanel({
   const removeItem = useOrderStore((s) => s.removeItem);
   const updateQuantity = useOrderStore((s) => s.updateQuantity);
   const setCustomer = useOrderStore((s) => s.setCustomer);
+  const setUpdateSavedAddress = useOrderStore((s) => s.setUpdateSavedAddress);
   const setPayment = useOrderStore((s) => s.setPayment);
   const setNotes = useOrderStore((s) => s.setNotes);
   const loadSavedCustomers = useOrderStore((s) => s.loadSavedCustomers);
@@ -76,7 +77,9 @@ export default function OrderSidePanel({
       phone: c.phone,
       address: a.address,
       addressDetail: a.addressDetail,
+      addressId: a.id,
     });
+    setUpdateSavedAddress(false);
   };
 
   // Ödeme yöntemi
@@ -121,6 +124,9 @@ export default function OrderSidePanel({
             addressDetail={draft.customer.addressDetail ?? ""}
             phone={draft.customer.phone ?? ""}
             savedCustomers={savedCustomers}
+            selectedAddressId={draft.customer.addressId}
+            updateSaved={!!draft.updateSavedAddress}
+            onUpdateSavedChange={setUpdateSavedAddress}
             autoFocus={variant === "desktop"}
             onAddressChange={(value) => setCustomer({ address: value })}
             onAddressDetailChange={(value) => setCustomer({ addressDetail: value })}
