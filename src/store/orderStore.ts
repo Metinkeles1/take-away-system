@@ -21,7 +21,7 @@ import {
 } from "@/actions/orders";
 import { updateOrderDetails } from "@/actions/orderEdit";
 import { setOrderCourier as dbSetOrderCourier } from "@/actions/courier";
-import { getSavedCustomers, upsertCustomer } from "@/actions/customers";
+import { getSavedCustomers } from "@/actions/customers";
 import { buildOrderFromDraft, calcSubtotal } from "@/lib/orders/factory";
 
 // ─── Store State ──────────────────────────────────────────────────────────────
@@ -310,20 +310,9 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
     // Optimistic UI güncellemesi (DB başarılı olduktan sonra)
     set((state) => ({ orders: [order, ...state.orders] }));
 
-    // Müşteriyi kayıtlı müşteriler listesine upsert et
-    try {
-      await upsertCustomer({
-        id: `cust-${order.customer.phone.replace(/\D/g, "")}`,
-        name: order.customer.name,
-        phone: order.customer.phone,
-        address: order.customer.address,
-        addressDetail: order.customer.addressDetail,
-      });
-      // Kayıtlı müşteri listesini güncelle
-      get().loadSavedCustomers();
-    } catch {
-      // Müşteri kaydı başarısız olsa bile sipariş tamamlandı
-    }
+    // Müşteri adresi sunucuda (createOrder) kaydedildi — yerel listeyi tazele
+    // ki bir sonraki siparişte yeni adres önerilerde görünsün.
+    void get().loadSavedCustomers().catch(() => {});
 
     return order;
   },

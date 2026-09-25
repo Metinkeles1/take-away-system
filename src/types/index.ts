@@ -67,6 +67,9 @@ export interface CustomerInfo {
   addressDetail?: string; // Daire, kat vb.
   district?: string;
   geo?: GeoPoint; // teslimatta yakalanmış kesin konum
+  // Müşteri kaydındaki adresin id'si (CustomerAddress.id) — kurye pini doğru
+  // adrese yazılsın diye. Sunucu doldurur; eski/Trendyol siparişlerinde yok.
+  addressId?: string;
 }
 
 // ─── Ödeme Yöntemi ────────────────────────────────────────────────────────────
@@ -204,13 +207,30 @@ export interface PaymentFormData {
   ibanNumber?: string;
 }
 
+// ─── Kayıtlı Müşteri Adresi ──────────────────────────────────────────────────
+// Bir telefon = bir müşteri; müşterinin birden fazla adresi olabilir (ev, iş…).
+// Kuryenin teslimatta yakaladığı pin (geo) ADRESE aittir — aynı numaranın başka
+// adresine yanlış pin taşınmasın diye.
+export interface CustomerAddress {
+  id: string;
+  address: string;
+  addressDetail?: string;
+  district?: string;
+  geo?: GeoPoint;
+  useCount: number;
+  lastUsedAt: Date;
+}
+
 // ─── Kayıtlı Müşteri ─────────────────────────────────────────────────────────
+// address/addressDetail: varsayılan adresin kopyası (eski ekranlar bunu okur).
 export interface SavedCustomer {
   id: string;
   name: string;
   phone: string;
   address: string;
   addressDetail?: string;
+  addresses: CustomerAddress[];
+  defaultAddressId?: string;
   orderCount: number;
   updatedAt: Date;
 }

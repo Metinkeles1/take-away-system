@@ -47,6 +47,7 @@ const CustomerInfoSchema = new Schema(
     addressDetail: String,
     district: String,
     geo: { type: GeoPointSchema, default: undefined }, // teslimatta yakalanan konum
+    addressId: String, // müşteri kaydındaki adres (Customer.addresses[].id)
   },
   { _id: false },
 );

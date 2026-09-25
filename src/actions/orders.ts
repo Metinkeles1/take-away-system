@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { connectDB } from "@/lib/mongodb";
 import OrderModel from "@/models/Order";
 import { getGeoByPhone, geoForPhone } from "@/lib/customers/geoByPhone";
+import { recordCustomerAddress } from "@/lib/customers/recordAddress";
 import { toLocalPhone } from "@/lib/utils";
 import {
   cancelTrendyolPackage,
@@ -228,6 +229,16 @@ export async function createOrder(
       ...order.customer,
       phone: toLocalPhone(order.customer.phone),
     };
+
+    // Adresi müşteri kaydına işle (yeni adresse eklenir, üzerine yazılmaz) ve
+    // siparişi o adrese bağla. Başarısız olursa sipariş yine de kaydedilir.
+    try {
+      customerForDB.addressId = await recordCustomerAddress(customerForDB, {
+        countOrder: true,
+      });
+    } catch (e) {
+      console.error("[createOrder] müşteri adresi kaydedilemedi", e);
+    }
 
     await OrderModel.create({
       id: order.id,

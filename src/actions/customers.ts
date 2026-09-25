@@ -5,18 +5,33 @@ import CustomerModel from "@/models/Customer";
 import OrderModel from "@/models/Order";
 import { toLocalPhone } from "@/lib/utils";
 import {
+  findMatchingAddress,
+  newAddressId,
+  normalizeCustomerAddresses,
+  pickDefaultAddress,
+} from "@/lib/customers/addresses";
+import { addressesSetFields } from "@/lib/customers/recordAddress";
+import {
+  type CustomerAddress,
   type CustomerOrderSummary,
   type OrderItem,
   type SavedCustomer,
 } from "@/types";
 
 function docToCustomer(doc: Record<string, unknown>): SavedCustomer {
+  const { addresses, defaultAddressId } = normalizeCustomerAddresses(
+    doc as Parameters<typeof normalizeCustomerAddresses>[0],
+  );
+  const def = pickDefaultAddress(addresses, defaultAddressId);
   return {
     id: doc.id as string,
     name: doc.name as string,
     phone: doc.phone as string,
-    address: doc.address as string,
-    addressDetail: doc.addressDetail as string | undefined,
+    // Üst seviye adres = varsayılan adres (eski ekranlar bunu okur).
+    address: def?.address ?? (doc.address as string),
+    addressDetail: def ? def.addressDetail : (doc.addressDetail as string | undefined),
+    addresses,
+    defaultAddressId,
     orderCount: doc.orderCount as number,
     updatedAt: (doc as unknown as { updatedAt: Date }).updatedAt,
   };
@@ -29,30 +44,6 @@ export async function getSavedCustomers(): Promise<SavedCustomer[]> {
   return docs.map((d) => docToCustomer(d as Record<string, unknown>));
 }
 
-// ─── Müşteri kaydet / güncelle (phone üzerinden upsert) ──────────────────────
-export async function upsertCustomer(
-  customer: Omit<SavedCustomer, "orderCount" | "updatedAt">,
-): Promise<void> {
-  await connectDB();
-
-  // Telefonu tek standarda çek (0 + 10 hane) — kayıt ve eşleşme tutarlı olsun.
-  const phone = toLocalPhone(customer.phone);
-  await CustomerModel.findOneAndUpdate(
-    { phone },
-    {
-      $set: {
-        id: customer.id,
-        name: customer.name,
-        phone,
-        address: customer.address,
-        addressDetail: customer.addressDetail,
-      },
-      $inc: { orderCount: 1 },
-    },
-    { upsert: true, new: true },
-  );
-}
-
 // ─── İsim, telefon veya adrese göre ara ──────────────────────────────────────────────
 export async function searchCustomers(query: string): Promise<SavedCustomer[]> {
   await connectDB();
@@ -60,7 +51,12 @@ export async function searchCustomers(query: string): Promise<SavedCustomer[]> {
   const regex = new RegExp(escaped, "i");
 
   const docs = await CustomerModel.find({
-    $or: [{ address: regex }, { name: regex }, { phone: regex }],
+    $or: [
+      { address: regex },
+      { "addresses.address": regex },
+      { name: regex },
+      { phone: regex },
+    ],
   })
     .sort({ updatedAt: -1 })
     .limit(8)
@@ -110,29 +106,144 @@ export async function deleteCustomer(id: string): Promise<void> {
   await CustomerModel.deleteOne({ id });
 }
 
-// ─── Müşteri güncelle ────────────────────────────────────────────────────────
+// ─── Müşteri güncelle (isim / telefon) ───────────────────────────────────────
+// address/addressDetail verilirse VARSAYILAN adres düzenlenir (eski form uyumu).
+// Mevcut siparişler değişmez — yeni adres sonraki siparişlerde kullanılır.
 export async function updateCustomer(
   id: string,
-  data: { name: string; phone: string; address: string; addressDetail?: string },
+  data: { name: string; phone: string; address?: string; addressDetail?: string },
 ): Promise<void> {
   await connectDB();
-  await CustomerModel.findOneAndUpdate(
-    { id },
-    { $set: { ...data, phone: toLocalPhone(data.phone) } },
-  );
+  const doc = await CustomerModel.findOne({ id }).lean();
+  if (!doc) return;
+  const $set: Record<string, unknown> = {
+    name: data.name,
+    phone: toLocalPhone(data.phone),
+  };
+  if (data.address !== undefined) {
+    const { addresses, defaultAddressId } = normalizeCustomerAddresses(
+      doc as Parameters<typeof normalizeCustomerAddresses>[0],
+    );
+    const def = pickDefaultAddress(addresses, defaultAddressId);
+    const next = def
+      ? addresses.map((a) =>
+          a.id === def.id
+            ? {
+                ...a,
+                address: data.address as string,
+                addressDetail: data.addressDetail || undefined,
+              }
+            : a,
+        )
+      : [newAddress(data.address, data.addressDetail)];
+    Object.assign($set, addressesSetFields(next, defaultAddressId));
+  }
+  await CustomerModel.updateOne({ id }, { $set });
 }
 
 // ─── Yeni müşteri ekle ──────────────────────────────────────────────────────
-export async function createCustomer(
-  customer: { id: string; name: string; phone: string; address: string; addressDetail?: string },
-): Promise<void> {
+export async function createCustomer(customer: {
+  id: string;
+  name: string;
+  phone: string;
+  address: string;
+  addressDetail?: string;
+}): Promise<void> {
   await connectDB();
   await CustomerModel.create({
     id: customer.id,
     name: customer.name,
     phone: toLocalPhone(customer.phone),
-    address: customer.address,
-    addressDetail: customer.addressDetail,
     orderCount: 0,
+    ...addressesSetFields([newAddress(customer.address, customer.addressDetail)]),
+  });
+}
+
+function newAddress(address: string, addressDetail?: string): CustomerAddress {
+  return {
+    id: newAddressId(),
+    address,
+    addressDetail: addressDetail || undefined,
+    useCount: 0,
+    lastUsedAt: new Date(),
+  };
+}
+
+// ─── Adres listesi işlemleri (müşteriler sekmesi) ───────────────────────────
+// Hepsi aynı kalıp: listeyi oku → değiştir → liste + varsayılan kopyasını yaz.
+async function mutateAddresses(
+  customerId: string,
+  fn: (
+    addresses: CustomerAddress[],
+    defaultAddressId: string | undefined,
+  ) => { addresses: CustomerAddress[]; defaultAddressId?: string } | { error: string },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  await connectDB();
+  const doc = await CustomerModel.findOne({ id: customerId }).lean();
+  if (!doc) return { ok: false, error: "Müşteri bulunamadı" };
+  const cur = normalizeCustomerAddresses(
+    doc as Parameters<typeof normalizeCustomerAddresses>[0],
+  );
+  const res = fn(cur.addresses, cur.defaultAddressId);
+  if ("error" in res) return { ok: false, error: res.error };
+  await CustomerModel.updateOne(
+    { id: customerId },
+    { $set: addressesSetFields(res.addresses, res.defaultAddressId) },
+  );
+  return { ok: true };
+}
+
+export async function addCustomerAddress(
+  customerId: string,
+  data: { address: string; addressDetail?: string },
+) {
+  if (!data.address.trim()) return { ok: false as const, error: "Adres boş olamaz" };
+  return mutateAddresses(customerId, (list, def) => {
+    if (findMatchingAddress(list, data.address, data.addressDetail))
+      return { error: "Bu adres zaten kayıtlı" };
+    return {
+      addresses: [...list, newAddress(data.address, data.addressDetail)],
+      defaultAddressId: def,
+    };
+  });
+}
+
+// Metin düzenlenince pin korunur (düzenlemeler çoğunlukla yazım düzeltmesi);
+// pin yanlışsa kurye bir sonraki teslimatta yeniden pinler.
+export async function updateCustomerAddress(
+  customerId: string,
+  addressId: string,
+  data: { address: string; addressDetail?: string },
+) {
+  if (!data.address.trim()) return { ok: false as const, error: "Adres boş olamaz" };
+  return mutateAddresses(customerId, (list, def) => {
+    if (!list.some((a) => a.id === addressId)) return { error: "Adres bulunamadı" };
+    const dup = findMatchingAddress(list, data.address, data.addressDetail);
+    if (dup && dup.id !== addressId) return { error: "Bu adres zaten kayıtlı" };
+    return {
+      addresses: list.map((a) =>
+        a.id === addressId
+          ? { ...a, address: data.address, addressDetail: data.addressDetail || undefined }
+          : a,
+      ),
+      defaultAddressId: def,
+    };
+  });
+}
+
+export async function deleteCustomerAddress(customerId: string, addressId: string) {
+  return mutateAddresses(customerId, (list, def) => {
+    if (list.length <= 1) return { error: "Müşterinin en az bir adresi olmalı" };
+    return {
+      addresses: list.filter((a) => a.id !== addressId),
+      defaultAddressId: def === addressId ? undefined : def,
+    };
+  });
+}
+
+export async function setDefaultCustomerAddress(customerId: string, addressId: string) {
+  return mutateAddresses(customerId, (list) => {
+    if (!list.some((a) => a.id === addressId)) return { error: "Adres bulunamadı" };
+    return { addresses: list, defaultAddressId: addressId };
   });
 }
