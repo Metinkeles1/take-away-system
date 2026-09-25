@@ -65,10 +65,15 @@ import {
 } from "@/lib/utils";
 import { LocationPicker, type LatLng } from "@/components/kurye/LocationPicker";
 import { PoolMapSelect } from "@/components/kurye/PoolMapSelect";
-import { orderStopsByProximity, buildGoogleRouteUrl } from "@/lib/kurye/route";
+import {
+  orderStopsByProximity,
+  buildGoogleRouteUrl,
+  openRouteUrl,
+} from "@/lib/kurye/route";
 import {
   geocodeOrderParts,
-  getFreshDeviceLocation,
+  getRecentDeviceLocation,
+  warmDeviceLocation,
   type GeoHit,
 } from "@/lib/kurye/geocode";
 
@@ -616,7 +621,6 @@ export default function KuryePage() {
   // koordinat + düz metnin KARIŞIK gitmesi Google Maps uygulamasında bazen
   // bozulup tek durağa düşmesine yol açıyordu; mümkün olanı koordinata çeviriyoruz.
   const [unpinnedGeo, setUnpinnedGeo] = useState<Record<string, GeoHit>>({});
-  const [routeLocating, setRouteLocating] = useState(false);
   const unpinnedKey = unpinnedStops.map((o) => o.id).join(",");
   useEffect(() => {
     if (unpinnedStops.length === 0) {
@@ -651,28 +655,26 @@ export default function KuryePage() {
   }, [unpinnedKey]);
 
   // "Tüm rotaya yol tarifi" linki: geocode'lu pinsizler koordinat olarak,
-  // yalnızca gerçekten bulunamayanlar metin olarak eklenir; origin butona
-  // basılır basılmaz alınan taze GPS'tir (bkz. openFullRoute).
+  // yalnızca gerçekten bulunamayanlar metin olarak eklenir; origin sheet
+  // açılınca önceden alınan GPS'tir (bkz. warmDeviceLocation).
   const unpinnedResolved = unpinnedStops
     .filter((o) => unpinnedGeo[o.id])
     .map((o) => unpinnedGeo[o.id]);
   const unpinnedUnresolved = unpinnedStops.filter((o) => !unpinnedGeo[o.id]);
-  const openFullRoute = async () => {
-    if (routeLocating) return;
-    setRouteLocating(true);
+  const openFullRoute = () => {
     setRouteSheetOpen(false);
-    const win = typeof window !== "undefined" ? window.open("", "_blank") : null;
-    const origin = await getFreshDeviceLocation();
-    const url = buildGoogleRouteUrl(
-      orderedRoute,
-      unpinnedResolved,
-      unpinnedUnresolved.map(fullAddress),
-      origin,
+    openRouteUrl(
+      buildGoogleRouteUrl(
+        orderedRoute,
+        unpinnedResolved,
+        unpinnedUnresolved.map(fullAddress),
+        getRecentDeviceLocation(),
+      ),
     );
-    if (win) win.location.href = url;
-    else if (typeof window !== "undefined") window.open(url, "_blank");
-    setRouteLocating(false);
   };
+  useEffect(() => {
+    if (routeSheetOpen) warmDeviceLocation();
+  }, [routeSheetOpen]);
 
   const go = (i: number) => {
     setConfirming(false);
@@ -1588,15 +1590,10 @@ export default function KuryePage() {
             </div>
             <div className="space-y-2.5">
               <button
-                onClick={() => void openFullRoute()}
-                disabled={routeLocating}
-                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-indigo-600 py-4 text-base font-bold text-white shadow-sm shadow-indigo-600/25 transition active:scale-[0.98] disabled:opacity-70"
+                onClick={openFullRoute}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-indigo-600 py-4 text-base font-bold text-white shadow-sm shadow-indigo-600/25 transition active:scale-[0.98]"
               >
-                {routeLocating ? (
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                ) : (
-                  <Navigation className="h-5 w-5 fill-white" />
-                )}
+                <Navigation className="h-5 w-5 fill-white" />
                 Tüm rotaya yol tarifi ({routableCount})
               </button>
               <button

@@ -17,10 +17,15 @@ import { X, Check, Loader2, Navigation, AlertTriangle } from "lucide-react";
 import type { Order } from "@/types";
 import type { ShopLocation } from "@/actions/settings";
 import { cn, formatCurrency, formatDistance, haversineMeters } from "@/lib/utils";
-import { buildGoogleRouteUrl, orderStopsByProximity } from "@/lib/kurye/route";
+import {
+  buildGoogleRouteUrl,
+  openRouteUrl,
+  orderStopsByProximity,
+} from "@/lib/kurye/route";
 import {
   geocodeOrderParts,
-  getFreshDeviceLocation,
+  getRecentDeviceLocation,
+  warmDeviceLocation,
   type GeoHit,
 } from "@/lib/kurye/geocode";
 
@@ -73,8 +78,11 @@ export function PoolMapSelect({
   const [claimedApproxCoords, setClaimedApproxCoords] = useState<
     Record<string, GeoHit> | null
   >(null);
-  // Yol tarifi linkine taze GPS (origin) eklenirken kısa bekleme — buton spinner'ı.
-  const [routeLocating, setRouteLocating] = useState(false);
+  // Ekran açılınca GPS'i önceden al — yol tarifi tıklamasında hazır olsun
+  // (bkz. warmDeviceLocation).
+  useEffect(() => {
+    if (open) warmDeviceLocation();
+  }, [open]);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -376,25 +384,13 @@ export function PoolMapSelect({
     );
   };
 
-  // Butona basılır basılmaz taze GPS al (origin) → yeni sekmeyi SENKRON aç
-  // (popup engelleyiciden kaçmak için önce boş sekme, sonra href ata), sonra
-  // rota linkini gerçek hedefe yönlendir.
-  const openRoute = async (
+  // Tıklama içinde senkron aç; origin önceden alınmış son GPS konumu.
+  const openRoute = (
     list: Order[],
     approxSource?: Record<string, GeoHit> | null,
   ) => {
-    if (routeLocating) return;
-    setRouteLocating(true);
-    try {
-      const win =
-        typeof window !== "undefined" ? window.open("", "_blank") : null;
-      const origin = await getFreshDeviceLocation();
-      const url = routeUrlFor(list, origin, approxSource);
-      if (win) win.location.href = url;
-      else if (typeof window !== "undefined") window.open(url, "_blank");
-    } finally {
-      setRouteLocating(false);
-    }
+    openRouteUrl(routeUrlFor(list, getRecentDeviceLocation(), approxSource));
+    warmDeviceLocation();
   };
 
   const confirmClaim = async () => {
@@ -560,30 +556,20 @@ export function PoolMapSelect({
               Kapat
             </button>
             <button
-              onClick={() => void openRoute(claimedView, claimedApproxCoords)}
-              disabled={routeLocating}
-              className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-indigo-600 py-4 text-base font-bold text-white shadow-sm shadow-indigo-600/25 transition active:scale-[0.98] disabled:opacity-70"
+              onClick={() => openRoute(claimedView, claimedApproxCoords)}
+              className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-indigo-600 py-4 text-base font-bold text-white shadow-sm shadow-indigo-600/25 transition active:scale-[0.98]"
             >
-              {routeLocating ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : (
-                <Navigation className="h-5 w-5 fill-white" />
-              )}
+              <Navigation className="h-5 w-5 fill-white" />
               Yol Tarifi Al ({claimedView.length} durak)
             </button>
           </div>
         ) : mode === "route" ? (
           selected.size > 0 ? (
             <button
-              onClick={() => void openRoute(selectedOrders)}
-              disabled={routeLocating}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-indigo-600 py-4 text-base font-bold text-white shadow-sm shadow-indigo-600/25 transition active:scale-[0.98] disabled:opacity-70"
+              onClick={() => openRoute(selectedOrders)}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-indigo-600 py-4 text-base font-bold text-white shadow-sm shadow-indigo-600/25 transition active:scale-[0.98]"
             >
-              {routeLocating ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : (
-                <Navigation className="h-5 w-5 fill-white" />
-              )}
+              <Navigation className="h-5 w-5 fill-white" />
               Seçilenlere Yol Tarifi ({selected.size} durak)
             </button>
           ) : (

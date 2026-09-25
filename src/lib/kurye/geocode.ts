@@ -88,20 +88,35 @@ export async function geocodeOrderParts(
   return null;
 }
 
-// Taze cihaz GPS konumu (kısa zaman aşımı — rota linkine "origin" olarak eklemek
-// için). Google Maps origin verilmezse KENDİ önbelleğindeki/ağ tabanlı konumu
-// kullanabiliyor; kapalı alanda (dükkanın içi) bu, kuryenin gerçek yerinden
-// FARKLI bir noktadan rota başlatılmasına yol açıyordu. Burada bilerek taze bir
-// fix alıp URL'e gömüyoruz ki rota her zaman kuryenin GERÇEK konumundan başlasın.
-// Başarısız/reddedilirse null döner — çağıran taraf origin'i boş bırakıp eski
-// (Google'ın kendi konumu) davranışına düşer.
-export async function getFreshDeviceLocation(): Promise<GeoHit | null> {
-  if (typeof navigator === "undefined" || !navigator.geolocation) return null;
-  return new Promise((resolve) => {
-    navigator.geolocation.getCurrentPosition(
-      (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      () => resolve(null),
-      { enableHighAccuracy: true, timeout: 6000, maximumAge: 10000 },
-    );
-  });
+// Cihaz GPS konumu — rota linkine "origin" olarak eklemek için. Google Maps
+// origin verilmezse KENDİ önbelleğindeki/ağ tabanlı konumu kullanabiliyor;
+// kapalı alanda (dükkanın içi) bu, rotanın kuryenin gerçek yerinden FARKLI bir
+// noktadan başlamasına yol açıyordu.
+//
+// Konum butona basıldığında DEĞİL, önceden (ekran/sheet açılınca) alınıp
+// saklanır: tıklamada konumu `await` edip sonra sekme açmak mobilde bozuluyordu —
+// ya popup engelleniyor ya da önceden açılan boş sekme about:blank'te kalıyordu
+// (arka plana düşen sayfada GPS isteği askıda kalır). Tıklama anında yalnızca
+// elde hazır olan son konum SENKRON okunur.
+let lastFix: { hit: GeoHit; at: number } | null = null;
+
+export function warmDeviceLocation(): void {
+  if (typeof navigator === "undefined" || !navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      lastFix = {
+        hit: { lat: pos.coords.latitude, lng: pos.coords.longitude },
+        at: Date.now(),
+      };
+    },
+    () => {},
+    { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 },
+  );
+}
+
+// Son alınan konum yeterince tazeyse döner; yoksa null — çağıran origin'i boş
+// bırakıp Google'ın kendi konumuna düşer.
+export function getRecentDeviceLocation(maxAgeMs = 2 * 60_000): GeoHit | null {
+  if (!lastFix || Date.now() - lastFix.at > maxAgeMs) return null;
+  return lastFix.hit;
 }

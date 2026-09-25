@@ -53,11 +53,10 @@ export function orderStopsByProximity(
 // (extraCoordStops) yalnızca gerçekten hiç bulunamayanları metin olarak en
 // sona (pinlessTextStops) ekliyoruz.
 //
-// origin: kuryenin taze GPS konumu (bkz. getFreshDeviceLocation). Boş
+// origin: kuryenin son GPS konumu (bkz. getRecentDeviceLocation). Boş
 // bırakılırsa Google Maps kendi "anlık konum" algısını kullanır — kapalı
 // alanda/GPS henüz sabitlenmemişken bu, rotanın kuryenin GERÇEK yerinden
-// FARKLI bir noktadan başlamasına yol açabiliyordu; çağıran taraf tıklama
-// anında taze bir GPS fix'i alıp buraya verir.
+// FARKLI bir noktadan başlamasına yol açabiliyordu.
 //
 // Google'ın URL API'si en fazla 9 "waypoints" + 1 "destination" destekler;
 // üstü sessizce bozulabiliyor. MAX_GOOGLE_STOPS bunu garanti altına alır.
@@ -84,4 +83,12 @@ export function buildGoogleRouteUrl(
   const waypoints = pts.slice(0, -1).join("|");
   if (waypoints) params.set("waypoints", waypoints);
   return `https://www.google.com/maps/dir/?${params.toString()}`;
+}
+
+// Rota linkini tıklama içinde SENKRON açar (araya await girerse mobil tarayıcı
+// popup'ı engeller). Yeni sekme açılamazsa (engelleyici / PWA) aynı sekmede açar.
+export function openRouteUrl(url: string): void {
+  if (typeof window === "undefined") return;
+  const win = window.open(url, "_blank");
+  if (!win) window.location.href = url;
 }
