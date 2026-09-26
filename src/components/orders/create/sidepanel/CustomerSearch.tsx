@@ -47,21 +47,91 @@ function realName(c: SavedCustomer): string | null {
   return /^[\d\s()+-]+$/.test(c.name) ? null : c.name;
 }
 
+// ─── Arama normalizasyonu ──────────────────────────────────────────────────
+// Operatör "sehit" yazar, kayıtta "Şehit" vardır; "atatürk 12" yazar, kayıtta
+// "Atatürk Cad. No:12" vardır. Harf harf eşleştirme bunları kaçırıyordu. Artık:
+// küçük harf + Türkçe karakter sadeleştirme + noktalama → boşluk, ve sorgudaki
+// HER kelime metinde (sırası fark etmeksizin) geçiyorsa eşleşir.
+// Karakter karakter eşleme (uzunluk korunur) → vurgulama indeksleri metne oturur.
+const FOLD: Record<string, string> = {
+  ş: "s", ı: "i", ğ: "g", ü: "u", ö: "o", ç: "c", â: "a", î: "i", û: "u",
+};
+function foldText(text: string): string {
+  let out = "";
+  for (const ch of text) {
+    const lower = ch.toLocaleLowerCase("tr-TR");
+    // "İ".toLocaleLowerCase → "i" (tek karakter); güvenlik için ilk karakteri al.
+    const c = lower.length === 1 ? lower : lower.charAt(0);
+    out += FOLD[c] ?? (/[\p{L}\p{N}]/u.test(c) ? c : " ");
+  }
+  return out;
+}
+function queryTokens(query: string): string[] {
+  return foldText(query).split(/\s+/).filter(Boolean);
+}
+function matchesAllTokens(haystack: string, tokens: string[]): boolean {
+  const folded = foldText(haystack);
+  return tokens.length > 0 && tokens.every((t) => folded.includes(t));
+}
+
+const MARK = "bg-yellow-200 dark:bg-yellow-900 text-foreground rounded px-0.5";
+
+// [start, end) aralıklarını <mark> ile sarar (çakışanlar birleştirilir).
+function renderRanges(text: string, ranges: [number, number][]): React.ReactNode {
+  if (ranges.length === 0) return text;
+  const sorted = [...ranges].sort((a, b) => a[0] - b[0]);
+  const merged: [number, number][] = [];
+  for (const r of sorted) {
+    const last = merged[merged.length - 1];
+    if (last && r[0] <= last[1]) last[1] = Math.max(last[1], r[1]);
+    else merged.push([r[0], r[1]]);
+  }
+  const parts: React.ReactNode[] = [];
+  let pos = 0;
+  merged.forEach(([a, b], i) => {
+    if (a > pos) parts.push(text.slice(pos, a));
+    parts.push(
+      <mark key={i} className={MARK}>
+        {text.slice(a, b)}
+      </mark>,
+    );
+    pos = b;
+  });
+  if (pos < text.length) parts.push(text.slice(pos));
+  return <>{parts}</>;
+}
+
+// Metin araması vurgusu: sorgudaki her kelimenin (2+ harf) metindeki tüm geçişleri.
 function highlightMatch(text: string, query: string): React.ReactNode {
-  if (!query || query.length < 2) return text;
-  const q = query.toLowerCase();
-  const lower = text.toLowerCase();
-  const idx = lower.indexOf(q);
+  const tokens = queryTokens(query).filter((t) => t.length >= 2);
+  if (tokens.length === 0) return text;
+  const folded = foldText(text);
+  const ranges: [number, number][] = [];
+  for (const t of tokens) {
+    let i = folded.indexOf(t);
+    while (i !== -1) {
+      ranges.push([i, i + t.length]);
+      i = folded.indexOf(t, i + t.length);
+    }
+  }
+  return renderRanges(text, ranges);
+}
+
+// Numara araması vurgusu: "7591" → "(536) 583 75 91" içindeki "75 91". Rakamlar
+// üzerinden eşleşir, aradaki boşluk/parantezler vurgunun içinde kalır.
+function highlightDigits(text: string, digits: string): React.ReactNode {
+  if (digits.length < 3) return text;
+  const pos: number[] = []; // her rakamın metindeki indeksi
+  let only = "";
+  for (let i = 0; i < text.length; i++) {
+    if (/\d/.test(text[i])) {
+      pos.push(i);
+      only += text[i];
+    }
+  }
+  const idx = only.indexOf(digits);
   if (idx === -1) return text;
-  return (
-    <>
-      {text.slice(0, idx)}
-      <mark className="bg-yellow-200 dark:bg-yellow-900 text-foreground rounded px-0.5">
-        {text.slice(idx, idx + q.length)}
-      </mark>
-      {text.slice(idx + q.length)}
-    </>
-  );
+  return renderRanges(text, [[pos[idx], pos[idx + digits.length - 1] + 1]]);
 }
 
 // ─── Öneri gruplama ────────────────────────────────────────────────────────
@@ -146,17 +216,18 @@ export function CustomerSearch({
 
   const addressQuery = address.trim();
   const phoneDigits = useMemo(() => phone.replace(/\D/g, ""), [phone]);
+  // Adres kutusuna sadece rakam yazıldıysa (ör. son 4 hane) numara araması yap —
+  // operatör hangi kutuya yazdığını düşünmek zorunda kalmasın.
+  const digitQuery =
+    activeField === "phone"
+      ? phoneDigits
+      : activeField === "address" && /^[\d\s+]+$/.test(addressQuery)
+        ? addressQuery.replace(/\D/g, "")
+        : "";
+  const isDigitSearch = digitQuery.length >= 3;
 
   // ── Öneri grupları: hangi alan yazılıyorsa ona göre filtrele ───────────
   const groups = useMemo<SuggestionGroup[]>(() => {
-    // Adres kutusuna sadece rakam yazıldıysa (ör. son 4 hane) numara araması yap —
-    // operatör hangi kutuya yazdığını düşünmek zorunda kalmasın.
-    const digitQuery =
-      activeField === "phone"
-        ? phoneDigits
-        : activeField === "address" && /^[\d\s+]+$/.test(addressQuery)
-          ? addressQuery.replace(/\D/g, "")
-          : "";
     if (digitQuery.length >= 3) {
       const matched = savedCustomers.filter((c) =>
         c.phone.replace(/\D/g, "").includes(digitQuery),
@@ -166,15 +237,14 @@ export function CustomerSearch({
       );
     }
     if (activeField === "address" && addressQuery.length >= 2) {
-      const q = addressQuery.toLocaleLowerCase("tr-TR");
+      const tokens = queryTokens(addressQuery);
       const matched: SuggestionGroup[] = [];
       for (const c of savedCustomers) {
-        const nameMatches =
-          !!realName(c) && c.name.toLocaleLowerCase("tr-TR").includes(q);
-        const matchingAddrs = c.addresses.filter(
-          (a) =>
-            a.address.toLocaleLowerCase("tr-TR").includes(q) ||
-            (a.addressDetail?.toLocaleLowerCase("tr-TR").includes(q) ?? false),
+        const name = realName(c);
+        const nameMatches = !!name && matchesAllTokens(name, tokens);
+        // Adres + daire/kat + isim birlikte aranır: "atatürk 12 ahmet" de bulur.
+        const matchingAddrs = c.addresses.filter((a) =>
+          matchesAllTokens(`${a.address} ${a.addressDetail ?? ""} ${name ?? ""}`, tokens),
         );
         if (matchingAddrs.length > 0) {
           matched.push({ customer: c, addresses: sortAddresses(c, matchingAddrs) });
@@ -185,7 +255,7 @@ export function CustomerSearch({
       return sortGroups(matched);
     }
     return [];
-  }, [activeField, phoneDigits, addressQuery, savedCustomers]);
+  }, [activeField, digitQuery, addressQuery, savedCustomers]);
 
   // ── Düz (klavye ile gezilebilir) satır listesi — her satır bir adres ───
   const rows = useMemo<SuggestionRow[]>(
@@ -266,7 +336,8 @@ export function CustomerSearch({
     }
   };
 
-  const activeQuery = activeField === "address" ? addressQuery : "";
+  // Numara aramasında adres metni vurgulanmaz (adresteki "12" yanlış sarılmasın).
+  const activeQuery = activeField === "address" && !isDigitSearch ? addressQuery : "";
 
   const renderDropdown = () => (
     <div className="absolute z-50 top-full left-0 right-0 mt-1.5 rounded-xl border bg-popover shadow-xl overflow-hidden">
@@ -310,7 +381,9 @@ export function CustomerSearch({
                   <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground tabular-nums truncate">
                     {a.geo && <MapPin className="h-3 w-3 shrink-0" />}
                     <span className="truncate">
-                      {formatPhone(c.phone)}
+                      {isDigitSearch
+                        ? highlightDigits(formatPhone(c.phone), digitQuery)
+                        : formatPhone(c.phone)}
                       {name && <> · {highlightMatch(name, activeQuery)}</>}
                     </span>
                   </div>
