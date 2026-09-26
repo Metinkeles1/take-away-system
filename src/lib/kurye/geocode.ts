@@ -3,9 +3,17 @@
 // seçim ekranında pinsizleri yaklaşık konumlamak için; kesin pini insan koyar,
 // navigasyonu Google yapar.
 
+import { estimateStreetGeos } from "@/actions/streetMemory";
+
 export interface GeoHit {
   lat: number;
   lng: number;
+}
+
+// Pinsiz siparişin yaklaşık konumu + nereden geldiği (ekranda gösterilir).
+export interface ApproxHit extends GeoHit {
+  fromStreet: boolean; // true: kendi pinlerimizden (sokak hafızası)
+  label: string;
 }
 
 // TR adres kısaltmalarını açar + kapı/kat/daire gürültüsünü atar (Nominatim açık
@@ -86,6 +94,49 @@ export async function geocodeOrderParts(
     if (hit) return hit;
   }
   return null;
+}
+
+// Pinsiz siparişleri yaklaşık konumlar: önce sokak hafızası (aynı sokaktaki
+// pinli adreslerimiz — tek sunucu çağrısı), bulunamayanlar için OpenStreetMap
+// kademeli araması. Sonuç sipariş id'sine göre.
+export async function locateOrders(
+  orders: {
+    id: string;
+    customer: { address: string; addressDetail?: string; district?: string };
+  }[],
+  opts?: { near?: { lat: number; lng: number }; isCancelled?: () => boolean },
+): Promise<Record<string, ApproxHit>> {
+  const found: Record<string, ApproxHit> = {};
+  if (orders.length === 0) return found;
+  try {
+    const street = await estimateStreetGeos(
+      orders.map((o) => ({
+        id: o.id,
+        address: o.customer.address,
+        addressDetail: o.customer.addressDetail,
+        district: o.customer.district,
+      })),
+    );
+    for (const [id, e] of Object.entries(street)) {
+      found[id] = { lat: e.lat, lng: e.lng, fromStreet: true, label: e.label };
+    }
+  } catch {
+    // Sokak hafızası ulaşılamazsa OSM'e düş.
+  }
+  for (const o of orders) {
+    if (found[o.id]) continue;
+    if (opts?.isCancelled?.()) return found;
+    const hit = await geocodeOrderParts(
+      {
+        address: o.customer.address,
+        detail: o.customer.addressDetail,
+        district: o.customer.district,
+      },
+      { near: opts?.near },
+    );
+    if (hit) found[o.id] = { ...hit, fromStreet: false, label: "Harita aramasına göre" };
+  }
+  return found;
 }
 
 // Cihaz GPS konumu — rota linkine "origin" olarak eklemek için. Google Maps

@@ -7,6 +7,7 @@ import {
   normalizeCustomerAddresses,
   pickDefaultAddress,
 } from "@/lib/customers/addresses";
+import { streetFields } from "@/lib/customers/streetKey";
 import type { CustomerAddress, CustomerInfo, GeoPoint } from "@/types";
 
 type CustomerDoc = Record<string, unknown> & { _id: unknown };
@@ -35,13 +36,18 @@ export async function findCustomerByPhone(
 // Adres listesini + varsayılanın üst seviye kopyasını (address/addressDetail)
 // birlikte yazmak için $set gövdesi. Üst seviye `geo` da varsayılan adresin
 // pini olur (eski uyum); pin okuyucuları adres bazlıdır (bkz. geoForCustomer).
+// Her adrese sokak hafızası anahtarları eklenir — tüm adres yazımları buradan
+// geçtiği için ayrıca bir yerde tutulmaları gerekmez.
 export function addressesSetFields(
   addresses: CustomerAddress[],
   defaultAddressId?: string,
 ): Record<string, unknown> {
   const def = pickDefaultAddress(addresses, defaultAddressId);
   return {
-    addresses,
+    addresses: addresses.map((a) => ({
+      ...a,
+      ...streetFields(a.address, a.addressDetail),
+    })),
     defaultAddressId: defaultAddressId ?? null,
     address: def?.address ?? "",
     addressDetail: def?.addressDetail ?? null,

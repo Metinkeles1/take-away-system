@@ -73,10 +73,10 @@ import {
   openRouteUrl,
 } from "@/lib/kurye/route";
 import {
-  geocodeOrderParts,
   getRecentDeviceLocation,
+  locateOrders,
   warmDeviceLocation,
-  type GeoHit,
+  type ApproxHit,
 } from "@/lib/kurye/geocode";
 
 // Pusher (websocket) anlık güncellemeyi sağlar; bu poll yalnızca emniyet ağı
@@ -621,10 +621,10 @@ export default function KuryePage() {
   const routableCount = orderedRoute.length + unpinnedStops.length;
   const canRoute = routableCount >= 2;
 
-  // Pinsizleri arka planda geocode et — "Tüm rotaya yol tarifi" linkinde
+  // Pinsizleri arka planda konumla (önce sokak hafızası, sonra OSM) — "Tüm rotaya yol tarifi" linkinde
   // koordinat + düz metnin KARIŞIK gitmesi Google Maps uygulamasında bazen
   // bozulup tek durağa düşmesine yol açıyordu; mümkün olanı koordinata çeviriyoruz.
-  const [unpinnedGeo, setUnpinnedGeo] = useState<Record<string, GeoHit>>({});
+  const [unpinnedGeo, setUnpinnedGeo] = useState<Record<string, ApproxHit>>({});
   const unpinnedKey = unpinnedStops.map((o) => o.id).join(",");
   useEffect(() => {
     if (unpinnedStops.length === 0) {
@@ -633,23 +633,12 @@ export default function KuryePage() {
     }
     let cancelled = false;
     (async () => {
-      const found: Record<string, GeoHit> = {};
-      for (const o of unpinnedStops) {
-        if (cancelled) return;
-        const hit = await geocodeOrderParts(
-          {
-            address: o.customer.address,
-            detail: o.customer.addressDetail,
-            district: o.customer.district,
-          },
-          {
-            near: shopLocation
-              ? { lat: shopLocation.lat, lng: shopLocation.lng }
-              : undefined,
-          },
-        );
-        if (hit) found[o.id] = hit;
-      }
+      const found = await locateOrders(unpinnedStops, {
+        near: shopLocation
+          ? { lat: shopLocation.lat, lng: shopLocation.lng }
+          : undefined,
+        isCancelled: () => cancelled,
+      });
       if (!cancelled) setUnpinnedGeo(found);
     })();
     return () => {
@@ -1080,9 +1069,7 @@ export default function KuryePage() {
     }
     const center: LatLng = res.ok
       ? { lat: res.geo.lat, lng: res.geo.lng }
-      : o.customer.geo
-        ? { lat: o.customer.geo.lat, lng: o.customer.geo.lng }
-        : DEFAULT_MAP_CENTER;
+      : (knownCenter(o) ?? DEFAULT_MAP_CENTER);
     openMap(o, center);
   };
 
@@ -1092,11 +1079,16 @@ export default function KuryePage() {
     setPickerOrder(o);
   };
 
+  // Bilinen en iyi nokta: gerçek pin, yoksa tahmini konum (sokak hafızası /
+  // harita araması) — pinsizde harita tahmini noktada açılır, kurye onaylar.
+  const knownCenter = (o: Order): LatLng | null => {
+    if (o.customer.geo) return { lat: o.customer.geo.lat, lng: o.customer.geo.lng };
+    const est = unpinnedGeo[o.id];
+    return est ? { lat: est.lat, lng: est.lng } : null;
+  };
+
   const openMapManual = (o: Order) => {
-    const center: LatLng = o.customer.geo
-      ? { lat: o.customer.geo.lat, lng: o.customer.geo.lng }
-      : DEFAULT_MAP_CENTER;
-    openMap(o, center);
+    openMap(o, knownCenter(o) ?? DEFAULT_MAP_CENTER);
   };
 
   // Haritada onaylanan konumu kaydet (elle → accuracy yok, insan-onaylı sayılır).
@@ -1398,6 +1390,7 @@ export default function KuryePage() {
                 payError={payErrors[current.id]}
                 onPin={() => void handlePin(current)}
                 onPickOnMap={() => openMapManual(current)}
+                estimate={unpinnedGeo[current.id]}
                 onSetPayment={(m) => void handleSetPayment(current, m)}
               />
             </div>
@@ -1956,16 +1949,15 @@ function PoolList({
 
   return (
     <div className="space-y-2 px-3 py-3">
-      {/* Haritadan toplu seçim — adresleri görüp rotana uyanları üstlen. */}
-      {freeCount > 1 && (
-        <button
-          onClick={onOpenMap}
-          className="flex w-full items-center justify-center gap-2 rounded-2xl bg-indigo-600 py-3 text-sm font-bold text-white shadow-sm shadow-indigo-600/25 transition active:scale-[0.98]"
-        >
-          <MapPin className="h-4 w-4" />
-          Haritada Seç
-        </button>
-      )}
+      {/* Harita her zaman açılabilir — boş paket yoksa bile hangi paketin ne
+          tarafta olduğu görülsün; boş paket varsa rotana uyanları üstlen. */}
+      <button
+        onClick={onOpenMap}
+        className="flex w-full items-center justify-center gap-2 rounded-2xl bg-indigo-600 py-3 text-sm font-bold text-white shadow-sm shadow-indigo-600/25 transition active:scale-[0.98]"
+      >
+        <MapPin className="h-4 w-4" />
+        {freeCount > 0 ? "Haritada Seç" : "Haritada Gör"}
+      </button>
 
       {/* Yoğun gün / tek kurye: tek dokunuşla tüm boş paketleri üstlen. */}
       {freeCount > 1 && (
@@ -2128,6 +2120,7 @@ function OrderCard({
   pinError,
   onPin,
   onPickOnMap,
+  estimate,
   payError,
   onSetPayment,
 }: {
@@ -2140,6 +2133,9 @@ function OrderCard({
   // kart içi küçük aksiyonlar. Navigasyon ("Git") alt barda.
   onPin: () => void;
   onPickOnMap: () => void;
+  // Pinsiz siparişin tahmini konumu (sokak hafızası) — dokununca harita bu
+  // noktada açılır, kurye onaylayınca gerçek pin olur.
+  estimate?: ApproxHit;
   onSetPayment: (method: PaymentMethod) => void;
 }) {
   const [itemsOpen, setItemsOpen] = useState(false);
@@ -2285,6 +2281,16 @@ function OrderCard({
                     <LocateFixed className="h-3 w-3" />
                   )}
                   {pinning ? "Alınıyor…" : "Konumu pinle"}
+                </button>
+              )}
+              {!isTrendyol && !hasPin && estimate?.fromStreet && (
+                <button
+                  onClick={onPickOnMap}
+                  title="Tahmini konum — haritada kontrol edip onayla"
+                  className="inline-flex max-w-full items-center gap-1 rounded-lg border border-dashed border-orange-400 bg-orange-50 px-2 py-0.5 text-xs font-semibold text-orange-700 transition active:scale-95"
+                >
+                  <MapPin className="h-3 w-3 shrink-0" />
+                  <span className="truncate">Tahmini: {estimate.label}</span>
                 </button>
               )}
             </div>

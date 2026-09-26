@@ -23,10 +23,10 @@ import {
   orderStopsByProximity,
 } from "@/lib/kurye/route";
 import {
-  geocodeOrderParts,
   getRecentDeviceLocation,
+  locateOrders,
   warmDeviceLocation,
-  type GeoHit,
+  type ApproxHit,
 } from "@/lib/kurye/geocode";
 
 // Bu sayının üstünde seçimde nazik uyarı (motorla taşıma + Google ~10 durak sınırı).
@@ -39,6 +39,7 @@ const PIN_FREE_APPROX = `<div style="transform:translate(-50%,-50%);width:22px;h
 // Gri "?" → "yeri kesin değil, seçebilirsin ama konum güvenilmez" sinyali.
 const PIN_UNKNOWN = `<div style="transform:translate(-50%,-50%);display:grid;place-items:center;width:22px;height:22px;border-radius:9999px;background:#fff;border:3px dashed #94a3b8;color:#64748b;font:700 12px/1 system-ui,sans-serif;box-shadow:0 2px 4px rgba(0,0,0,.3)">?</div>`;
 const PIN_TAKEN = `<div style="transform:translate(-50%,-50%);width:18px;height:18px;border-radius:9999px;background:#94a3b8;border:2px solid #fff;opacity:.65"></div>`;
+const PIN_MINE = `<div style="transform:translate(-50%,-50%);width:18px;height:18px;border-radius:9999px;background:#65a30d;border:2px solid #fff;opacity:.8"></div>`;
 const PIN_SHOP = `<div style="transform:translate(-50%,-50%);display:grid;place-items:center;width:28px;height:28px;border-radius:9999px;background:#0f172a;color:#fff;border:2px solid #fff;box-shadow:0 2px 4px rgba(0,0,0,.35)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 7l2-4h16l2 4"/><path d="M4 7v13h16V7"/><path d="M9 20v-6h6v6"/></svg></div>`;
 
 function shortAddr(o: Order): string {
@@ -71,12 +72,12 @@ export function PoolMapSelect({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [claiming, setClaiming] = useState(false);
   const [mapReady, setMapReady] = useState(false);
-  const [approxCoords, setApproxCoords] = useState<Record<string, GeoHit>>({});
+  const [approxCoords, setApproxCoords] = useState<Record<string, ApproxHit>>({});
   const [geocoding, setGeocoding] = useState(false);
   // claim modunda üstlendikten sonra: seçilen paketler (yol tarifi ekranı).
   const [claimedView, setClaimedView] = useState<Order[] | null>(null);
   const [claimedApproxCoords, setClaimedApproxCoords] = useState<
-    Record<string, GeoHit> | null
+    Record<string, ApproxHit> | null
   >(null);
   // Ekran açılınca GPS'i önceden al — yol tarifi tıklamasında hazır olsun
   // (bkz. warmDeviceLocation).
@@ -98,13 +99,12 @@ export function PoolMapSelect({
     mode === "claim" ? orders.filter((o) => !o.courier) : orders;
   const selPinned = selectable.filter((o) => o.customer.geo);
   const selPinless = selectable.filter((o) => !o.customer.geo);
-  // Başkasının üstlendiği pinli paketler — yalnızca claim modunda gri bağlam.
-  const takenPinned =
-    mode === "claim"
-      ? orders.filter(
-          (o) => o.courier && o.courier !== courier && o.customer.geo,
-        )
-      : [];
+  // Üstlenilmiş paketler — yalnızca claim modunda bağlam (seçilemez): başka
+  // kuryedekiler gri, bendekiler yeşil. Böylece hiç boş paket olmasa da harita
+  // "hangi paket ne tarafta" görünümü olarak kullanılabilir.
+  const taken =
+    mode === "claim" ? orders.filter((o) => !!o.courier) : [];
+  const takenPinless = taken.filter((o) => !o.customer.geo);
 
   // Harita merkezi — dükkan, yoksa ilk pinli, yoksa İstanbul. Konumu bulunamayan
   // pinsizlerin "göstermelik" yerleştirileceği referans.
@@ -135,6 +135,12 @@ export function PoolMapSelect({
     return fallbackById.get(o.id) ?? null;
   };
   const onMapStops = selectable.filter((o) => coordOf(o));
+  // Bağlam paketleri yalnızca gerçek ya da yaklaşık konumu varsa çizilir
+  // (göstermelik dükkan halkasına konmaz — seçilemedikleri için yanıltmasın).
+  const takenOnMap = taken.flatMap((o) => {
+    const c = o.customer.geo ?? approxCoords[o.id];
+    return c ? [{ o, lat: c.lat, lng: c.lng }] : [];
+  });
 
   const toggle = (id: string) =>
     setSelected((prev) => {
@@ -155,33 +161,23 @@ export function PoolMapSelect({
   }, [open]);
 
   // Pinsizleri açılışta geocode et (haritada yaklaşık göstermek için).
-  const pinlessKey = selPinless.map((o) => o.id).join(",");
+  const toLocate = [...selPinless, ...takenPinless];
+  const pinlessKey = toLocate.map((o) => o.id).join(",");
   useEffect(() => {
     if (!open) return;
-    if (selPinless.length === 0) {
+    if (toLocate.length === 0) {
       setGeocoding(false);
       return;
     }
     let cancelled = false;
     setGeocoding(true);
     (async () => {
-      const found: Record<string, GeoHit> = {};
-      for (const o of selPinless) {
-        if (cancelled) return;
-        const hit = await geocodeOrderParts(
-          {
-            address: o.customer.address,
-            detail: o.customer.addressDetail,
-            district: o.customer.district,
-          },
-          {
-            near: shopLocation
-              ? { lat: shopLocation.lat, lng: shopLocation.lng }
-              : undefined,
-          },
-        );
-        if (hit) found[o.id] = hit;
-      }
+      const found = await locateOrders(toLocate, {
+        near: shopLocation
+          ? { lat: shopLocation.lat, lng: shopLocation.lng }
+          : undefined,
+        isCancelled: () => cancelled,
+      });
       if (cancelled) return;
       setApproxCoords(found);
       setGeocoding(false);
@@ -258,7 +254,7 @@ export function PoolMapSelect({
   const approxKey = Object.keys(approxCoords).sort().join(",");
   const fitKey = [
     ...onMapStops.map((o) => o.id),
-    ...takenPinned.map((o) => o.id),
+    ...takenOnMap.map((t) => t.o.id),
   ].join(",");
   useEffect(() => {
     const L = LRef.current;
@@ -270,7 +266,7 @@ export function PoolMapSelect({
       const c = coordOf(o)!;
       pts.push([c.lat, c.lng]);
     }
-    for (const o of takenPinned) pts.push([o.customer.geo!.lat, o.customer.geo!.lng]);
+    for (const t of takenOnMap) pts.push([t.lat, t.lng]);
     if (pts.length === 0) return;
     try {
       map.fitBounds(L.latLngBounds(pts).pad(0.2));
@@ -294,9 +290,14 @@ export function PoolMapSelect({
         interactive: false,
       }).addTo(layer);
     }
-    for (const o of takenPinned) {
-      L.marker([o.customer.geo!.lat, o.customer.geo!.lng], {
-        icon: L.divIcon({ className: "", html: PIN_TAKEN, iconSize: [18, 18] }),
+    for (const t of takenOnMap) {
+      const mine = t.o.courier === courier;
+      L.marker([t.lat, t.lng], {
+        icon: L.divIcon({
+          className: "",
+          html: mine ? PIN_MINE : PIN_TAKEN,
+          iconSize: [18, 18],
+        }),
         interactive: false,
       }).addTo(layer);
     }
@@ -367,7 +368,7 @@ export function PoolMapSelect({
   const routeUrlFor = (
     list: Order[],
     origin?: { lat: number; lng: number } | null,
-    approxSource?: Record<string, GeoHit> | null,
+    approxSource?: Record<string, ApproxHit> | null,
   ) => {
     const coords = approxSource ?? approxCoords;
     const pinned = list.filter((o) => o.customer.geo);
@@ -387,7 +388,7 @@ export function PoolMapSelect({
   // Tıklama içinde senkron aç; origin önceden alınmış son GPS konumu.
   const openRoute = (
     list: Order[],
-    approxSource?: Record<string, GeoHit> | null,
+    approxSource?: Record<string, ApproxHit> | null,
   ) => {
     openRouteUrl(routeUrlFor(list, getRecentDeviceLocation(), approxSource));
     warmDeviceLocation();
@@ -453,7 +454,11 @@ export function PoolMapSelect({
                     : "bg-slate-100 text-slate-500",
                 )}
               >
-                {located ? "≈ yaklaşık" : "konum yok"}
+                {!located
+                  ? "konum yok"
+                  : approxCoords[o.id].fromStreet
+                    ? `≈ ${approxCoords[o.id].label}`
+                    : "≈ yaklaşık"}
               </span>
             )}
           </div>
@@ -472,7 +477,9 @@ export function PoolMapSelect({
     ? "Üstlenildi 🎉"
     : mode === "route"
       ? "Haritada Planla"
-      : "Paket seç";
+      : selectable.length === 0
+        ? "Paket haritası"
+        : "Paket seç";
   const subtitle = claimedView
     ? `${claimedView.length} paket senin — yol tarifini aç`
     : summaryLine
@@ -481,7 +488,9 @@ export function PoolMapSelect({
         ? "Pinsiz konumlar bulunuyor…"
         : mode === "route"
           ? "Bu sefer götüreceklerini seç"
-          : "Rotana uyanlara dokun — kalanlar havuzda kalır";
+          : selectable.length === 0
+            ? "Boş paket yok — paketlerin konumu"
+            : "Rotana uyanlara dokun — kalanlar havuzda kalır";
 
   return (
     <div className="fixed inset-0 z-1000 flex flex-col bg-slate-100">
@@ -501,6 +510,16 @@ export function PoolMapSelect({
 
       <div className="relative h-[42vh] shrink-0">
         <div ref={containerRef} className="absolute inset-0 bg-slate-200" />
+        {takenOnMap.length > 0 && !claimedView && (
+          <div className="pointer-events-none absolute bottom-2 left-2 z-1000 flex items-center gap-3 rounded-lg bg-white/90 px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 shadow-sm">
+            <span className="flex items-center gap-1">
+              <span className="h-2.5 w-2.5 rounded-full bg-lime-600" /> Sende
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="h-2.5 w-2.5 rounded-full bg-slate-400" /> Başka kuryede
+            </span>
+          </div>
+        )}
       </div>
 
       {claimedView ? (

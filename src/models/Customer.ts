@@ -15,6 +15,12 @@ const AddressSchema = new Schema(
     geo: { type: GeoSchema, default: undefined },
     useCount: { type: Number, default: 0 },
     lastUsedAt: { type: Date, default: Date.now },
+    // Sokak hafızası (bkz. lib/customers/streetKey.ts): pinsiz yeni bir adres,
+    // aynı sokaktaki pinli adreslerden yaklaşık konumlanır. Her yazımda adres
+    // metninden yeniden hesaplanır (addressesSetFields).
+    streetKey: String,
+    mahalleKey: String,
+    doorNo: Number,
   },
   { _id: false },
 );
@@ -42,6 +48,19 @@ const CustomerSchema = new Schema(
   },
   { timestamps: true },
 );
+
+CustomerSchema.index({ "addresses.streetKey": 1 });
+
+// Dev hot-reload'da mongoose önceki (eski şemalı) modeli tutar ve şemada
+// olmayan alanları yazarken sessizce atar — yeni alan eklenince (ör. sokak
+// hafızası) eski model atılıp yeniden derlenir.
+const cached = mongoose.models.Customer as mongoose.Model<unknown> | undefined;
+const cachedAddresses = cached?.schema.path("addresses") as
+  | { schema?: Schema }
+  | undefined;
+if (cached && !cachedAddresses?.schema?.path("streetKey")) {
+  mongoose.deleteModel("Customer");
+}
 
 const CustomerModel =
   mongoose.models.Customer ?? mongoose.model("Customer", CustomerSchema);
