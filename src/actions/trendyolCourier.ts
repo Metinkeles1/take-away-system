@@ -226,6 +226,44 @@ export async function claimTrendyolPackage(
   }
 }
 
+// Yanlış üstlenilmiş Trendyol paketini doğru kurye devralır (basılı tut).
+// takeOverOrder ile aynı kural: yalnız paket hâlâ `from` kuryesindeyse.
+export async function takeOverTrendyolPackage(
+  packageId: string,
+  courier: string,
+  from: string,
+): Promise<{ ok: boolean; error?: string; takenBy?: string }> {
+  try {
+    const name = courier.trim();
+    if (!name) return { ok: false, error: "Kurye adı gerekli" };
+    await connectDB();
+
+    const doc = await TrendyolCourierPackageModel.findOneAndUpdate(
+      { packageId, courier: from },
+      { $set: { courier: name } },
+      { new: true },
+    ).lean();
+
+    if (!doc) {
+      const current = await TrendyolCourierPackageModel.findOne({ packageId })
+        .select("courier")
+        .lean();
+      const cur = current as { courier?: string } | null;
+      if (!cur) return { ok: false, error: "Paket bulunamadı" };
+      return { ok: false, error: "Paket el değiştirdi", takenBy: cur.courier };
+    }
+
+    await assignTrendyolCourier([packageId], name).catch((e) =>
+      console.warn("[trendyol take-over → archive]", e),
+    );
+    await notifyOrdersChanged("trendyol-courier-taken-over");
+    return { ok: true };
+  } catch (err) {
+    console.error("[takeOverTrendyolPackage]", err);
+    return { ok: false, error: "Paket devralınamadı" };
+  }
+}
+
 // Kurye üstlenmeyi bırakır → paket havuza döner. Yalnızca alan kurye bırakabilir.
 export async function unclaimTrendyolPackage(
   packageId: string,

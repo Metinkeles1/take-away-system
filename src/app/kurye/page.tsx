@@ -35,6 +35,7 @@ import {
   claimOrder,
   unclaimOrder,
   claimManyOrders,
+  takeOverOrder,
 } from "@/actions/courier";
 import {
   syncTrendyolCourierPackages,
@@ -43,6 +44,7 @@ import {
   unclaimTrendyolPackage,
   claimManyTrendyolPackages,
   shipTrendyolCourierPackage,
+  takeOverTrendyolPackage,
 } from "@/actions/trendyolCourier";
 import { getActiveCouriers, type Courier } from "@/actions/couriers";
 import { type ShopLocation, type ShopIban } from "@/actions/settings";
@@ -385,6 +387,8 @@ export default function KuryePage() {
   const [tab, setTab] = useState<"mine" | "pool">("mine");
   // Üstlenme (claim) işlemi süren sipariş — satırda spinner için.
   const [claimingId, setClaimingId] = useState<string | null>(null);
+  // Havuzda devral başarısız olursa kısa uyarı (örn. "Paket el değiştirdi").
+  const [claimError, setClaimError] = useState<string | null>(null);
   const [active, setActive] = useState(0);
   const [confirming, setConfirming] = useState(false);
   const [deliveringId, setDeliveringId] = useState<string | null>(null);
@@ -961,6 +965,34 @@ export default function KuryePage() {
     }
   };
 
+  // Başka kuryenin yanlışlıkla üstlendiği paketi devral (kilitli satıra basılı
+  // tut). Optimistic; sunucu reddederse (arada el değiştirmiş) uyarı +
+  // gerçek duruma senkron.
+  const takeOver = async (o: Order) => {
+    if (!courier || !o.courier || o.courier === courier) return;
+    const from = o.courier;
+    setClaimingId(o.id);
+    setClaimError(null);
+    const isTrendyol = o.source === "trendyol";
+    const setter = isTrendyol ? setTrendyolOrders : setOrders;
+    setter((prev) => prev.map((x) => (x.id === o.id ? { ...x, courier } : x)));
+    const res = isTrendyol
+      ? await takeOverTrendyolPackage(o.externalRef ?? "", courier, from)
+      : await takeOverOrder(o.id, courier, from);
+    setClaimingId(null);
+    if (!res.ok) {
+      setClaimError(res.error ?? "Paket devralınamadı");
+      await load();
+    }
+  };
+
+  // Uyarı birkaç saniye sonra kendiliğinden kaybolur.
+  useEffect(() => {
+    if (!claimError) return;
+    const t = setTimeout(() => setClaimError(null), 4000);
+    return () => clearTimeout(t);
+  }, [claimError]);
+
   // Havuzdaki tüm boş paketleri tek dokunuşla üstlen (tek kurye / yoğun gün için).
   // Tek bulk çağrı: sunucuda tek updateMany + tek Pusher bildirimi.
   const claimAll = async () => {
@@ -1285,7 +1317,9 @@ export default function KuryePage() {
             orders={allSorted}
             courier={courier}
             claimingId={claimingId}
+            claimError={claimError}
             onToggle={(o) => void toggleClaim(o)}
+            onTakeOver={(o) => void takeOver(o)}
             onClaimAll={() => void claimAll()}
             onOpenMap={() => setPoolMapOpen(true)}
           />
@@ -1846,23 +1880,65 @@ const CLUSTER_CHIPS = [
 // ─── Tüm Paketler (havuz / checklist) ────────────────────────────────────────
 // Bütün aktif paketler alt alta, kısaca: #no · adres · ödeme. Kurye kendi
 // aldıklarını check'ler → "Benim Paketlerim"e geçer. Başka kuryenin aldığı satır
-// kilitli ve onun adıyla görünür (ikisi aynı paketi almasın).
+// kilitli ve onun adıyla görünür (ikisi aynı paketi almasın). Yanlış alınmışsa
+// doğru kurye kilitli satıra HOLD_MS basılı tutarak paketi kendine geçirir.
+const HOLD_MS = 800;
+
 function PoolList({
   orders,
   courier,
   claimingId,
+  claimError,
   onToggle,
+  onTakeOver,
   onClaimAll,
   onOpenMap,
 }: {
   orders: Order[];
   courier: string | null;
   claimingId: string | null;
+  claimError: string | null;
   onToggle: (o: Order) => void;
+  onTakeOver: (o: Order) => void;
   onClaimAll: () => void;
   onOpenMap: () => void;
 }) {
   const freeCount = orders.filter((o) => !o.courier).length;
+  // Basılı tutulan kilitli satır — dolan çubuk bununla çizilir.
+  const [holdingId, setHoldingId] = useState<string | null>(null);
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const holdStart = useRef<{ x: number; y: number } | null>(null);
+
+  const cancelHold = () => {
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+    holdTimer.current = null;
+    holdStart.current = null;
+    setHoldingId(null);
+  };
+  const startHold = (o: Order, x: number, y: number) => {
+    cancelHold();
+    holdStart.current = { x, y };
+    setHoldingId(o.id);
+    holdTimer.current = setTimeout(() => {
+      holdTimer.current = null;
+      holdStart.current = null;
+      setHoldingId(null);
+      navigator.vibrate?.(60);
+      onTakeOver(o);
+    }, HOLD_MS);
+  };
+  // Parmak kayarsa (liste kaydırma / sekme swipe'ı) basılı tutma iptal.
+  const moveHold = (x: number, y: number) => {
+    const st = holdStart.current;
+    if (st && Math.hypot(x - st.x, y - st.y) > 10) cancelHold();
+  };
+  // Liste kapanırken bekleyen zamanlayıcı kalmasın.
+  useEffect(
+    () => () => {
+      if (holdTimer.current) clearTimeout(holdTimer.current);
+    },
+    [],
+  );
   // Yakın siparişleri kümele → kurye aynı bölgedekileri birlikte üstlensin.
   const clusters = useMemo(() => clusterPoolOrders(orders), [orders]);
   const hasClusters = Object.keys(clusters).length > 0;
@@ -1910,31 +1986,63 @@ function PoolList({
         </div>
       )}
 
+      {claimError && (
+        <div className="flex items-center gap-2 rounded-2xl bg-rose-50 px-3.5 py-2.5 text-xs font-semibold text-rose-700 ring-1 ring-rose-100">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          {claimError}
+        </div>
+      )}
+
       {orders.map((o) => {
         const mine = o.courier === courier;
         const claimedByOther = !!o.courier && !mine;
         const busy = claimingId === o.id;
+        const holding = holdingId === o.id;
+        const canTakeOver = claimedByOther && !!courier;
         const pay = PAYMENT_LABEL[o.payment.method];
         const group = clusters[o.id];
         const itemCount = o.items.reduce((s, i) => s + i.quantity, 0);
         return (
           <button
             key={o.id}
-            onClick={() => onToggle(o)}
-            disabled={claimedByOther || busy}
+            onClick={() => {
+              if (!claimedByOther) onToggle(o);
+            }}
+            // Kilitli satır tıklamaya kapalı ama basılı tutmaya açık (devral).
+            disabled={busy || (claimedByOther && !canTakeOver)}
+            onPointerDown={
+              canTakeOver ? (e) => startHold(o, e.clientX, e.clientY) : undefined
+            }
+            onPointerMove={canTakeOver ? (e) => moveHold(e.clientX, e.clientY) : undefined}
+            onPointerUp={canTakeOver ? cancelHold : undefined}
+            onPointerLeave={canTakeOver ? cancelHold : undefined}
+            onPointerCancel={canTakeOver ? cancelHold : undefined}
+            onContextMenu={canTakeOver ? (e) => e.preventDefault() : undefined}
             className={cn(
-              "flex w-full items-center gap-3 rounded-2xl px-3.5 py-3 text-left ring-1 transition active:scale-[0.99]",
+              "relative flex w-full items-center gap-3 overflow-hidden rounded-2xl px-3.5 py-3 text-left ring-1 transition select-none active:scale-[0.99]",
               mine
                 ? "bg-lime-50 ring-lime-300"
                 : claimedByOther
-                  ? "bg-slate-50 ring-slate-200 opacity-70"
+                  ? cn("bg-slate-50 ring-slate-200", !holding && "opacity-70")
                   : "bg-white ring-slate-200",
             )}
           >
+            {/* Basılı tutma ilerlemesi — dolunca paket bu kuryeye geçer. */}
+            {canTakeOver && (
+              <span
+                aria-hidden
+                className="pointer-events-none absolute inset-y-0 left-0 bg-lime-200/70 ease-linear"
+                style={{
+                  width: holding ? "100%" : "0%",
+                  transitionProperty: "width",
+                  transitionDuration: holding ? `${HOLD_MS}ms` : "0ms",
+                }}
+              />
+            )}
             {/* Check durumu */}
             <span
               className={cn(
-                "grid h-6 w-6 shrink-0 place-items-center rounded-lg ring-1 transition",
+                "relative grid h-6 w-6 shrink-0 place-items-center rounded-lg ring-1 transition",
                 mine
                   ? "bg-lime-500 text-white ring-lime-500"
                   : claimedByOther
@@ -1951,7 +2059,7 @@ function PoolList({
               ) : null}
             </span>
 
-            <div className="min-w-0 flex-1">
+            <div className="relative min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <span className="shrink-0 text-sm font-bold text-slate-900">
                   #{displayOrderNo(o)}
@@ -1998,6 +2106,9 @@ function PoolList({
                   <span className="inline-flex items-center gap-1 font-semibold text-slate-500">
                     <UserRound className="h-3 w-3" />
                     {o.courier}
+                    {canTakeOver && (
+                      <span className="font-normal text-slate-400">· almak için basılı tut</span>
+                    )}
                   </span>
                 )}
               </div>

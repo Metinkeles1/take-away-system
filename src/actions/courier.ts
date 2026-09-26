@@ -152,6 +152,43 @@ export async function claimOrder(
   }
 }
 
+// Yanlış üstlenmeyi kuryenin kendisi düzeltir: doğru kurye kilitli satıra basılı
+// tutunca paket kendine geçer. Yarış güvenliği: yalnız paket hâlâ `from`
+// kuryesindeyse yazılır (arada el değiştirdiyse güncel sahibi döner). Yanlış
+// kurye "Yola çıktım"a da basmış olabilir → yola çıkmış paket de devralınabilir.
+export async function takeOverOrder(
+  orderId: string,
+  courier: string,
+  from: string,
+): Promise<{ ok: boolean; error?: string; takenBy?: string }> {
+  try {
+    const name = courier.trim();
+    if (!name) return { ok: false, error: "Kurye adı gerekli" };
+    await connectDB();
+
+    const doc = await OrderModel.findOneAndUpdate(
+      { id: orderId, courier: from },
+      { $set: { courier: name } },
+      { new: true },
+    ).lean();
+
+    if (!doc) {
+      const current = await OrderModel.findOne({ id: orderId })
+        .select("courier")
+        .lean();
+      const cur = current as unknown as { courier?: string } | null;
+      if (!cur) return { ok: false, error: "Sipariş bulunamadı" };
+      return { ok: false, error: "Paket el değiştirdi", takenBy: cur.courier };
+    }
+
+    await notifyOrdersChanged("courier-taken-over");
+    return { ok: true };
+  } catch (error) {
+    console.error("[takeOverOrder]", error);
+    return { ok: false, error: "Paket devralınamadı" };
+  }
+}
+
 // Admin panelden kurye atar / değiştirir / kaldırır. Kuryenin self-claim'inden
 // farklı olarak yarış koşulu yok — son söz admin'de (yanlış üstlenmeyi düzeltmek,
 // işi bırakan kuryenin paketini boşa almak için). courier null → havuza döner.

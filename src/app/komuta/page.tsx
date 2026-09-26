@@ -48,10 +48,6 @@ import {
 } from "@/components/ui/select";
 import { cn, formatCurrencyShort } from "@/lib/utils";
 
-import {
-  OverviewRankList,
-  type RankItem,
-} from "@/components/dashboard/overview/OverviewRankList";
 import { KomutaMetricCard } from "@/components/dashboard/komuta/KomutaMetricCard";
 import { KomutaRecentOrders } from "@/components/dashboard/komuta/KomutaRecentOrders";
 import { KomutaTrendChart } from "@/components/dashboard/komuta/KomutaTrendChart";
@@ -373,14 +369,15 @@ export default function KomutaPage() {
   };
 
   const maxCourier = Math.max(1, ...(insights?.couriers ?? []).map((c) => c.deliveries));
-  const courierItems: RankItem[] = (insights?.couriers ?? []).map((c) => ({
+  const courierItems: KomutaRankItem[] = (insights?.couriers ?? []).map((c) => ({
     id: c.name,
     label: c.name,
     primary: `${c.deliveries} teslimat`,
     secondary: `${c.trendyolDeliveries > 0 ? `Kendi ${c.deliveries - c.trendyolDeliveries} · TY ${c.trendyolDeliveries} · ` : ""}${c.avgMin != null ? `${c.avgMin} dk · ` : ""}${formatCurrencyShort(c.amount)}`,
-    share: (c.deliveries / maxCourier) * 100,
-    color: "bg-blue-500",
+    ownShare: ((c.deliveries - c.trendyolDeliveries) / maxCourier) * 100,
+    tyShare: (c.trendyolDeliveries / maxCourier) * 100,
   }));
+  const courierHasTy = (insights?.couriers ?? []).some((c) => c.trendyolDeliveries > 0);
 
   const cancelTrend =
     insights && insights.cancel.prevRate != null
@@ -709,7 +706,7 @@ export default function KomutaPage() {
                 isLoading={isLoading}
               />
             </section>
-            <OverviewRankList
+            <KomutaRankList
               title="Kurye Performansı (Trendyol)"
               items={courierItems}
               isLoading={isLoading}
@@ -803,9 +800,10 @@ export default function KomutaPage() {
                 isLoading={isLoading}
               />
             </section>
-            <OverviewRankList
+            <KomutaRankList
               title="Kurye Performansı"
               items={courierItems}
+              showLegend={courierHasTy}
               isLoading={isLoading}
               emptyText="Bu dönemde kurye atanmış teslimat yok."
             />
