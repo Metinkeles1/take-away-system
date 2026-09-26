@@ -7,12 +7,22 @@
 import { unstable_cache } from "next/cache";
 import {
   listTrendyolPackages,
-  listTrendyolSettlements,
   type TrendyolPackage,
-  type TrendyolSettlement,
-  type TrendyolSettlementTransactionType,
 } from "@/lib/integrations/trendyol/client";
 import { istanbulDayStart } from "@/lib/datetime";
+import {
+  NON_REVENUE_STATUSES,
+  PAYMENT_LABEL,
+  mealCardInfo,
+  normalizeMealCardBrand,
+  paymentKey,
+  sellerDiscount,
+} from "@/lib/integrations/trendyol/packageUtils";
+import {
+  FINANCE_TYPES,
+  TYPE_SIGN,
+  fetchSettlementType,
+} from "@/lib/integrations/trendyol/settlements";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -129,66 +139,6 @@ export interface TrendyolDashboardStats {
   error?: string;
 }
 
-// Trendyol paymentType -> proje genelindeki ortak ödeme key'i (PAYMENT_LABELS).
-// On-delivery için sub-type (CASH/CARD) okunur, yoksa "cash" varsayılır.
-function paymentKey(p: TrendyolPackage): string {
-  const t = p.payment?.paymentType;
-  if (t === "PAY_WITH_CARD") return "online";
-  if (t === "PAY_WITH_MEAL_CARD") return "meal_card";
-  if (t === "PAY_WITH_ON_DELIVERY") {
-    const sub = p.payment?.onDelivery?.paymentType?.toUpperCase();
-    if (sub === "CARD") return "card";
-    if (sub === "CASH" || !sub) return "cash";
-    // METROPOL_CODE / MULTINET_CODE vb. → "kod ile" yemek kartı. Para kapıda DEĞİL,
-    // sağlayıcıdan bankaya gelir → online yemek kartı gibi hakedişe yazılır.
-    if (normalizeMealCardBrand(sub)) return "meal_card";
-    return "cash";
-  }
-  return "online";
-}
-
-const PAYMENT_LABEL: Record<string, string> = {
-  cash: "Nakit",
-  card: "Kapıda Kart",
-  online: "Online Kart",
-  meal_card: "Yemek Kartı",
-};
-
-// Trendyol'un yemek kartı identifier'larını ortak marka adına normalize eder.
-// cardSourceType (online ödeme) ve onDelivery.paymentType (kapıda kod) için ortak.
-function normalizeMealCardBrand(raw: string | undefined | null): string | null {
-  if (!raw) return null;
-  const s = raw.toUpperCase();
-  if (s.includes("MULTINET")) return "Multinet";
-  if (s.includes("SODEXO") || s.includes("PLUXEE")) return "Sodexo / Pluxee";
-  if (s.includes("METROPOL")) return "Metropol";
-  if (s.includes("TICKET")) return "Ticket";
-  if (s.includes("SETCARD") || s.includes("SET_CARD")) return "Setcard";
-  if (s.includes("EDENRED") || s.includes("WINWIN") || s.includes("WIN_WIN")) return "Edenred";
-  if (s.includes("TOKENFLEX") || s.includes("TOKEN_FLEX")) return "TokenFlex";
-  if (s.includes("PAYE")) return "Paye";
-  if (s.includes("SMARTPAY") || s.includes("SMART_PAY")) return "SmartPay";
-  return null;
-}
-
-// Bir paketin yemek kartı bilgisini (varsa) çıkarır. Yoksa null döner.
-function mealCardInfo(
-  p: TrendyolPackage,
-): { brand: string; source: "online" | "on_delivery" } | null {
-  const t = p.payment?.paymentType;
-  if (t === "PAY_WITH_MEAL_CARD") {
-    const brand = normalizeMealCardBrand(p.payment?.mealCard?.cardSourceType) ?? "Diğer";
-    return { brand, source: "online" };
-  }
-  if (t === "PAY_WITH_ON_DELIVERY") {
-    const sub = p.payment?.onDelivery?.paymentType;
-    const brand = normalizeMealCardBrand(sub);
-    if (brand) return { brand, source: "on_delivery" };
-  }
-  return null;
-}
-
-const NON_REVENUE_STATUSES = new Set(["Cancelled", "UnSupplied"]);
 
 // ─── Hakediş tahmini ─────────────────────────────────────────────────────
 // Trendyol Satışlar sayfasından doğrulanan formül (her ödeme yöntemi için aynı):
@@ -205,14 +155,6 @@ const NON_REVENUE_STATUSES = new Set(["Cancelled", "UnSupplied"]);
 // yatırırken ayrıca %10 keser. Online kart/nakitte sağlayıcı yok → kesinti yok.
 const PROVIDER_COMMISSION_RATE = 0.1;
 const FALLBACK_COMMISSION_RATE = 0.138; // settlement yoksa kullanılacak oran
-
-// Satıcının karşıladığı indirim (promosyon + kupon).
-function sellerDiscount(p: TrendyolPackage): number {
-  return (
-    (p.promotions ?? []).reduce((s, pr) => s + (pr.totalSellerAmount ?? 0), 0) +
-    (p.coupon?.totalSellerAmount ?? 0)
-  );
-}
 
 // Trendyol "Satıcı Hakediş" = (Tutar − İndirim) × (1 − komisyon).
 function estimateTrendyolNet(p: TrendyolPackage, commissionRate: number): number {
@@ -326,78 +268,6 @@ function emptyStats(
     error,
   };
 }
-
-// Settlement endpoint'inde tarih aralığı max 15 gün → daha uzun period'lar için
-// chunk'lara böl, paralel çağır, content'leri birleştir.
-const FIFTEEN_DAYS_MS = 15 * 24 * 60 * 60 * 1000;
-
-function chunkRange(start: number, end: number): Array<{ s: number; e: number }> {
-  const chunks: Array<{ s: number; e: number }> = [];
-  let cursor = start;
-  while (cursor < end) {
-    const next = Math.min(cursor + FIFTEEN_DAYS_MS - 1, end);
-    chunks.push({ s: cursor, e: next });
-    cursor = next + 1;
-  }
-  return chunks.length ? chunks : [{ s: start, e: end }];
-}
-
-async function fetchSettlementType(
-  type: TrendyolSettlementTransactionType,
-  start: number,
-  end: number,
-): Promise<{ ok: true; items: TrendyolSettlement[] } | { ok: false; error: string }> {
-  const chunks = chunkRange(start, end);
-  const all: TrendyolSettlement[] = [];
-
-  for (const { s, e } of chunks) {
-    let page = 0;
-    while (page < 50) {
-      const res = await listTrendyolSettlements({
-        transactionType: type,
-        startDate: s,
-        endDate: e,
-        page,
-        size: 1000,
-      });
-      if (!res.ok) {
-        return { ok: false, error: `${type} (${res.status}): ${res.error}` };
-      }
-      all.push(...(res.data.content ?? []));
-      const totalPages = res.data.totalPages ?? 1;
-      if (page + 1 >= totalPages) break;
-      page++;
-    }
-  }
-  return { ok: true, items: all };
-}
-
-const FINANCE_TYPES: TrendyolSettlementTransactionType[] = [
-  "Sale",
-  "Return",
-  "Discount",
-  "DiscountCancel",
-  "Coupon",
-  "CouponCancel",
-  "ManualRefund",
-  "ManualRefundCancel",
-];
-
-// Trendyol sellerRevenue ve commissionAmount değerlerini her transactionType için
-// MUTLAK (pozitif) gönderiyor; işaret transactionType'tan çıkarılır.
-// Doküman tablosundan: + = satıcı lehine, − = satıcı aleyhine.
-const TYPE_SIGN: Record<TrendyolSettlementTransactionType, 1 | -1> = {
-  Sale: 1,
-  DiscountCancel: 1,
-  CouponCancel: 1,
-  ManualRefundCancel: 1,
-  ProvisionPositive: 1,
-  Return: -1,
-  Discount: -1,
-  Coupon: -1,
-  ManualRefund: -1,
-  ProvisionNegative: -1,
-};
 
 async function aggregateFinance(
   apiStart: number,
@@ -828,7 +698,7 @@ async function computeTrendyolDashboardStats(
   const topProducts = [...productMap.entries()]
     .map(([name, v]) => ({ name, ...v }))
     .sort((a, b) => b.quantity - a.quantity)
-    .slice(0, 50);
+    .slice(0, 300); // Komuta "az satan" görünümü tam listeyi ister
 
   // Son 8 sipariş — detay modal'ı için lines/address/customer alanları da dahil.
   // Trendyol API tek-paket endpoint'i sunmuyor; listeden çekilen veriyi modal

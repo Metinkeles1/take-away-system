@@ -18,6 +18,7 @@ interface OrdersListProps {
   hasSearch?: boolean;
   onResetFilter: () => void;
   onStatusChange: (id: string, status: OrderStatus) => void;
+  onOpenTrendyol?: (orderNumber: string) => void;
 }
 
 // OrderListCard cep boyu değişken (md+ farklı, ürün sayısına göre fark az)
@@ -35,6 +36,7 @@ function OrdersListImpl({
   hasSearch = false,
   onResetFilter,
   onStatusChange,
+  onOpenTrendyol,
 }: OrdersListProps) {
   const parentRef = useRef<HTMLDivElement>(null);
 
@@ -42,6 +44,9 @@ function OrdersListImpl({
     count: orders.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => ESTIMATE_HEIGHT,
+    // Ölçülen yükseklik sıraya değil siparişe bağlı: filtre/kanal değişince
+    // farklı boydaki kartlar eski sıranın ölçüsüyle üst üste binmesin.
+    getItemKey: (i) => orders[i]?.id ?? i,
     overscan: OVERSCAN,
   });
 
@@ -140,7 +145,11 @@ function OrdersListImpl({
                 paddingBottom: 12,
               }}
             >
-              <OrderListCard order={order} onStatusChange={onStatusChange} />
+              <OrderListCard
+                order={order}
+                onStatusChange={onStatusChange}
+                onOpenTrendyol={onOpenTrendyol}
+              />
             </div>
           );
         })}

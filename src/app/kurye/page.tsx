@@ -790,7 +790,10 @@ export default function KuryePage() {
     setShippingId(o.id);
     setDeliverError(null);
     try {
-      const res = await shipTrendyolCourierPackage(o.externalRef ?? "");
+      const res = await shipTrendyolCourierPackage(
+        o.externalRef ?? "",
+        courier ?? undefined,
+      );
       if (!res.ok) {
         setDeliverError(res.error ?? "Yola çıkış kaydedilemedi");
         return;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useDeferredValue, useMemo, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useOrderStore } from "@/store/orderStore";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,19 @@ import {
 import { OrderPeriodFilter } from "@/components/orders/OrderPeriodFilter";
 import { OrdersList } from "@/components/orders/OrdersList";
 import { useOrdersSync } from "@/hooks/useOrdersSync";
+import { getTrendyolOrdersForList } from "@/actions/trendyolArchive";
+import { TrendyolOrderSheet } from "@/components/dashboard/komuta/TrendyolOrderSheet";
+import { cn } from "@/lib/utils";
+
+type ChannelFilter = "all" | "own" | "trendyol";
+const CHANNEL_TABS: { key: ChannelFilter; label: string }[] = [
+  { key: "all", label: "Hepsi" },
+  { key: "own", label: "Kendi" },
+  { key: "trendyol", label: "Trendyol" },
+];
+// Trendyol listesi arka planda bu aralıkla tazelenir (arşiv kendi içinde en
+// fazla 1 dk bayat; yeni Trendyol siparişi listeye bu sürede düşer).
+const TY_REFRESH_MS = 60 * 1000;
 
 // Başlıktaki dönem etiketi (orders.ts'teki OrdersPeriod ile eşleşir).
 const PERIOD_LABEL: Record<OrdersPeriod, string> = {
@@ -41,8 +54,48 @@ function buildHaystack(o: Order): string {
 }
 
 export default function OrdersPage() {
-  const { orders, ordersPeriod, updateOrderStatus, loadOrders, isLoading } =
-    useOrderStore();
+  const {
+    orders: ownOrders,
+    ordersPeriod,
+    updateOrderStatus,
+    loadOrders,
+    isLoading,
+  } = useOrderStore();
+  const [channel, setChannel] = useState<ChannelFilter>("all");
+  const [tyOpen, setTyOpen] = useState<string | null>(null);
+
+  // Trendyol siparişleri (arşiv, salt okunur) — kendi sipariş deposuna
+  // karıştırılmaz; dönem değişince ve periyodik olarak ayrıca çekilir.
+  const [tyFetched, setTyFetched] = useState<{ period: OrdersPeriod; orders: Order[] } | null>(
+    null,
+  );
+  useEffect(() => {
+    let alive = true;
+    const load = () =>
+      getTrendyolOrdersForList(ordersPeriod).then((r) => {
+        if (alive) setTyFetched({ period: ordersPeriod, orders: r });
+      });
+    load();
+    const t = setInterval(load, TY_REFRESH_MS);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [ordersPeriod]);
+  const tyOrders = useMemo(
+    () => (tyFetched?.period === ordersPeriod ? tyFetched.orders : []),
+    [tyFetched, ordersPeriod],
+  );
+
+  // Kanal filtresi + yeni→eski birleşik liste.
+  const orders = useMemo(() => {
+    if (channel === "own") return ownOrders;
+    if (channel === "trendyol") return tyOrders;
+    if (tyOrders.length === 0) return ownOrders;
+    return [...ownOrders, ...tyOrders].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+  }, [channel, ownOrders, tyOrders]);
   const [filter, setFilter] = useState<OrderFilter>("all");
   const [search, setSearch] = useState("");
   const [bootstrapping, setBootstrapping] = useState(orders.length === 0);
@@ -109,6 +162,9 @@ export default function OrdersPage() {
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Siparişler</h1>
           <p className="mt-0.5 text-xs sm:text-sm text-muted-foreground">
             {PERIOD_LABEL[ordersPeriod]} · {orders.length} sipariş
+            {channel === "all" && tyOrders.length > 0 && (
+              <> (Kendi {ownOrders.length} · Trendyol {tyOrders.length})</>
+            )}
             {(filter !== "all" || search.trim()) && (
               <>
                 {" · "}
@@ -147,7 +203,26 @@ export default function OrdersPage() {
             </button>
           )}
         </div>
-        <OrderPeriodFilter period={ordersPeriod} onChange={handlePeriodChange} />
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex rounded-full bg-muted p-0.5 shrink-0">
+            {CHANNEL_TABS.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setChannel(tab.key)}
+                className={cn(
+                  "rounded-full px-3 py-1 text-xs font-medium transition-all whitespace-nowrap",
+                  channel === tab.key
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          <OrderPeriodFilter period={ordersPeriod} onChange={handlePeriodChange} />
+        </div>
       </div>
 
       {search.trim() && ordersPeriod !== "all" && (
@@ -174,8 +249,11 @@ export default function OrdersPage() {
           hasSearch={Boolean(search.trim())}
           onResetFilter={handleResetFilter}
           onStatusChange={handleStatusChange}
+          onOpenTrendyol={setTyOpen}
         />
       </div>
+
+      <TrendyolOrderSheet orderNumber={tyOpen} onClose={() => setTyOpen(null)} />
     </main>
   );
 }

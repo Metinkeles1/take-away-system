@@ -33,7 +33,7 @@ const SOURCE_BADGE: Record<
   manual: null,
   trendyol: {
     label: "Trendyol",
-    className: "bg-emerald-100 text-emerald-800 border-emerald-200",
+    className: "bg-orange-100 text-orange-800 border-orange-200",
   },
   getir: {
     label: "Getir",
@@ -45,12 +45,21 @@ const SOURCE_BADGE: Record<
   },
 };
 
+// Trendyol arşiv siparişi (getTrendyolOrdersForList) — salt okunur.
+export const TRENDYOL_ARCHIVE_ID_PREFIX = "tyarch-";
+
 interface OrderListCardProps {
   order: Order;
   onStatusChange: (id: string, status: OrderStatus) => void;
+  /** Trendyol arşiv siparişinde "Detay" → Trendyol detay paneli (orderNumber). */
+  onOpenTrendyol?: (orderNumber: string) => void;
 }
 
-function OrderListCardImpl({ order, onStatusChange }: OrderListCardProps) {
+function OrderListCardImpl({
+  order,
+  onStatusChange,
+  onOpenTrendyol,
+}: OrderListCardProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [navigating, setNavigating] = useState(false);
@@ -60,20 +69,22 @@ function OrderListCardImpl({ order, onStatusChange }: OrderListCardProps) {
   const isNavigating = isPending && navigating;
   const sourceBadge = order.source ? SOURCE_BADGE[order.source] : null;
   const isTrendyol = order.source === "trendyol";
+  // Arşivden gelen Trendyol siparişi: durum Trendyol'da yönetilir → menü yok.
+  const isArchived = order.id.startsWith(TRENDYOL_ARCHIVE_ID_PREFIX);
 
   return (
     <Card
       className={cn(
         "transition-all hover:shadow-md hover:border-foreground/20 overflow-hidden relative",
         isTrendyol &&
-          "bg-linear-to-r from-emerald-50/70 via-white to-white border-emerald-200/80",
+          "bg-linear-to-r from-orange-50/70 via-white to-white border-orange-200/80",
       )}
     >
       {/* Sol kenar şeridi — Trendyol için kalın yeşil, diğerleri için status rengi */}
       <div
         className={cn(
           "absolute left-0 top-0 bottom-0",
-          isTrendyol ? "w-1.5 bg-emerald-600" : "w-1",
+          isTrendyol ? "w-1.5 bg-orange-600" : "w-1",
           !isTrendyol && config.accent,
         )}
       />
@@ -81,10 +92,10 @@ function OrderListCardImpl({ order, onStatusChange }: OrderListCardProps) {
       {/* Sağ üst köşe: Trendyol "T" rozeti */}
       {isTrendyol && (
         <div
-          className="absolute top-0 right-0 z-10 flex items-center gap-1.5 rounded-bl-xl bg-emerald-600 px-2.5 py-1 text-white shadow-sm"
+          className="absolute top-0 right-0 z-10 flex items-center gap-1.5 rounded-bl-xl bg-orange-600 px-2.5 py-1 text-white shadow-sm"
           title="Trendyol GO siparişi"
         >
-          <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-white text-[10px] font-black text-emerald-700">
+          <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-white text-[10px] font-black text-orange-700">
             T
           </span>
           <span className="text-[10px] font-bold uppercase tracking-wider">
@@ -119,7 +130,9 @@ function OrderListCardImpl({ order, onStatusChange }: OrderListCardProps) {
               </span>
             )}
             {order.customerOpenAccounts && (
-              <CustomerOpenAccountsBadge accounts={order.customerOpenAccounts} />
+              <CustomerOpenAccountsBadge
+                accounts={order.customerOpenAccounts}
+              />
             )}
             {order.courier && (
               <span className="inline-flex items-center gap-1 rounded-full border border-lime-200 bg-lime-100 px-2 py-0.5 text-[11px] font-medium text-lime-800">
@@ -209,34 +222,44 @@ function OrderListCardImpl({ order, onStatusChange }: OrderListCardProps) {
             </span>
           </div>
           <div className="flex flex-col gap-2 md:w-full">
-            <Select
-              value={order.status}
-              onValueChange={(val) => onStatusChange(order.id, val as OrderStatus)}
-            >
-              <SelectTrigger className="h-8 w-36 md:w-full text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {ORDER_STATUS_ORDER.map((s) => {
-                  const c = ORDER_STATUS_CONFIG[s];
-                  const SIcon = c.icon;
-                  return (
-                    <SelectItem key={s} value={s}>
-                      <span className="flex items-center gap-2">
-                        <SIcon className="h-3 w-3" />
-                        {c.label}
-                      </span>
-                    </SelectItem>
-                  );
-                })}
-              </SelectContent>
-            </Select>
+            {!isArchived && (
+              <Select
+                value={order.status}
+                onValueChange={(val) =>
+                  onStatusChange(order.id, val as OrderStatus)
+                }
+              >
+                <SelectTrigger className="h-8 w-36 md:w-full text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ORDER_STATUS_ORDER.map((s) => {
+                    const c = ORDER_STATUS_CONFIG[s];
+                    const SIcon = c.icon;
+                    return (
+                      <SelectItem key={s} value={s}>
+                        <span className="flex items-center gap-2">
+                          <SIcon className="h-3 w-3" />
+                          {c.label}
+                        </span>
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            )}
             <Button
               variant="outline"
               size="sm"
               className="h-8 text-xs md:w-full"
               disabled={isNavigating}
               onClick={() => {
+                if (isArchived) {
+                  onOpenTrendyol?.(
+                    order.id.slice(TRENDYOL_ARCHIVE_ID_PREFIX.length),
+                  );
+                  return;
+                }
                 setNavigating(true);
                 startTransition(() => {
                   router.push(`/orders/${order.id}`);

@@ -9,7 +9,13 @@ import {
 import { mapTrendyolPackageToOrder } from "@/lib/integrations/trendyol/courierMap";
 import { connectDB } from "@/lib/mongodb";
 import TrendyolCourierPackageModel from "@/models/TrendyolCourierPackage";
-import TrendyolCourierDeliveryModel from "@/models/TrendyolCourierDelivery";
+import {
+  assignTrendyolCourier,
+  clearTrendyolCourier,
+  recordTrendyolDelivered,
+  recordTrendyolShipped,
+  upsertTrendyolPackages,
+} from "@/lib/trendyol/archive";
 import { notifyOrdersChanged } from "@/lib/pusher/server";
 import type { Order } from "@/types";
 
@@ -95,10 +101,34 @@ export async function syncTrendyolCourierPackages(): Promise<{
         })),
       );
     }
+    // Listeden düşecek (başka yerden teslim/iptal edilmiş) ama bir kuryenin
+    // üstlendiği paketler: kurye bilgisi silinmeden arşive geçirilir — kurye
+    // ekranında "Teslim"e basılmasa da performansa sayılsın.
+    try {
+      const leaving = await TrendyolCourierPackageModel.find({
+        packageId: { $nin: activeIds },
+        courier: { $nin: [null, ""] },
+      })
+        .select({ packageId: 1, courier: 1 })
+        .lean();
+      for (const d of leaving) {
+        if (d.courier) await assignTrendyolCourier([d.packageId], d.courier);
+      }
+    } catch (archiveErr) {
+      console.warn("[trendyol courier → archive courier]", archiveErr);
+    }
+
     // activeIds boşsa $nin [] her şeyi eşler → depo temizlenir (doğru davranış).
     await TrendyolCourierPackageModel.deleteMany({
       packageId: { $nin: activeIds },
     });
+
+    // Çekilen paketler (GO dahil) sipariş arşivine de yazılır — hata sync'i bozmasın.
+    try {
+      await upsertTrendyolPackages(res.data.content);
+    } catch (archiveErr) {
+      console.warn("[trendyol courier → archive]", archiveErr);
+    }
 
     await notifyOrdersChanged("trendyol-courier-sync");
     return { ok: true, orders, configured: true };
@@ -131,28 +161,13 @@ export async function deliverTrendyolCourierPackage(
     // hatası teslimi geçersiz kılmaz (asıl gerçek Trendyol'da işlendi).
     try {
       await connectDB();
-      const doc = await TrendyolCourierPackageModel.findOne({ packageId }).lean();
-      const name = courier?.trim() || doc?.courier?.trim();
-      // Kurye performansı için kalıcı teslim kaydı (depo silinince kaybolmasın).
-      if (name) {
-        const order = (doc?.order ?? {}) as Partial<Order>;
-        const created = order.createdAt ? new Date(order.createdAt) : new Date();
-        const now = new Date();
-        const dur = Math.round((now.getTime() - created.getTime()) / 60000);
-        await TrendyolCourierDeliveryModel.updateOne(
-          { packageId },
-          {
-            $set: {
-              courier: name,
-              total: order.total ?? 0,
-              orderCreatedAt: created,
-              deliveredAt: now,
-              deliveryDurationMin: dur > 0 ? dur : undefined,
-            },
-          },
-          { upsert: true },
-        );
-      }
+      const doc = await TrendyolCourierPackageModel.findOne({ packageId })
+        .select({ courier: 1 })
+        .lean();
+      const name = courier?.trim() || doc?.courier?.trim() || undefined;
+      // Sipariş arşivine teslim eden kurye + gerçek teslim anı (kurye performansı,
+      // teslim süresi). Depo birazdan silinir; kalıcı kayıt arşivdedir.
+      await recordTrendyolDelivered(packageId, name);
       await TrendyolCourierPackageModel.deleteOne({ packageId });
       await notifyOrdersChanged("trendyol-courier-delivered");
     } catch (cleanupErr) {
@@ -200,6 +215,9 @@ export async function claimTrendyolPackage(
       };
     }
 
+    await assignTrendyolCourier([packageId], name).catch((e) =>
+      console.warn("[trendyol claim → archive]", e),
+    );
     await notifyOrdersChanged("trendyol-courier-claimed");
     return { ok: true };
   } catch (err) {
@@ -221,6 +239,9 @@ export async function unclaimTrendyolPackage(
       { $unset: { courier: "" } },
     );
     if (!doc) return { ok: false, error: "Bu paketi sen almamışsın" };
+    await clearTrendyolCourier(packageId, name).catch((e) =>
+      console.warn("[trendyol unclaim → archive]", e),
+    );
     await notifyOrdersChanged("trendyol-courier-unclaimed");
     return { ok: true };
   } catch (err) {
@@ -247,6 +268,16 @@ export async function claimManyTrendyolPackages(
       { $set: { courier: name } },
     );
     if (res.modifiedCount > 0) {
+      const mine = await TrendyolCourierPackageModel.find({
+        packageId: { $in: packageIds },
+        courier: name,
+      })
+        .select({ packageId: 1 })
+        .lean();
+      await assignTrendyolCourier(
+        mine.map((d) => d.packageId),
+        name,
+      ).catch((e) => console.warn("[trendyol claim-many → archive]", e));
       await notifyOrdersChanged("trendyol-courier-claimed-bulk");
     }
     return { ok: true, claimed: res.modifiedCount };
@@ -262,6 +293,7 @@ export async function claimManyTrendyolPackages(
 // "on-the-way"e çekilir + Pusher → kartta "Teslim" adımı açılır.
 export async function shipTrendyolCourierPackage(
   packageId: string,
+  courier?: string,
 ): Promise<{ ok: boolean; error?: string }> {
   try {
     const inv = await markTrendyolPackageInvoiced(packageId);
@@ -276,6 +308,7 @@ export async function shipTrendyolCourierPackage(
         { packageId },
         { $set: { "order.status": "on-the-way" } },
       );
+      await recordTrendyolShipped(packageId, courier);
       await notifyOrdersChanged("trendyol-courier-shipped");
     } catch (cleanupErr) {
       console.warn("[trendyol ship cache]", cleanupErr);

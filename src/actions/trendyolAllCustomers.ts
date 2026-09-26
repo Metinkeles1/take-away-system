@@ -1,20 +1,21 @@
 "use server";
 
-// Müşteri merkezli listeleme — TrendyolCustomerSnapshot DB'sinden okur.
+// Müşteri merkezli listeleme — Trendyol sipariş arşivinden (TrendyolOrder) okur.
 // /dashboard/trendyol/customers "Tüm Müşteriler" tab'i tarafından kullanılır.
 //
-// Snapshot bazlı, Trendyol API'sine bu listede çağrı yapılmaz; o yüzden TTL
-// (60 gün) içindeki tüm müşterileri kapsar. Yorum bilgisi liste düzeyinde
-// gösterilmez (her müşteri için ayrı API çağrısı çok pahalı) — detayda var.
+// Arşiv kalıcıdır → arşivin başladığı günden bu yana tüm müşterileri kapsar.
+// Yorum bilgisi liste düzeyinde gösterilmez (her müşteri için ayrı API çağrısı
+// çok pahalı) — detayda var.
 
 import type { PipelineStage } from "mongoose";
 import { connectDB } from "@/lib/mongodb";
-import TrendyolCustomerSnapshot from "@/models/TrendyolCustomerSnapshot";
+import TrendyolOrderModel from "@/models/TrendyolOrder";
 import {
   listTrendyolReviews,
   type TrendyolReview,
 } from "@/lib/integrations/trendyol/client";
-import { syncRecentCustomers } from "@/actions/trendyolCustomerSnapshot";
+import { ensureTrendyolArchiveFresh } from "@/lib/trendyol/archive";
+import { FALLBACK_COMMISSION_RATE } from "@/lib/integrations/trendyol/packageUtils";
 
 export type CustomerSortBy =
   | "lastOrder"     // en son sipariş veren önce
@@ -37,6 +38,7 @@ export interface AllCustomerRow {
   orderCount: number;          // delivered + non-cancelled
   cancelledCount: number;
   totalRevenue: number;        // cancelled hariç
+  netRevenue: number;          // hakediş (gerçek settlement, yoksa tahmini)
   lastOrderAt: number;         // ms
   firstOrderAt: number;        // ms
   orderNumbers: string[];      // detay/yorum lookup için
@@ -64,17 +66,13 @@ export async function getAllCustomers(
   const { search = "", sortBy = "lastOrder", page = 0, size = 25 } = params;
 
   try {
-    // Snapshot'ın güncel olduğundan emin ol (rate-gated, sessiz hata).
-    try {
-      await syncRecentCustomers(30, false);
-    } catch {
-      /* sync hatası listeyi engellemesin */
-    }
+    // Arşivin güncel olduğundan emin ol (rate-gated, sessiz hata).
+    await ensureTrendyolArchiveFresh();
 
     await connectDB();
 
     // Aggregation pipeline:
-    // 1) Snapshot'tan tüm kayıtları al
+    // 1) Arşivden tüm kayıtları al
     // 2) groupKey hesapla (customerId varsa onu, yoksa phone, yoksa orderNumber)
     // 3) Müşteri bazında grupla → adet, toplam, son sipariş, vb.
     // 4) Arama filtresi (isim/telefon/adres regex)
@@ -153,6 +151,25 @@ export async function getAllCustomers(
               ],
             },
           },
+          netRevenue: {
+            $sum: {
+              $cond: [
+                { $in: ["$packageStatus", NON_REVENUE_STATUSES] },
+                0,
+                {
+                  $ifNull: [
+                    "$netRevenue",
+                    {
+                      $multiply: [
+                        { $ifNull: ["$netTotal", { $ifNull: ["$totalPrice", 0] }] },
+                        1 - FALLBACK_COMMISSION_RATE,
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          },
           orderNumbers: { $push: "$orderNumber" },
         },
       },
@@ -184,7 +201,7 @@ export async function getAllCustomers(
       },
     });
 
-    const [out] = await TrendyolCustomerSnapshot.aggregate(pipeline);
+    const [out] = await TrendyolOrderModel.aggregate(pipeline);
     const rows: Array<{
       _id: string;
       customerId?: number | null;
@@ -199,6 +216,7 @@ export async function getAllCustomers(
       orderCount?: number;
       cancelledCount?: number;
       totalRevenue?: number;
+      netRevenue?: number;
       orderNumbers?: string[];
     }> = out?.rows ?? [];
     const totalCount: number = out?.meta?.[0]?.total ?? 0;
@@ -215,6 +233,7 @@ export async function getAllCustomers(
       orderCount: r.orderCount ?? 0,
       cancelledCount: r.cancelledCount ?? 0,
       totalRevenue: r.totalRevenue ?? 0,
+      netRevenue: r.netRevenue ?? 0,
       lastOrderAt: r.lastOrderAt ? new Date(r.lastOrderAt).getTime() : 0,
       firstOrderAt: r.firstOrderAt ? new Date(r.firstOrderAt).getTime() : 0,
       orderNumbers: r.orderNumbers ?? [],
@@ -258,7 +277,7 @@ function sortStageFor(sortBy: CustomerSortBy): Record<string, 1 | -1> {
 }
 
 // ─── Customer Detail ───────────────────────────────────────────────
-// Belirli bir müşterinin tüm siparişleri (snapshot'tan) + yorumları
+// Belirli bir müşterinin tüm siparişleri (arşivden) + yorumları
 // (Reviews API'sinden orderParentId üzerinden filtre).
 
 export interface CustomerOrderRow {
@@ -267,6 +286,13 @@ export interface CustomerOrderRow {
   totalPrice: number;
   packageStatus: string;
   deliveryType: string;
+  netRevenue: number; // hakediş
+  netEstimated: boolean; // settlement yok → tahmini
+  courier: string | null;
+  deliveryDurationMin: number | null;
+  district: string;
+  neighborhood: string;
+  products: string[];
 }
 
 export interface CustomerDetailResult {
@@ -280,6 +306,9 @@ export interface CustomerDetailResult {
   neighborhood: string;
   orderCount: number;
   totalRevenue: number;
+  netRevenue: number;
+  avgDeliveryMin: number | null;
+  firstOrderAt: number;
   orders: CustomerOrderRow[];
   reviews: TrendyolReview[];
   error?: string;
@@ -303,7 +332,7 @@ export async function getCustomerDetail(
     }
     if (!filter) return null;
 
-    const docs = await TrendyolCustomerSnapshot.find(filter)
+    const docs = await TrendyolOrderModel.find(filter)
       .sort({ packageCreationDate: -1 })
       .lean();
     if (docs.length === 0) return null;
@@ -317,14 +346,29 @@ export async function getCustomerDetail(
       totalPrice: d.totalPrice ?? 0,
       packageStatus: d.packageStatus ?? "",
       deliveryType: d.deliveryType ?? "",
+      netRevenue:
+        d.netRevenue ??
+        (d.netTotal ?? d.totalPrice ?? 0) * (1 - FALLBACK_COMMISSION_RATE),
+      netEstimated: d.netRevenue == null,
+      courier: d.courier ?? null,
+      deliveryDurationMin: d.deliveryDurationMin ?? null,
+      district: d.district ?? "",
+      neighborhood: d.neighborhood ?? "",
+      products: (d.lines ?? []).map((l) =>
+        (l.quantity ?? 1) > 1 ? `${l.quantity}× ${l.name}` : l.name ?? "",
+      ),
     }));
 
     const orderCount = orders.filter(
       (o) => !NON_REVENUE_STATUSES.includes(o.packageStatus),
     ).length;
-    const totalRevenue = orders
-      .filter((o) => !NON_REVENUE_STATUSES.includes(o.packageStatus))
-      .reduce((s, o) => s + o.totalPrice, 0);
+    const valid = orders.filter((o) => !NON_REVENUE_STATUSES.includes(o.packageStatus));
+    const totalRevenue = valid.reduce((s, o) => s + o.totalPrice, 0);
+    const netRevenue = valid.reduce((s, o) => s + o.netRevenue, 0);
+    const timed = valid.filter((o) => (o.deliveryDurationMin ?? 0) > 0);
+    const avgDeliveryMin = timed.length
+      ? Math.round(timed.reduce((s, o) => s + (o.deliveryDurationMin ?? 0), 0) / timed.length)
+      : null;
 
     // Yorumları çek — bu müşterinin tüm orderNumber'ları için Reviews API'sini
     // orderParentId filtresiyle çağır. Her sorgu tek bir sipariş için olduğundan
@@ -345,6 +389,9 @@ export async function getCustomerDetail(
       neighborhood: head.neighborhood ?? "",
       orderCount,
       totalRevenue,
+      netRevenue,
+      avgDeliveryMin,
+      firstOrderAt: orders[orders.length - 1]?.packageCreationDate ?? 0,
       orders,
       reviews,
     };
@@ -360,6 +407,9 @@ export async function getCustomerDetail(
       neighborhood: "",
       orderCount: 0,
       totalRevenue: 0,
+      netRevenue: 0,
+      avgDeliveryMin: null,
+      firstOrderAt: 0,
       orders: [],
       reviews: [],
       error: err instanceof Error ? err.message : "Detay alınamadı",
@@ -368,7 +418,7 @@ export async function getCustomerDetail(
 }
 
 // Reviews API'sinden orderParentId bazlı filtreyle yorumları çek.
-// storeId belirsizse env'den ya da snapshot'tan çıkar; bulunamazsa atla.
+// storeId belirsizse env'den ya da arşivden çıkar; bulunamazsa atla.
 async function fetchReviewsForOrders(
   orderNumbers: string[],
   storeId?: number,

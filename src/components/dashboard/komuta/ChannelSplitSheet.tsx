@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 
 import {
   Sheet,
@@ -11,7 +10,8 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
-import { cn, formatCurrencyShort } from "@/lib/utils";
+import { KomutaOrderRowItem } from "./KomutaOrderRowItem";
+import { TrendyolOrderSheet } from "./TrendyolOrderSheet";
 import {
   getKomutaPeriodOrders,
   type KomutaOrderRow,
@@ -177,9 +177,11 @@ function OrdersList({ query }: { query: OrdersQuery }) {
   }, [query.period, query.channel, query.dayOffset, query.method, query.productName, query.district, query.phone, query.trendyolId, key]);
 
   const rows = fetched?.key === key ? fetched.rows : null;
+  const [tyOrder, setTyOrder] = useState<string | null>(null);
 
   return (
     <div className="border-t pt-4">
+      <TrendyolOrderSheet orderNumber={tyOrder} onClose={() => setTyOrder(null)} />
       <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         Siparişler {rows && `(${rows.length})`}
       </p>
@@ -193,44 +195,16 @@ function OrdersList({ query }: { query: OrdersQuery }) {
         <p className="py-6 text-center text-sm text-muted-foreground">Bu yöntemle sipariş yok.</p>
       ) : (
         <ul className="space-y-2">
-          {rows.map((o, i) => {
-            const inner = (
-              <>
-                <span className="w-9 shrink-0 text-xs tabular-nums text-muted-foreground">{o.time}</span>
-                <span
-                  className={cn(
-                    "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold",
-                    o.channel === "trendyol"
-                      ? "bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300"
-                      : "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300",
-                  )}
-                >
-                  {o.channel === "trendyol" ? "TY" : "Kendi"}
-                </span>
-                <span className="shrink-0 text-sm font-semibold">#{o.orderNumber}</span>
-                <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
-                  {o.customerName}
-                </span>
-                <span className="shrink-0 text-sm font-medium tabular-nums">
-                  {formatCurrencyShort(o.total)}
-                </span>
-              </>
-            );
-            return (
-              <li key={o.id ?? `ty-${i}`}>
-                {o.id ? (
-                  <Link
-                    href={`/orders/${o.id}`}
-                    className="flex items-center gap-2.5 rounded-lg border p-2.5 transition-colors hover:bg-accent"
-                  >
-                    {inner}
-                  </Link>
-                ) : (
-                  <div className="flex items-center gap-2.5 rounded-lg border p-2.5">{inner}</div>
-                )}
-              </li>
-            );
-          })}
+          {rows.map((o, i) => (
+            <li key={o.id ?? `ty-${o.orderNumber}-${i}`}>
+              <KomutaOrderRowItem
+                row={o}
+                variant="card"
+                showDate={query.period !== "day"}
+                onTrendyolClick={setTyOrder}
+              />
+            </li>
+          ))}
         </ul>
       )}
     </div>

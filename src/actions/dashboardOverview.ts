@@ -243,7 +243,7 @@ export async function getDashboardOverview(
   const topProducts = [...productMap.entries()]
     .map(([name, d]) => ({ name, ...d }))
     .sort((a, b) => b.quantity - a.quantity)
-    .slice(0, 50);
+    .slice(0, 300);
 
   const channels = [...channelMap.entries()]
     .map(([src, d]) => ({
@@ -285,6 +285,7 @@ export interface PeriodOrderRow {
   customerName: string;
   district: string | null;
   time: string; // HH:MM (Istanbul)
+  createdAt: number; // ms
   total: number;
   net: number;
   paymentLabel: string; // "Nakit" / "Yemek K. · Multinet" …
@@ -353,6 +354,7 @@ export async function getPeriodOrders(
       customerName: o.customer?.name ?? "—",
       district: (o.customer?.district ?? "").trim() || null,
       time,
+      createdAt: ms,
       total: o.total,
       net: estimateOrderNet(o.total, o.source, method === "meal_card"),
       paymentLabel,

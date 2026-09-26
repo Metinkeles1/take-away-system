@@ -8,8 +8,9 @@ import {
   type CustomerDetailResult,
   type CustomerSortBy,
 } from "@/actions/trendyolAllCustomers";
-import { forgetCustomer } from "@/actions/trendyolCustomerSnapshot";
+import { forgetCustomer } from "@/actions/trendyolArchive";
 import { forceSyncCustomers } from "@/actions/trendyolReviews";
+import { TrendyolArchiveBar } from "./TrendyolArchiveBar";
 import {
   Search,
   RefreshCw,
@@ -27,6 +28,9 @@ import {
   Wallet,
   Calendar,
   MessageSquare,
+  Timer,
+  Bike,
+  Coins,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -171,6 +175,8 @@ export function AllCustomersTab() {
 
   return (
     <div className="space-y-4">
+      <TrendyolArchiveBar onChanged={load} />
+
       {/* ── Toolbar ──────────────────────────────────────────── */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="relative flex-1">
@@ -262,7 +268,7 @@ export function AllCustomersTab() {
                 text={
                   searchDebounced
                     ? "Arama kriterine uygun müşteri yok"
-                    : "Henüz müşteri snapshot'ı yok — Senkronla'ya basın"
+                    : "Arşivde henüz müşteri yok — Güncelle veya Geçmişi yükle'ye basın"
                 }
               />
             </div>
@@ -277,6 +283,9 @@ export function AllCustomersTab() {
                     </th>
                     <th className="px-4 py-3 text-right font-medium">Sipariş</th>
                     <th className="px-4 py-3 text-right font-medium">Toplam</th>
+                    <th className="px-4 py-3 text-right font-medium hidden lg:table-cell">
+                      Hakediş
+                    </th>
                     <th className="px-4 py-3 text-right font-medium hidden sm:table-cell">
                       Son Sipariş
                     </th>
@@ -373,6 +382,9 @@ function CustomerRow({
       </td>
       <td className="px-4 py-3 text-right font-medium tabular-nums">
         {formatCurrency(row.totalRevenue)}
+      </td>
+      <td className="px-4 py-3 text-right tabular-nums text-muted-foreground hidden lg:table-cell">
+        {formatCurrency(row.netRevenue)}
       </td>
       <td className="px-4 py-3 text-right text-sm text-muted-foreground hidden sm:table-cell">
         {relativeDate(row.lastOrderAt)}
@@ -472,7 +484,7 @@ function CustomerDetailSheet({
   const handleForget = async () => {
     if (!detail || detail.orders.length === 0) return;
     const ok = window.confirm(
-      `${detail.name || "Bu müşteri"} için kayıtlı ${detail.orders.length} siparişin yerel snapshot'ı silinecek. Trendyol'daki veri etkilenmez. Emin misin?`,
+      `${detail.name || "Bu müşteri"} için ${detail.orders.length} siparişteki kişisel bilgiler (ad, telefon, adres, konum) kalıcı olarak silinecek. Siparişler isimsiz istatistik olarak kalır; Trendyol'daki veri etkilenmez. Emin misin?`,
     );
     if (!ok) return;
     await Promise.all(detail.orders.map((o) => forgetCustomer(o.orderNumber)));
@@ -550,6 +562,21 @@ function CustomerDetailSheet({
               {/* KPI */}
               <div className="grid grid-cols-3 gap-2">
                 <StatBlock
+                  icon={Coins}
+                  label="Hakediş"
+                  value={formatCurrency(detail.netRevenue)}
+                />
+                <StatBlock
+                  icon={Timer}
+                  label="Ort. Teslim"
+                  value={detail.avgDeliveryMin != null ? `${detail.avgDeliveryMin} dk` : "—"}
+                />
+                <StatBlock
+                  icon={Calendar}
+                  label="İlk Sipariş"
+                  value={relativeDate(detail.firstOrderAt)}
+                />
+                <StatBlock
                   icon={Receipt}
                   label="Sipariş"
                   value={String(detail.orderCount)}
@@ -579,7 +606,7 @@ function CustomerDetailSheet({
 
                 {detail.orders.length === 0 ? (
                   <p className="rounded-md border bg-muted/30 p-4 text-center text-sm text-muted-foreground">
-                    Snapshot&apos;ta sipariş yok
+                    Arşivde sipariş yok
                   </p>
                 ) : (
                   <ul className="space-y-2">
@@ -610,11 +637,46 @@ function CustomerDetailSheet({
                                 <Calendar className="size-3" />
                                 {formatDate(o.packageCreationDate)}
                               </p>
+                              {(o.courier || o.deliveryDurationMin != null || o.neighborhood || o.district) && (
+                                <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                                  {(o.neighborhood || o.district) && (
+                                    <span className="flex items-center gap-1">
+                                      <MapPin className="size-3" />
+                                      {o.neighborhood || o.district}
+                                    </span>
+                                  )}
+                                  {o.deliveryDurationMin != null && (
+                                    <span className="flex items-center gap-1">
+                                      <Timer className="size-3" />
+                                      {o.deliveryDurationMin} dk
+                                    </span>
+                                  )}
+                                  {o.courier && (
+                                    <span className="flex items-center gap-1">
+                                      <Bike className="size-3" />
+                                      {o.courier}
+                                    </span>
+                                  )}
+                                </p>
+                              )}
                             </div>
-                            <p className="shrink-0 text-right font-semibold tabular-nums">
-                              {formatCurrency(o.totalPrice)}
-                            </p>
+                            <div className="shrink-0 text-right">
+                              <p className="font-semibold tabular-nums">
+                                {formatCurrency(o.totalPrice)}
+                              </p>
+                              {o.packageStatus !== "Cancelled" && o.packageStatus !== "UnSupplied" && (
+                                <p className="text-[11px] text-muted-foreground tabular-nums">
+                                  hakediş {o.netEstimated ? "~" : ""}
+                                  {formatCurrency(o.netRevenue)}
+                                </p>
+                              )}
+                            </div>
                           </div>
+                          {o.products.length > 0 && (
+                            <p className="mt-1.5 line-clamp-2 text-xs text-foreground/70">
+                              {o.products.join(", ")}
+                            </p>
+                          )}
 
                           {review && (
                             <div className="mt-3 rounded-md bg-muted/40 p-2.5">
@@ -664,7 +726,7 @@ function CustomerDetailSheet({
                   className="gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
                 >
                   <Trash2 className="size-3.5" />
-                  Yerel kayıtları sil (KVKK)
+                  Kişisel bilgileri sil (KVKK)
                 </Button>
               </div>
             </div>

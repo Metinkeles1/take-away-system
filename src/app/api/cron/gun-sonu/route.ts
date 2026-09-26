@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { saveEndOfDaySnapshot } from "@/actions/endOfDay";
 import { istanbulDateISO } from "@/lib/datetime";
+import { ensureTrendyolArchiveFresh } from "@/lib/trendyol/archive";
 
 // Vercel Cron — 23:59 IST (20:59 UTC) çalışır, bkz. vercel.json. Gün biterken
 // O GÜNÜ dondurur (kullanıcı isteği). Trendyol cirosu da o anki settlement ile
@@ -11,6 +12,8 @@ import { istanbulDateISO } from "@/lib/datetime";
 // çalışırsa bugünü; eğer gece yarısını geçip ertesi sabaha kayarsa (IST saati
 // öğleden önce) bir önceki günü dondurur — her iki halde de "kapanan gün".
 export const dynamic = "force-dynamic";
+// Gün sonu + Trendyol arşiv senkronu (paket + settlement) birlikte sürebilir.
+export const maxDuration = 60;
 
 // Cron'un "kapatması gereken günü" verir. IST öğleden sonra/akşam ise bugün;
 // gece yarısını geçip sabaha kaydıysa (saat < 12) bir önceki gün.
@@ -31,6 +34,10 @@ export async function GET(req: NextRequest) {
   try {
     const date = targetDate(Date.now());
     const report = await saveEndOfDaySnapshot(date, "cron");
+
+    // Trendyol sipariş arşivi: günün paketleri + hakediş kayıtları + KVKK temizliği.
+    // Hata gün sonunu bozmasın (fonksiyon kendi içinde hatayı loglar).
+    await ensureTrendyolArchiveFresh({ force: true });
     return NextResponse.json({
       ok: true,
       date: report.date,

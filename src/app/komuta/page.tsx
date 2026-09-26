@@ -68,6 +68,7 @@ import { OverviewRegionMap } from "@/components/dashboard/overview/OverviewRegio
 import { InsightStat } from "@/components/dashboard/overview/InsightStat";
 import { KomutaOperationsPanel } from "@/components/dashboard/komuta/KomutaOperationsPanel";
 import { KomutaCustomersPanel } from "@/components/dashboard/komuta/KomutaCustomersPanel";
+import { KomutaTrendyolLoyalty } from "@/components/dashboard/komuta/KomutaTrendyolLoyalty";
 import { Card, CardContent } from "@/components/ui/card";
 
 // Aşama 2 — mevcut sayfa/bileşenler sekmelerin içine gömülüyor (route'lar duruyor).
@@ -180,6 +181,7 @@ export default function KomutaPage() {
   const [ordersOpen, setOrdersOpen] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
   const [allProductsOpen, setAllProductsOpen] = useState(false);
+  const [productSort, setProductSort] = useState<"most" | "least">("most");
 
   const [data, setData] = useState<KomutaOverview | null>(null);
   const [split, setSplit] = useState<ChannelSplitData | null>(null);
@@ -275,6 +277,7 @@ export default function KomutaPage() {
   const orderChips = channelChips(bd?.own.orderCount ?? 0, bd?.trendyol.orderCount ?? 0, fmtInt);
 
   // ─── Sıralı listeler (kanal kırılımlı — iki renkli çubuk) ────
+  // Not: modal listesi "Az satan" sırasına çevrilebilir (en az satılan üstte).
   const splitProducts = data?.splitProducts ?? [];
   const splitPayments = data?.splitPayments ?? [];
   const showLegend = channel === "all";
@@ -290,6 +293,8 @@ export default function KomutaPage() {
 
   const maxPayAmount = Math.max(1, ...splitPayments.map((p) => p.amount));
   const paymentTotal = Math.max(1, splitPayments.reduce((s, p) => s + p.amount, 0));
+  const modalProductItems =
+    productSort === "most" ? productItems : [...productItems].reverse();
   const paymentItems: KomutaRankItem[] = splitPayments.map((p) => ({
     id: p.key,
     label: p.label,
@@ -338,9 +343,12 @@ export default function KomutaPage() {
   const openRegionSplit = (r: KomutaRegionRow) => {
     setSplit({
       title: r.name,
-      subtitle: `${r.total} sipariş · ${label}`,
-      own: { value: `${r.own} sip`, raw: r.own },
-      trendyol: { value: `${r.trendyol} sip`, raw: r.trendyol },
+      subtitle: `${r.total} sipariş · ${formatCurrencyShort(r.revenue)} · ${label}`,
+      own: { value: `${r.own} sip · ${formatCurrencyShort(r.ownRevenue)}`, raw: r.own },
+      trendyol: {
+        value: `${r.trendyol} sip · ${formatCurrencyShort(r.trendyolRevenue)}`,
+        raw: r.trendyol,
+      },
       ordersQuery: { period, channel, dayOffset, district: r.name },
     });
   };
@@ -389,6 +397,23 @@ export default function KomutaPage() {
     tyOps && tyOps.orderCount + tyOps.cancelled > 0
       ? (tyOps.cancelled / (tyOps.orderCount + tyOps.cancelled)) * 100
       : 0;
+
+  // Teslim süresi: kendi (DB) + Trendyol (sipariş arşivi) ağırlıklı birleşim.
+  const ownDel = insights?.delivery;
+  const tyDel = channel === "all" ? insights?.trendyolDelivery ?? null : null;
+  const delCount = (ownDel?.delivered ?? 0) + (tyDel?.delivered ?? 0);
+  const delOnTimeRate =
+    delCount > 0 ? (((ownDel?.onTime ?? 0) + (tyDel?.onTime ?? 0)) / delCount) * 100 : 0;
+  const delAvgMin =
+    delCount > 0
+      ? Math.round(
+          ((ownDel?.avgMin ?? 0) * (ownDel?.delivered ?? 0) +
+            (tyDel?.avgMin ?? 0) * (tyDel?.delivered ?? 0)) /
+            delCount,
+        )
+      : null;
+  const delSlowest = Math.max(ownDel?.slowestMin ?? 0, tyDel?.slowestMin ?? 0) || null;
+  const tyOnlyDel = insights?.trendyolDelivery ?? null;
 
   const showTarget = period === "month" && dayOffset === 0 && target > 0;
   const targetPct = showTarget && cur ? Math.min(100, (cur.revenue / target) * 100) : 0;
@@ -653,11 +678,49 @@ export default function KomutaPage() {
                 isLoading={isLoading}
               />
             </section>
+            <section className="grid grid-cols-2 gap-4 lg:grid-cols-3">
+              <InsightStat
+                label="Zamanında Teslim"
+                value={tyOnlyDel?.delivered ? `%${tyOnlyDel.onTimeRate.toFixed(0)}` : "—"}
+                sub={tyOnlyDel ? `${tyOnlyDel.slaMin} dk altı` : undefined}
+                tone={
+                  !tyOnlyDel?.delivered
+                    ? "default"
+                    : tyOnlyDel.onTimeRate >= 80
+                      ? "emerald"
+                      : tyOnlyDel.onTimeRate < 50
+                        ? "rose"
+                        : "amber"
+                }
+                isLoading={isLoading}
+              />
+              <InsightStat
+                label="Ort. Teslim Süresi"
+                value={tyOnlyDel?.avgMin != null ? `${tyOnlyDel.avgMin} dk` : "—"}
+                sub={
+                  tyOnlyDel?.slowestMin != null ? `en yavaş ${tyOnlyDel.slowestMin} dk` : undefined
+                }
+                isLoading={isLoading}
+              />
+              <InsightStat
+                label="Süresi Ölçülen"
+                value={tyOnlyDel ? String(tyOnlyDel.delivered) : "—"}
+                sub="teslim edilen paket"
+                isLoading={isLoading}
+              />
+            </section>
+            <OverviewRankList
+              title="Kurye Performansı (Trendyol)"
+              items={courierItems}
+              isLoading={isLoading}
+              emptyText="Bu dönemde kuryelerin teslim ettiği Trendyol paketi yok."
+            />
             <Card>
               <CardContent className="p-4 text-sm text-muted-foreground">
-                Teslim süresi ve kurye performansı yalnız sistemdeki siparişlerden ölçülür —
-                Trendyol API&apos;si bunları vermiyor. Bölge ve saat yoğunluğu ise sipariş
-                verisinden hesaplanır.
+                Teslim süresi sipariş arşivinden hesaplanır: kendi kuryenin teslim ettiği
+                paketlerde kurye ekranındaki &quot;Teslim&quot; anı, diğerlerinde Trendyol&apos;daki
+                son durum değişikliği esas alınır. Kurye performansı yalnız kurye ekranından
+                teslim edilen paketleri sayar.
               </CardContent>
             </Card>
             <KomutaOperationsPanel
@@ -689,12 +752,14 @@ export default function KomutaPage() {
               />
               <InsightStat
                 label="Zamanında Teslim"
-                value={insights ? `%${insights.delivery.onTimeRate.toFixed(0)}` : "—"}
+                value={insights && delCount > 0 ? `%${delOnTimeRate.toFixed(0)}` : "—"}
                 sub={insights ? `${insights.delivery.slaMin} dk altı` : undefined}
                 tone={
-                  insights && insights.delivery.onTimeRate >= 80
+                  !insights || delCount === 0
+                    ? "default"
+                    : delOnTimeRate >= 80
                     ? "emerald"
-                    : insights && insights.delivery.onTimeRate < 50
+                    : insights && delOnTimeRate < 50
                       ? "rose"
                       : "amber"
                 }
@@ -702,11 +767,13 @@ export default function KomutaPage() {
               />
               <InsightStat
                 label="Ort. Teslim Süresi"
-                value={insights?.delivery.avgMin != null ? `${insights.delivery.avgMin} dk` : "—"}
+                value={delAvgMin != null ? `${delAvgMin} dk` : "—"}
                 sub={
-                  insights?.delivery.slowestMin != null
-                    ? `en yavaş ${insights.delivery.slowestMin} dk`
-                    : undefined
+                  tyDel?.avgMin != null
+                    ? `Kendi ${ownDel?.avgMin ?? "—"} · TY ${tyDel.avgMin} dk`
+                    : delSlowest != null
+                      ? `en yavaş ${delSlowest} dk`
+                      : undefined
                 }
                 isLoading={isLoading}
               />
@@ -802,8 +869,21 @@ export default function KomutaPage() {
                       isLoading={isLoading}
                     />
                   </section>
+                  {channel === "all" && (
+                    <KomutaTrendyolLoyalty
+                      period={period}
+                      dayOffset={dayOffset}
+                      title={<SectionTitle>Sadakat (Trendyol)</SectionTitle>}
+                    />
+                  )}
                 </>
-              ) : null
+              ) : (
+                <KomutaTrendyolLoyalty
+                  period={period}
+                  dayOffset={dayOffset}
+                  title={<SectionTitle>Sadakat (Trendyol)</SectionTitle>}
+                />
+              )
             }
           />
         )}
@@ -869,15 +949,39 @@ export default function KomutaPage() {
       <Dialog open={allProductsOpen} onOpenChange={setAllProductsOpen}>
         <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>En Çok Satan Ürünler</DialogTitle>
+            <DialogTitle>
+              {productSort === "most" ? "En Çok Satan Ürünler" : "En Az Satan Ürünler"}
+            </DialogTitle>
             <DialogDescription>
               {subtitle} · {splitProducts.length} ürün · satıra tıkla → kendi/Trendyol kırılımı
             </DialogDescription>
           </DialogHeader>
+          <div className="inline-flex w-full rounded-lg border bg-muted/60 p-1">
+            {(
+              [
+                ["most", "Çok satan"],
+                ["least", "Az satan"],
+              ] as const
+            ).map(([id, text]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setProductSort(id)}
+                className={cn(
+                  "flex-1 rounded-md px-3 py-1 text-sm font-medium transition-colors",
+                  productSort === id
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {text}
+              </button>
+            ))}
+          </div>
           <KomutaRankList
             bare
-            title="En Çok Satan Ürünler"
-            items={productItems}
+            title={productSort === "most" ? "En Çok Satan Ürünler" : "En Az Satan Ürünler"}
+            items={modalProductItems}
             isLoading={isLoading}
             emptyText="Bu dönemde satış yok."
             showLegend={showLegend}

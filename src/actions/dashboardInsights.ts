@@ -6,7 +6,9 @@
 import { connectDB } from "@/lib/mongodb";
 import OrderModel from "@/models/Order";
 import CustomerModel from "@/models/Customer";
-import TrendyolCourierDeliveryModel from "@/models/TrendyolCourierDelivery";
+import TrendyolOrderModel from "@/models/TrendyolOrder";
+import { ensureTrendyolArchiveFresh } from "@/lib/trendyol/archive";
+import { NON_REVENUE_STATUSES } from "@/lib/integrations/trendyol/packageUtils";
 import { type OrderSource } from "@/types";
 import {
   periodWindows,
@@ -60,7 +62,8 @@ export interface TopCustomer {
 
 export interface DashboardInsights {
   couriers: CourierStat[];
-  delivery: DeliveryStat;
+  delivery: DeliveryStat; // yalnız kendi siparişler
+  trendyolDelivery: DeliveryStat | null; // Trendyol arşivi (kanal dahilse)
   cancel: CancelStat;
   heatmap: number[][]; // [7 gün][24 saat], Pazartesi=0
   heatmapMax: number;
@@ -90,8 +93,10 @@ export async function getDashboardInsights(
   const now = Date.now();
   const filter = sourceFilter(source);
 
-  // Kuryenin attığı Trendyol paketleri Order'da yok → ayrı teslim kaydından gelir.
+  // Trendyol siparişleri Order'da yok → sipariş arşivinden (TrendyolOrder) gelir:
+  // kurye performansı (bizim kuryenin attığı paketler) + teslim süresi.
   const wantTy = source === "all" || source === "trendyol";
+  if (wantTy) await ensureTrendyolArchiveFresh();
 
   const [curOrders, prevOrders, totalCustomers, newInPeriod, repeatCount, atRisk, lost, tyDeliveries] =
     await Promise.all([
@@ -127,10 +132,11 @@ export async function getDashboardInsights(
       }),
       CustomerModel.countDocuments({ updatedAt: { $lt: new Date(now - NINETY_D) } }),
       wantTy
-        ? TrendyolCourierDeliveryModel.find({
-            orderCreatedAt: { $gte: new Date(w.start), $lt: new Date(w.end) },
+        ? TrendyolOrderModel.find({
+            packageCreationDate: { $gte: new Date(w.start), $lt: new Date(w.end) },
+            packageStatus: { $nin: [...NON_REVENUE_STATUSES] },
           })
-            .select({ courier: 1, total: 1, deliveryDurationMin: 1 })
+            .select({ courier: 1, netTotal: 1, totalPrice: 1, deliveryDurationMin: 1 })
             .lean()
         : Promise.resolve([]),
     ]);
@@ -230,8 +236,27 @@ export async function getDashboardInsights(
     if (v > heatmapMax) heatmapMax = v;
   }
 
-  // Trendyol teslimleri: yalnız kurye tablosuna eklenir (SLA/iptal kendi siparişlerden).
-  for (const d of tyDeliveries as { courier: string; total?: number; deliveryDurationMin?: number }[]) {
+  // Trendyol: bizim kuryenin attığı paketler kurye tablosuna, süresi ölçülenler
+  // ayrı teslim istatistiğine (kendi SLA/iptal oranı karışmasın).
+  let tyDelivered = 0;
+  let tyOnTime = 0;
+  let tyMinSum = 0;
+  let tySlowest = 0;
+  for (const raw of tyDeliveries) {
+    const d = raw as {
+      courier?: string | null;
+      netTotal?: number | null;
+      totalPrice?: number | null;
+      deliveryDurationMin?: number | null;
+    };
+    const mins = d.deliveryDurationMin ?? 0;
+    if (mins > 0) {
+      tyDelivered++;
+      tyMinSum += mins;
+      if (mins <= SLA_WARN_MIN) tyOnTime++;
+      if (mins > tySlowest) tySlowest = mins;
+    }
+    if (!d.courier) continue;
     const c = courierMap.get(d.courier) ?? {
       deliveries: 0,
       trendyolDeliveries: 0,
@@ -242,13 +267,23 @@ export async function getDashboardInsights(
     };
     c.deliveries++;
     c.trendyolDeliveries++;
-    c.amount += d.total ?? 0;
-    if ((d.deliveryDurationMin ?? 0) > 0) {
-      c.minSum += d.deliveryDurationMin!;
+    c.amount += d.netTotal ?? d.totalPrice ?? 0;
+    if (mins > 0) {
+      c.minSum += mins;
       c.deliveredCount++;
     }
     courierMap.set(d.courier, c);
   }
+  const trendyolDelivery: DeliveryStat | null = wantTy
+    ? {
+        delivered: tyDelivered,
+        onTime: tyOnTime,
+        onTimeRate: tyDelivered > 0 ? (tyOnTime / tyDelivered) * 100 : 0,
+        avgMin: tyDelivered > 0 ? Math.round(tyMinSum / tyDelivered) : null,
+        slowestMin: tyDelivered > 0 ? tySlowest : null,
+        slaMin: SLA_WARN_MIN,
+      }
+    : null;
 
   const couriers: CourierStat[] = [...courierMap.entries()]
     .map(([name, c]) => ({
@@ -298,7 +333,16 @@ export async function getDashboardInsights(
     lost,
   };
 
-  return { couriers, delivery, cancel, heatmap, heatmapMax, topCustomers, cohorts };
+  return {
+    couriers,
+    delivery,
+    trendyolDelivery,
+    cancel,
+    heatmap,
+    heatmapMax,
+    topCustomers,
+    cohorts,
+  };
 }
 
 // ─── Açık hesaplar (veresiye) özeti — döneme bağlı değil, anlık alacak ───────

@@ -17,17 +17,17 @@ import {
   type TrendyolReviewAnswerStatus,
 } from "@/lib/integrations/trendyol/client";
 import {
-  syncRecentCustomers,
   getCustomersByOrderNumbers,
   type TrendyolCustomerSummary,
-} from "@/actions/trendyolCustomerSnapshot";
+} from "@/actions/trendyolArchive";
+import { syncTrendyolPackagesRange } from "@/lib/trendyol/archive";
 
 export type {
   TrendyolReview,
   TrendyolReviewStats,
   TrendyolReviewAnswerStatus,
 } from "@/lib/integrations/trendyol/client";
-export type { TrendyolCustomerSummary } from "@/actions/trendyolCustomerSnapshot";
+export type { TrendyolCustomerSummary } from "@/actions/trendyolArchive";
 
 // Bir review + (varsa) snapshot'tan gelen müşteri bilgisi.
 export interface TrendyolReviewWithCustomer extends TrendyolReview {
@@ -360,14 +360,8 @@ export async function getTrendyolReviews(
     error: full.error,
   };
 
-  // 2) Müşteri snapshot DB'sini güncelle (rate-gated, 1 saat'te bir).
+  // 2) Sipariş arşivi getCustomersByOrderNumbers içinde tazelenir (rate-gated).
   //    DB write unstable_cache içinde yapılamaz → burada, cache dışında.
-  //    Hata sessiz geçilir; enrichment olmasa da liste gösterilir.
-  try {
-    await syncRecentCustomers(30, false);
-  } catch {
-    // sync hatası enrichment'ı engellemesin
-  }
 
   // 3) orderParentId → orderNumber join (Trendyol orderParentId long, packages
   //    orderNumber string; eşleştirme için String() ile normalize)
@@ -384,7 +378,15 @@ export async function getTrendyolReviews(
   return { ...base, reviews: reviewsWithCustomer, enrichedCount: enriched };
 }
 
-// Manuel "Senkronla" butonu için — rate gate'i atlatır.
-export async function forceSyncCustomers(daysBack = 30) {
-  return syncRecentCustomers(daysBack, true);
+// Manuel "Senkronla" butonu için — rate gate'i atlatır, son N günü arşive çeker.
+export async function forceSyncCustomers(
+  daysBack = 30,
+): Promise<{ ok: boolean; upserted: number; error?: string }> {
+  try {
+    const now = Date.now();
+    const upserted = await syncTrendyolPackagesRange(now - daysBack * 24 * 60 * 60 * 1000, now);
+    return { ok: true, upserted };
+  } catch (err) {
+    return { ok: false, upserted: 0, error: err instanceof Error ? err.message : "Sync hatası" };
+  }
 }

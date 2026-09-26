@@ -29,6 +29,9 @@ import {
 } from "./trendyolDashboard";
 import { type OrderSource } from "@/types";
 import { periodWindows, type DashboardPeriod } from "@/lib/dashboardPeriods";
+import TrendyolOrderModel from "@/models/TrendyolOrder";
+import { ensureTrendyolArchiveFresh, LIVE_MAX_AGE_MS } from "@/lib/trendyol/archive";
+import { PAYMENT_LABEL as TY_PAYMENT_LABEL, archivedNet } from "@/lib/integrations/trendyol/packageUtils";
 
 type Channel = OrderSource | "all";
 type OverviewMetric = DashboardOverview["current"];
@@ -98,8 +101,11 @@ export interface KomutaOrderRow {
   channel: "own" | "trendyol";
   customerName: string;
   time: string; // HH:MM
+  dateLabel: string; // "12 Eyl" — çok günlü dönemlerde gösterilir
+  createdAt: number; // ms — sıralama
   total: number;
   net: number;
+  netEstimated?: boolean; // Trendyol: settlement yok → tahmini hakediş
   paymentLabel: string;
   district: string | null;
   status: string;
@@ -244,7 +250,7 @@ function buildSplitProducts(
       trendyol: d.trendyol,
     }))
     .sort((a, b) => b.quantity - a.quantity)
-    .slice(0, 50);
+    .slice(0, 300);
 }
 
 function buildSplitPayments(
@@ -463,33 +469,129 @@ export interface OrdersFilter {
   trendyolId?: string; // Trendyol müşteri (grup id)
 }
 
-// Trendyol siparişlerini, çubuk kategorisiyle BİREBİR aynı eşlemeyle (ham anahtar
-// → TY_PAYMENT_MAP) ve/veya ürün adıyla süzer. (Eski etiket-bazlı süzme "Online
-// Kart" → yanlışlıkla "card" yapıyordu; bu yüzden Online'a tıklayınca gelmiyordu.)
-function mapTyOrders(orders: TrendyolPeriodOrder[], f: OrdersFilter): KomutaOrderRow[] {
+function istDateLabel(ms: number): string {
+  return new Date(ms).toLocaleDateString("tr-TR", {
+    day: "numeric",
+    month: "short",
+    timeZone: "Europe/Istanbul",
+  });
+}
+
+// ─── Bölge adı normalizasyonu ────────────────────────────────────────────────
+// Kendi siparişlerde bölge adresten çıkan MAHALLE ("Safa"), Trendyol'da
+// arşivdeki mahalle ("Safa Mah"). Eki atıp Türkçe başlık harfine çeviririz →
+// iki kanal aynı anahtarda buluşur ("SAFA MAH." = "Safa Mahallesi" = "Safa").
+function titleCaseTr(s: string): string {
+  return s
+    .toLocaleLowerCase("tr-TR")
+    .replace(/(^|[\s-])(\p{L})/gu, (_m, pre: string, ch: string) => pre + ch.toLocaleUpperCase("tr-TR"));
+}
+
+// Bölge adı çıkmayan siparişlerin kovası (Bölge Dağılımı + tıklama filtresi).
+const REGION_UNKNOWN = "Belirtilmemiş";
+
+function normalizeRegion(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const s = raw
+    .replace(/\s+(mahallesi|mahalle|mah|mh)\.?\s*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return s ? titleCaseTr(s) : null;
+}
+
+// ─── Trendyol sipariş arşivi (dönem) ─────────────────────────────────────────
+// Komuta'nın sipariş listeleri ve bölge/saat analizi Trendyol'u arşivden okur:
+// içerik, mahalle, hakediş, ödeme kalıcı ve kendi siparişlerle aynı dönem
+// penceresinde. Bugünü içeren görünümde arşiv en fazla 1 dk bayat olur.
+interface TyArchiveRow {
+  orderNumber: string;
+  customerId?: number | null;
+  customerName?: string | null;
+  packageStatus?: string | null;
+  neighborhood?: string | null;
+  district?: string | null;
+  lines?: { name?: string | null; quantity?: number | null }[] | null;
+  totalPrice?: number | null;
+  netTotal?: number | null;
+  netRevenue?: number | null;
+  paymentKey?: string | null;
+  mealCardBrand?: string | null;
+  packageCreationDate?: Date | null;
+}
+
+async function tyArchiveOrders(period: DashboardPeriod, dayOffset: number): Promise<TyArchiveRow[]> {
+  await ensureTrendyolArchiveFresh(dayOffset === 0 ? { maxAgeMs: LIVE_MAX_AGE_MS } : {});
+  await connectDB();
+  const w = periodWindows(period, dayOffset);
+  return (await TrendyolOrderModel.find({
+    packageCreationDate: { $gte: new Date(w.start), $lt: new Date(w.end) },
+  })
+    .select({
+      orderNumber: 1,
+      customerId: 1,
+      customerName: 1,
+      packageStatus: 1,
+      neighborhood: 1,
+      district: 1,
+      lines: 1,
+      totalPrice: 1,
+      netTotal: 1,
+      netRevenue: 1,
+      paymentKey: 1,
+      mealCardBrand: 1,
+      packageCreationDate: 1,
+    })
+    .sort({ packageCreationDate: -1 })
+    .lean()) as unknown as TyArchiveRow[];
+}
+
+function tyRegion(d: TyArchiveRow): string | null {
+  return normalizeRegion(d.neighborhood) ?? normalizeRegion(d.district);
+}
+
+function tyIsCancelled(d: TyArchiveRow): boolean {
+  return d.packageStatus === "Cancelled" || d.packageStatus === "UnSupplied";
+}
+
+function tyPaymentLabel(d: TyArchiveRow): string {
+  const key = d.paymentKey ?? "";
+  if (key === "meal_card" && d.mealCardBrand) return `Yemek K. · ${d.mealCardBrand}`;
+  return TY_PAYMENT_LABEL[key] ?? "—";
+}
+
+// Filtre eşlemesi çubuk kategorileriyle BİREBİR aynı (ham anahtar → TY_PAYMENT_MAP).
+function mapTyArchiveOrders(orders: TyArchiveRow[], f: OrdersFilter): KomutaOrderRow[] {
   return orders
     .filter((o) => {
-      if (f.method && (TY_PAYMENT_MAP[o.paymentKey] ?? "online") !== f.method) return false;
-      if (f.productName && !o.products.includes(f.productName)) return false;
-      if (f.district && (o.district?.trim() || "") !== f.district) return false;
+      if (f.method && (TY_PAYMENT_MAP[o.paymentKey ?? "online"] ?? "online") !== f.method) return false;
+      if (f.productName && !(o.lines ?? []).some((l) => l.name === f.productName)) return false;
+      if (f.district && (tyRegion(o) ?? REGION_UNKNOWN) !== (normalizeRegion(f.district) ?? REGION_UNKNOWN))
+        return false;
       // Müşteri: Trendyol'da grup id ile süz (telefon maskeli olabilir).
-      if (f.trendyolId && (o.customerId ?? "") !== f.trendyolId) return false;
+      if (f.trendyolId && String(o.customerId ?? "") !== f.trendyolId) return false;
       // phone tek başına (trendyolId yokken) own müşteri demektir → TY hariç tut.
       if (f.phone && !f.trendyolId) return false;
       return true;
     })
-    .map((o) => ({
-      id: null,
-      orderNumber: o.orderNumber,
-      channel: "trendyol" as const,
-      customerName: o.customerName || "Trendyol müşterisi",
-      time: istHHMM(o.createdAt),
-      total: o.total,
-      net: 0,
-      paymentLabel: o.paymentMethod,
-      district: o.district?.trim() || null,
-      status: o.status,
-    }));
+    .map((o) => {
+      const ms = o.packageCreationDate ? new Date(o.packageCreationDate).getTime() : 0;
+      const { net, estimated } = archivedNet(o);
+      return {
+        id: null,
+        orderNumber: o.orderNumber,
+        channel: "trendyol" as const,
+        customerName: o.customerName || "Trendyol müşterisi",
+        time: istHHMM(ms),
+        dateLabel: istDateLabel(ms),
+        createdAt: ms,
+        total: o.totalPrice ?? 0,
+        net: tyIsCancelled(o) ? 0 : net,
+        netEstimated: estimated,
+        paymentLabel: tyPaymentLabel(o),
+        district: tyRegion(o),
+        status: o.packageStatus ?? "",
+      };
+    });
 }
 
 // Kendi (DB) kaynak filtresi (Trendyol dışı).
@@ -519,19 +621,9 @@ async function ownFilteredOrders(
     status: { $ne: "cancelled" },
     createdAt: { $gte: new Date(w.start), $lt: new Date(w.end) },
   };
-  // Bölge filtresi: district eşleşir VEYA adres mahalle adını içerir.
-  if (f.district) {
-    const distOr = [
-      { "customer.district": f.district },
-      { "customer.address": { $regex: escapeRegex(f.district), $options: "i" } },
-    ];
-    if (query.$or) {
-      query.$and = [{ $or: query.$or }, { $or: distOr }];
-      delete query.$or;
-    } else {
-      query.$or = distOr;
-    }
-  }
+  // Bölge filtresi Bölge Dağılımı ile BİREBİR aynı kuralla (ownRegionName →
+  // normalize ad, bulunamazsa "Belirtilmemiş") JS'te uygulanır; bu yüzden bölge
+  // süzülürken limit süzmeden SONRA.
   const rows = await OrderModel.find(query)
     .select({
       id: 1,
@@ -541,21 +633,26 @@ async function ownFilteredOrders(
       createdAt: 1,
       "customer.name": 1,
       "customer.district": 1,
+      "customer.address": 1,
       "payment.method": 1,
     })
     .sort({ createdAt: -1 })
-    .limit(300)
+    .limit(f.district ? 5000 : 300)
     .lean();
-  return rows.map((raw) => {
-    const o = raw as unknown as {
-      id: string;
-      orderNumber: number;
-      status: string;
-      total: number;
-      createdAt: Date | string;
-      customer?: { name?: string; district?: string };
-      payment?: { method?: PaymentKey };
-    };
+  type OwnRow = {
+    id: string;
+    orderNumber: number;
+    status: string;
+    total: number;
+    createdAt: Date | string;
+    customer?: { name?: string; district?: string; address?: string };
+    payment?: { method?: PaymentKey };
+  };
+  const wanted = f.district ? normalizeRegion(f.district) ?? REGION_UNKNOWN : null;
+  const matched = (rows as unknown as OwnRow[])
+    .filter((o) => !wanted || (ownRegionName(o) ?? REGION_UNKNOWN) === wanted)
+    .slice(0, 300);
+  return matched.map((o) => {
     const ms = o.createdAt instanceof Date ? o.createdAt.getTime() : new Date(o.createdAt).getTime();
     const method = o.payment?.method;
     return {
@@ -564,10 +661,12 @@ async function ownFilteredOrders(
       channel: "own" as const,
       customerName: o.customer?.name ?? "—",
       time: istHHMM(ms),
+      dateLabel: istDateLabel(ms),
+      createdAt: ms,
       total: o.total,
       net: 0,
       paymentLabel: method ? PAYMENT_LABELS[method] ?? "—" : "—",
-      district: (o.customer?.district ?? "").trim() || null,
+      district: ownRegionName(o),
       status: o.status,
     };
   });
@@ -596,6 +695,8 @@ export async function getKomutaPeriodOrders(
               channel: "own" as const,
               customerName: o.customerName,
               time: o.time,
+              dateLabel: istDateLabel(o.createdAt),
+              createdAt: o.createdAt,
               total: o.total,
               net: o.net,
               paymentLabel: o.paymentLabel,
@@ -603,14 +704,12 @@ export async function getKomutaPeriodOrders(
               status: o.status,
             })),
         );
-  const tyP = !wantTy
-    ? Promise.resolve([] as TrendyolPeriodOrder[])
-    : getTrendyolPeriodOrders(tyPeriod(period), refDateFor(period, dayOffset));
+  const tyP = !wantTy ? Promise.resolve([] as TyArchiveRow[]) : tyArchiveOrders(period, dayOffset);
 
   const [own, tyOrders] = await Promise.all([ownP, tyP]);
-  const ty = mapTyOrders(tyOrders, opts);
+  const ty = mapTyArchiveOrders(tyOrders, opts);
 
-  return [...own, ...ty].sort((a, b) => b.time.localeCompare(a.time));
+  return [...own, ...ty].sort((a, b) => b.createdAt - a.createdAt);
 }
 
 // ─── Operasyon: bölge dağılımı + saat bazlı yoğunluk (kanal kırılımlı) ────────
@@ -639,11 +738,10 @@ function extractNeighborhood(address: string | undefined): string | null {
   return before.length ? before.join(" ") : null;
 }
 
-// Bir siparişin bölge adı: önce district, yoksa adresten mahalle.
+// Bir siparişin bölge adı: önce district, yoksa adresten mahalle (normalize).
 function ownRegionName(o: { customer?: { district?: string; address?: string } }): string | null {
   const d = (o.customer?.district ?? "").trim();
-  if (d) return d;
-  return extractNeighborhood(o.customer?.address);
+  return normalizeRegion(d || extractNeighborhood(o.customer?.address));
 }
 
 export interface KomutaRegionRow {
@@ -651,6 +749,9 @@ export interface KomutaRegionRow {
   own: number;
   trendyol: number;
   total: number;
+  ownRevenue: number;
+  trendyolRevenue: number;
+  revenue: number;
 }
 export interface KomutaHourRow {
   hour: number;
@@ -679,21 +780,24 @@ export async function getKomutaOperations(
           status: { $ne: "cancelled" },
           createdAt: { $gte: new Date(w.start), $lt: new Date(w.end) },
         })
-          .select({ createdAt: 1, "customer.district": 1, "customer.address": 1 })
+          .select({ createdAt: 1, total: 1, "customer.district": 1, "customer.address": 1 })
           .lean();
       })()
     : Promise.resolve([] as unknown[]);
-  const tyP = wantTy
-    ? getTrendyolPeriodOrders(tyPeriod(period), refDateFor(period, dayOffset))
-    : Promise.resolve([] as TrendyolPeriodOrder[]);
+  const tyP = wantTy ? tyArchiveOrders(period, dayOffset) : Promise.resolve([] as TyArchiveRow[]);
 
   const [ownRows, tyOrders] = await Promise.all([ownP, tyP]);
 
-  const regionMap = new Map<string, { own: number; trendyol: number }>();
+  const regionMap = new Map<
+    string,
+    { own: number; trendyol: number; ownRevenue: number; trendyolRevenue: number }
+  >();
   const hourMap = new Map<number, { own: number; trendyol: number }>();
-  const bumpRegion = (name: string, ch: "own" | "trendyol") => {
-    const e = regionMap.get(name) ?? { own: 0, trendyol: 0 };
+  const bumpRegion = (name: string, ch: "own" | "trendyol", amount: number) => {
+    const e = regionMap.get(name) ?? { own: 0, trendyol: 0, ownRevenue: 0, trendyolRevenue: 0 };
     e[ch]++;
+    if (ch === "own") e.ownRevenue += amount;
+    else e.trendyolRevenue += amount;
     regionMap.set(name, e);
   };
   const bumpHour = (h: number, ch: "own" | "trendyol") => {
@@ -704,24 +808,35 @@ export async function getKomutaOperations(
 
   // Bölge adı çıkmayan (district boş + adreste mahalle yok) siparişler düşmesin;
   // toplam gerçek sayıya eşit kalsın diye "Belirtilmemiş" kovasına yazılır.
-  const UNKNOWN = "Belirtilmemiş";
+  const UNKNOWN = REGION_UNKNOWN;
   for (const raw of ownRows) {
-    const o = raw as { createdAt: Date | string; customer?: { district?: string; address?: string } };
+    const o = raw as {
+      createdAt: Date | string;
+      total?: number;
+      customer?: { district?: string; address?: string };
+    };
     const ms = o.createdAt instanceof Date ? o.createdAt.getTime() : new Date(o.createdAt).getTime();
     bumpHour(istHour(ms), "own");
-    bumpRegion(ownRegionName(o) ?? UNKNOWN, "own");
+    bumpRegion(ownRegionName(o) ?? UNKNOWN, "own", o.total ?? 0);
   }
   for (const o of tyOrders) {
-    if (o.status.toLowerCase().includes("cancel")) continue;
-    bumpHour(istHour(o.createdAt), "trendyol");
-    const d = (o.district ?? "").trim();
-    bumpRegion(d || UNKNOWN, "trendyol");
+    if (tyIsCancelled(o) || !o.packageCreationDate) continue;
+    bumpHour(istHour(new Date(o.packageCreationDate).getTime()), "trendyol");
+    bumpRegion(tyRegion(o) ?? UNKNOWN, "trendyol", o.totalPrice ?? 0);
   }
 
   const regions = [...regionMap.entries()]
-    .map(([name, v]) => ({ name, own: v.own, trendyol: v.trendyol, total: v.own + v.trendyol }))
+    .map(([name, v]) => ({
+      name,
+      own: v.own,
+      trendyol: v.trendyol,
+      total: v.own + v.trendyol,
+      ownRevenue: v.ownRevenue,
+      trendyolRevenue: v.trendyolRevenue,
+      revenue: v.ownRevenue + v.trendyolRevenue,
+    }))
     .sort((a, b) => b.total - a.total)
-    .slice(0, 12);
+    .slice(0, 30);
 
   const hours = [...hourMap.keys()];
   const minH = hours.length ? Math.min(...hours) : 10;

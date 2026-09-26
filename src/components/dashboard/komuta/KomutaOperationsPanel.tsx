@@ -9,6 +9,7 @@ import {
 } from "@/actions/komutaOverview";
 import { type DashboardPeriod } from "@/lib/dashboardPeriods";
 import { type OrderSource } from "@/types";
+import { formatCurrencyShort } from "@/lib/utils";
 import { KomutaRankList, type KomutaRankItem } from "./KomutaRankList";
 import { KomutaHeatmap } from "./KomutaHeatmap";
 
@@ -53,7 +54,7 @@ export function KomutaOperationsPanel({
   const regionItems: KomutaRankItem[] = regions.map((r) => ({
     id: r.name,
     label: r.name,
-    primary: `${r.total} sip · Kendi ${r.own} / TY ${r.trendyol}`,
+    primary: `${r.total} sip · ${formatCurrencyShort(r.revenue)} · Kendi ${r.own} / TY ${r.trendyol}`,
     ownShare: (r.own / maxRegion) * 100,
     tyShare: (r.trendyol / maxRegion) * 100,
   }));
@@ -61,7 +62,7 @@ export function KomutaOperationsPanel({
   return (
     <div className="flex flex-col gap-4">
       <KomutaRankList
-        title="Bölge Dağılımı"
+        title="Bölge Dağılımı (mahalle)"
         items={regionItems}
         isLoading={ops === null}
         emptyText="Bu dönemde bölge verisi yok (siparişlerde mahalle/bölge kayıtlı değil)."
