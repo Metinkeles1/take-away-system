@@ -6,6 +6,7 @@
 import { connectDB } from "@/lib/mongodb";
 import OrderModel from "@/models/Order";
 import CustomerModel from "@/models/Customer";
+import TrendyolCourierDeliveryModel from "@/models/TrendyolCourierDelivery";
 import { type OrderSource } from "@/types";
 import {
   periodWindows,
@@ -17,7 +18,8 @@ import { SLA_WARN_MIN } from "@/lib/operations";
 
 export interface CourierStat {
   name: string;
-  deliveries: number; // taşıdığı paket adedi (iptal hariç)
+  deliveries: number; // taşıdığı paket adedi (iptal hariç, Trendyol dahil)
+  trendyolDeliveries: number; // bunun Trendyol paketi olan kısmı
   avgMin: number | null; // teslim edilenlerin ort. süresi
   amount: number; // taşıdığı tutar
   openAmount: number; // bunun tahsil edilmemiş kısmı
@@ -88,7 +90,10 @@ export async function getDashboardInsights(
   const now = Date.now();
   const filter = sourceFilter(source);
 
-  const [curOrders, prevOrders, totalCustomers, newInPeriod, repeatCount, atRisk, lost] =
+  // Kuryenin attığı Trendyol paketleri Order'da yok → ayrı teslim kaydından gelir.
+  const wantTy = source === "all" || source === "trendyol";
+
+  const [curOrders, prevOrders, totalCustomers, newInPeriod, repeatCount, atRisk, lost, tyDeliveries] =
     await Promise.all([
       OrderModel.find({
         ...filter,
@@ -121,12 +126,26 @@ export async function getDashboardInsights(
         updatedAt: { $lt: new Date(now - THIRTY_D), $gte: new Date(now - NINETY_D) },
       }),
       CustomerModel.countDocuments({ updatedAt: { $lt: new Date(now - NINETY_D) } }),
+      wantTy
+        ? TrendyolCourierDeliveryModel.find({
+            orderCreatedAt: { $gte: new Date(w.start), $lt: new Date(w.end) },
+          })
+            .select({ courier: 1, total: 1, deliveryDurationMin: 1 })
+            .lean()
+        : Promise.resolve([]),
     ]);
 
   // ─── Tek geçiş: kurye, SLA, iptal, ısı haritası, top müşteri ──
   const courierMap = new Map<
     string,
-    { deliveries: number; minSum: number; deliveredCount: number; amount: number; openAmount: number }
+    {
+      deliveries: number;
+      trendyolDeliveries: number;
+      minSum: number;
+      deliveredCount: number;
+      amount: number;
+      openAmount: number;
+    }
   >();
   const custMap = new Map<string, { name: string; orderCount: number; revenue: number }>();
   const heatmap: number[][] = Array.from({ length: 7 }, () => new Array(24).fill(0));
@@ -162,6 +181,7 @@ export async function getDashboardInsights(
     if (o.courier) {
       const c = courierMap.get(o.courier) ?? {
         deliveries: 0,
+        trendyolDeliveries: 0,
         minSum: 0,
         deliveredCount: 0,
         amount: 0,
@@ -210,10 +230,31 @@ export async function getDashboardInsights(
     if (v > heatmapMax) heatmapMax = v;
   }
 
+  // Trendyol teslimleri: yalnız kurye tablosuna eklenir (SLA/iptal kendi siparişlerden).
+  for (const d of tyDeliveries as { courier: string; total?: number; deliveryDurationMin?: number }[]) {
+    const c = courierMap.get(d.courier) ?? {
+      deliveries: 0,
+      trendyolDeliveries: 0,
+      minSum: 0,
+      deliveredCount: 0,
+      amount: 0,
+      openAmount: 0,
+    };
+    c.deliveries++;
+    c.trendyolDeliveries++;
+    c.amount += d.total ?? 0;
+    if ((d.deliveryDurationMin ?? 0) > 0) {
+      c.minSum += d.deliveryDurationMin!;
+      c.deliveredCount++;
+    }
+    courierMap.set(d.courier, c);
+  }
+
   const couriers: CourierStat[] = [...courierMap.entries()]
     .map(([name, c]) => ({
       name,
       deliveries: c.deliveries,
+      trendyolDeliveries: c.trendyolDeliveries,
       avgMin: c.deliveredCount > 0 ? Math.round(c.minSum / c.deliveredCount) : null,
       amount: c.amount,
       openAmount: c.openAmount,

@@ -715,7 +715,10 @@ export default function KuryePage() {
     // Başarılıysa listeden düşer ve (kendi siparişlerdeki gibi) WhatsApp açılır.
     if (o.source === "trendyol") {
       try {
-        const res = await deliverTrendyolCourierPackage(o.externalRef ?? "");
+        const res = await deliverTrendyolCourierPackage(
+          o.externalRef ?? "",
+          courier ?? undefined,
+        );
         if (!res.ok) throw new Error(res.error || "Trendyol teslim güncellenemedi");
         setTrendyolOrders((prev) => prev.filter((x) => x.id !== o.id));
         setConfirming(false);

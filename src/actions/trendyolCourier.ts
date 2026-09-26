@@ -9,6 +9,7 @@ import {
 import { mapTrendyolPackageToOrder } from "@/lib/integrations/trendyol/courierMap";
 import { connectDB } from "@/lib/mongodb";
 import TrendyolCourierPackageModel from "@/models/TrendyolCourierPackage";
+import TrendyolCourierDeliveryModel from "@/models/TrendyolCourierDelivery";
 import { notifyOrdersChanged } from "@/lib/pusher/server";
 import type { Order } from "@/types";
 
@@ -115,8 +116,11 @@ export async function syncTrendyolCourierPackages(): Promise<{
 // Trendyol siparişini teslim işaretler (manual-delivered). Kurye kartındaki
 // "Teslim" bu siparişler için DB yerine bunu çağırır. packageId = order.externalRef.
 // Başarılıysa paylaşımlı depodan da siler + Pusher ile diğer kuryelerden düşürür.
+// courier: cihazda seçili kurye (tek-kurye modunda paket üstlenilmediği için
+// teslim edeni ancak burada öğreniriz); yoksa depodaki üstlenen kurye kullanılır.
 export async function deliverTrendyolCourierPackage(
   packageId: string,
+  courier?: string,
 ): Promise<{ ok: boolean; error?: string }> {
   try {
     const res = await deliverTrendyolPackage(packageId);
@@ -127,6 +131,28 @@ export async function deliverTrendyolCourierPackage(
     // hatası teslimi geçersiz kılmaz (asıl gerçek Trendyol'da işlendi).
     try {
       await connectDB();
+      const doc = await TrendyolCourierPackageModel.findOne({ packageId }).lean();
+      const name = courier?.trim() || doc?.courier?.trim();
+      // Kurye performansı için kalıcı teslim kaydı (depo silinince kaybolmasın).
+      if (name) {
+        const order = (doc?.order ?? {}) as Partial<Order>;
+        const created = order.createdAt ? new Date(order.createdAt) : new Date();
+        const now = new Date();
+        const dur = Math.round((now.getTime() - created.getTime()) / 60000);
+        await TrendyolCourierDeliveryModel.updateOne(
+          { packageId },
+          {
+            $set: {
+              courier: name,
+              total: order.total ?? 0,
+              orderCreatedAt: created,
+              deliveredAt: now,
+              deliveryDurationMin: dur > 0 ? dur : undefined,
+            },
+          },
+          { upsert: true },
+        );
+      }
       await TrendyolCourierPackageModel.deleteOne({ packageId });
       await notifyOrdersChanged("trendyol-courier-delivered");
     } catch (cleanupErr) {

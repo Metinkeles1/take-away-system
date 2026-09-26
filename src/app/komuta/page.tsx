@@ -369,7 +369,7 @@ export default function KomutaPage() {
     id: c.name,
     label: c.name,
     primary: `${c.deliveries} teslimat`,
-    secondary: `${c.avgMin != null ? `${c.avgMin} dk · ` : ""}${formatCurrencyShort(c.amount)}`,
+    secondary: `${c.trendyolDeliveries > 0 ? `Kendi ${c.deliveries - c.trendyolDeliveries} · TY ${c.trendyolDeliveries} · ` : ""}${c.avgMin != null ? `${c.avgMin} dk · ` : ""}${formatCurrencyShort(c.amount)}`,
     share: (c.deliveries / maxCourier) * 100,
     color: "bg-blue-500",
   }));
