@@ -17,8 +17,10 @@ const ItemSchema = new Schema(
     name: String, // rehbere yazılan isim
     phone: String, // E.164
     // created: yeni kişi · updated: bizim kayıt yeniden yazıldı ·
-    // completed: kişisel kayıtta boş alanlar dolduruldu
+    // completed: (eski sürüm) kişisel kayıtta yalnız boş alanlar dolduruldu
     action: { type: String, enum: ["created", "updated", "completed"] },
+    // updated: üzerine yazılan eski rehber ismi — elle yazılmış isim kaybolmasın
+    previousName: String,
     fields: { type: [String], default: undefined }, // completed: hangi alanlar
   },
   { _id: false },

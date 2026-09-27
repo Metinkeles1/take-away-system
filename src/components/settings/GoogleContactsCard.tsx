@@ -36,8 +36,8 @@ function describeStats(r: {
   duplicates?: number;
 }): string {
   const parts = [`${r.created} eklendi`, `${r.updated ?? 0} düzeltildi`];
-  if (r.completed) parts.push(`${r.completed} kişinin eksik adres/notu tamamlandı`);
-  if (r.skipped) parts.push(`${r.skipped} kişi zaten tamamdı`);
+  if (r.completed) parts.push(`${r.completed} tamamlandı`);
+  if (r.skipped) parts.push(`${r.skipped} zaten günceldi`);
   if (r.duplicates) parts.push(`${r.duplicates} çift kayıt var`);
   return parts.join(", ");
 }
@@ -113,7 +113,7 @@ export function GoogleContactsCard() {
     try {
       const res = await syncCustomersToGoogleContacts(mode);
       if (res.ok) {
-        if (res.created === 0 && res.updated === 0 && res.completed === 0) {
+        if (res.created === 0 && res.updated === 0) {
           toast.info("Rehber güncel", { description: describeStats(res) });
         } else {
           toast.success("Rehber güncellendi", { description: describeStats(res) });
@@ -213,12 +213,12 @@ export function GoogleContactsCard() {
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
-                &quot;Rehberi Düzelt&quot; tüm müşterileri tarar: rehberde
-                olmayanı ekler; &quot;Paket Servis&quot; ya da CSV
-                &quot;içe aktarıldı&quot; etiketli eski kayıtların ismini,
-                adresini ve notunu güncel bilgiyle düzeltir. Elle eklediğiniz
-                kişilerde yalnız boş alanlar (adres, not) doldurulur; yazdığınız
-                isim ve bilgiler asla değiştirilmez.
+                Rehberdeki müşteriler her zaman sistemdeki haliyle görünür
+                (&quot;Birsel Sk 23/3 - Ahmet&quot;). &quot;Rehberi Düzelt&quot;
+                tüm müşterileri tarar: rehberde olmayanı ekler, farklı olanı
+                sistemdeki isim, adres ve notla yeniden yazar — elle eklenmiş
+                olsa bile. Müşteri olmayan numaralara dokunulmaz; değişen eski
+                isimler Gönderim Geçmişi&apos;nde durur.
               </p>
               <div className="flex flex-wrap gap-2">
                 <Button

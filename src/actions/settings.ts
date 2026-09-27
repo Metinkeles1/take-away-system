@@ -295,6 +295,7 @@ export interface ContactSyncLogItem {
   phone: string;
   action: "created" | "updated" | "completed";
   fields?: string[];
+  previousName?: string;
 }
 
 // Son gönderimler (kişi listesi olmadan — bir Düzelt turunda 1000+ satır olabilir).

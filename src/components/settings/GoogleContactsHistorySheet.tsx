@@ -74,6 +74,11 @@ function ItemRow({ item, showDate }: { item: ContactSyncLogItem; showDate?: bool
     <li className="flex items-start gap-2 py-2">
       <div className="min-w-0 flex-1">
         <p className="truncate font-medium">{item.name}</p>
+        {item.previousName && (
+          <p className="truncate text-xs text-muted-foreground line-through">
+            {item.previousName}
+          </p>
+        )}
         <p className="text-xs text-muted-foreground">
           {showPhone(item.phone)}
           {item.fields?.length
@@ -152,8 +157,10 @@ function RunRow({ run }: { run: ContactSyncRun }) {
           ) : (
             <>
               <ul className="divide-y">
-                {items.slice(0, shown).map((it) => (
-                  <ItemRow key={`${it.phone}-${it.action}`} item={it} />
+                {/* Aynı numaralı kopyaların hepsi güncellenir → numara+işlem
+                    tek başına benzersiz değil, sıra da anahtara girer. */}
+                {items.slice(0, shown).map((it, i) => (
+                  <ItemRow key={`${i}-${it.phone}-${it.action}`} item={it} />
                 ))}
               </ul>
               {items.length > shown && (

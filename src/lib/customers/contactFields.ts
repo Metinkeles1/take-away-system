@@ -27,16 +27,22 @@ function isPhoneLikeName(name: string): boolean {
 
 const oneLine = (v: string) => v.replace(/[\r\n]+/g, " ").trim();
 
-// Rehberdeki isim: gerçek ad; ad numaraysa/boşsa adres + bina/daire ("Birsel
-// sokak 23 e 3" — yalnız sokak yazılırsa aynı sokaktaki müşteriler rehberde
-// aynı isimle görünür); o da yoksa "Müşteri 1234".
+// Rehberdeki isim — arayan müşteride telefon ekranında görünen tek bilgi, o
+// yüzden ADRES ÖNDE: "Birsel Sk 23 e 3 - Ahmet". Gerçek ad yoksa (boş ya da
+// numara) yalnız adres + bina/daire; adres de yoksa ad ya da "Müşteri 1234".
 export function buildFirstName(c: SavedCustomer): string {
-  const name = oneLine(c.name ?? "");
-  if (name && !isPhoneLikeName(name)) return name;
-  if (c.address && c.address.trim()) {
+  const rawName = oneLine(c.name ?? "");
+  const name = rawName && !isPhoneLikeName(rawName) ? rawName : "";
+  const street = oneLine(c.address ?? "");
+  if (street) {
     const detail = c.addressDetail?.trim() ? oneLine(c.addressDetail) : "";
-    return detail ? `${oneLine(c.address)} ${detail}` : oneLine(c.address);
+    const addr = detail ? `${street} ${detail}` : street;
+    // Ad alanına adres yazılmışsa tekrar eklenmez.
+    const sameAsAddr =
+      !name || addr.toLocaleLowerCase("tr").includes(name.toLocaleLowerCase("tr"));
+    return sameAsAddr ? addr : `${addr} - ${name}`;
   }
+  if (name) return name;
   const phoneDigits = c.phone.replace(/\D/g, "");
   return phoneDigits ? `Müşteri ${phoneDigits.slice(-4)}` : "Müşteri";
 }

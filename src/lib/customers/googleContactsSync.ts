@@ -58,15 +58,15 @@ function toContacts(docs: Record<string, unknown>[]): ContactData[] {
   return out;
 }
 
-// Müşterileri Google Kişiler'e yazar (bkz. syncGoogleContacts): rehberde
-// olmayan eklenir, bizim etiketli eski kayıtlar güncel bilgiyle düzeltilir,
-// elle eklenmiş kişisel kişilere dokunulmaz.
+// Müşterileri Google Kişiler'e yazar (bkz. syncGoogleContacts): sistem tek
+// doğru kaynak — rehberde olmayan eklenir, olan sistemdeki bilgiyle yeniden
+// yazılır; müşteri olmayan numaralara dokunulmaz.
 //
 // mode "new": yalnız rehbere hiç aktarılmamış müşteriler (contactExportedAt
 //   boş). Yeni müşteri kaydında ve gece cron'unda otomatik çalışan budur.
 //   Eşzamanlı iki senkron aynı kişiyi iki kez göndermesin diye her müşteri
 //   önce atomik olarak "sahiplenilir"; hata olursa işaret geri alınır.
-// mode "all": tüm müşteriler — eksikleri ekler, eski/bozuk kayıtları düzeltir.
+// mode "all": tüm müşteriler — eksikleri ekler, farklı/bozuk kayıtları düzeltir.
 export type SyncTrigger = "new-customer" | "cron" | "manual-new" | "manual-all";
 
 export async function syncNewCustomersToGoogleContacts(
@@ -105,7 +105,7 @@ export async function syncNewCustomersToGoogleContacts(
     }
   }
   if (docs.length === 0) {
-    return { ok: true, created: 0, updated: 0, completed: 0, skipped: 0, duplicates: 0 };
+    return { ok: true, created: 0, updated: 0, skipped: 0, duplicates: 0 };
   }
 
   // Gönderim geçmişindeki satırı müşteri kaydına bağlamak için.
@@ -154,7 +154,7 @@ export async function syncNewCustomersToGoogleContacts(
       );
     }
     await patchGoogleContactsSetting({
-      lastSync: { at: claimedAt, created: 0, updated: 0, completed: 0, skipped: 0, duplicates: 0, error },
+      lastSync: { at: claimedAt, created: 0, updated: 0, skipped: 0, duplicates: 0, error },
     }).catch(() => {});
     await writeLog({
       at: claimedAt,

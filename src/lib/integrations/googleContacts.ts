@@ -200,42 +200,21 @@ async function api<T>(
   return (await res.json()) as T;
 }
 
-// CSV içe aktarımının otomatik açtığı etiketler ("2/4 tarihinde içe aktarıldı",
-// "Imported on 4/2"). Bu projede rehbere CSV ile yalnız müşteri aktarıldığı
-// için bu etiketlerdeki kişiler de bizim kayıtlarımız sayılır.
-const IMPORT_LABEL = /içe aktarıldı|imported on/i;
-
-// "Paket Servis" etiketi (yoksa oluşturur) + "bizim" sayılan CSV içe aktarım
-// etiketleri. "Paket Servis" üyeliği tek başına "bizim kayıt" DEMEK DEĞİL:
-// kişisel kayıtlar da müşteri oldukları için bu etikete toplanıyor.
-async function ensureContactGroups(
-  token: string,
-): Promise<{ main: string; ours: Set<string> }> {
+// "Paket Servis" etiketinin resourceName'i; yoksa oluşturur. Etiket yalnız
+// müşterileri rehberde tek yerde toplamak için — kurallar etikete bakmaz.
+async function ensureContactGroup(token: string): Promise<string> {
   const list = await api<{
-    contactGroups?: {
-      resourceName: string;
-      name: string;
-      formattedName?: string;
-      groupType: string;
-    }[];
+    contactGroups?: { resourceName: string; name: string; groupType: string }[];
   }>(token, "/contactGroups?pageSize=1000");
-  const userGroups = (list.contactGroups ?? []).filter(
-    (g) => g.groupType === "USER_CONTACT_GROUP",
+  const found = list.contactGroups?.find(
+    (g) => g.groupType === "USER_CONTACT_GROUP" && g.name === CONTACT_GROUP_NAME,
   );
-  const ours = new Set(
-    userGroups
-      .filter((g) => IMPORT_LABEL.test(g.name) || IMPORT_LABEL.test(g.formattedName ?? ""))
-      .map((g) => g.resourceName),
-  );
-  let main = userGroups.find((g) => g.name === CONTACT_GROUP_NAME)?.resourceName;
-  if (!main) {
-    const created = await api<{ resourceName: string }>(token, "/contactGroups", {
-      method: "POST",
-      body: { contactGroup: { name: CONTACT_GROUP_NAME } },
-    });
-    main = created.resourceName;
-  }
-  return { main, ours };
+  if (found) return found.resourceName;
+  const created = await api<{ resourceName: string }>(token, "/contactGroups", {
+    method: "POST",
+    body: { contactGroup: { name: CONTACT_GROUP_NAME } },
+  });
+  return created.resourceName;
 }
 
 interface GooglePerson {
@@ -246,10 +225,9 @@ interface GooglePerson {
   biographies?: { value?: string }[];
   addresses?: { streetAddress?: string; extendedAddress?: string }[];
   memberships?: { contactGroupMembership?: { contactGroupResourceName?: string } }[];
-  clientData?: { key?: string; value?: string }[];
 }
 
-// Rehberdeki tüm kişiler (elle eklenmiş, CSV ile aktarılmış, bizim eklediğimiz).
+// Rehberdeki tüm kişiler.
 async function listAllContacts(token: string): Promise<GooglePerson[]> {
   const out: GooglePerson[] = [];
   let pageToken: string | undefined;
@@ -257,7 +235,7 @@ async function listAllContacts(token: string): Promise<GooglePerson[]> {
     const page = await api<{ connections?: GooglePerson[]; nextPageToken?: string }>(
       token,
       "/people/me/connections?pageSize=1000" +
-        "&personFields=names,phoneNumbers,biographies,addresses,memberships,clientData" +
+        "&personFields=names,phoneNumbers,biographies,addresses,memberships" +
         (pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ""),
     );
     out.push(...(page.connections ?? []));
@@ -266,23 +244,9 @@ async function listAllContacts(token: string): Promise<GooglePerson[]> {
   return out;
 }
 
-// Bu uygulamanın oluşturduğu/yönettiği kişiye konan gizli işaret (clientData:
-// yalnız bu OAuth uygulaması görür, rehberde görünmez). İşaretli kişi her
-// Düzelt'te tamamen yeniden yazılır; işaretsiz (kişisel) kişide yalnız boş
-// alanlar doldurulur — elle yazılmış isimler asla ezilmez.
-const OWNER_KEY = "takeaway-system";
-const OWNER_MARK = [{ key: OWNER_KEY, value: "1" }];
-
-function isOwned(p: GooglePerson): boolean {
-  return (p.clientData ?? []).some((d) => d.key === OWNER_KEY);
-}
-
-type Field = "names" | "biographies" | "addresses";
-const ALL_FIELDS: Field[] = ["names", "biographies", "addresses"];
-
 // Kişinin Google'a gidecek alanları (oluşturma ve güncellemede aynı).
-function personFields(c: ContactData, only: Field[] = ALL_FIELDS) {
-  const all = {
+function personFields(c: ContactData) {
+  return {
     names: [{ givenName: c.name }],
     biographies: c.notes ? [{ value: c.notes, contentType: "TEXT_PLAIN" }] : [],
     addresses: c.addresses.map((a, i) => ({
@@ -293,31 +257,14 @@ function personFields(c: ContactData, only: Field[] = ALL_FIELDS) {
       country: "Türkiye",
     })),
   };
-  return Object.fromEntries(only.map((f) => [f, all[f]]));
 }
 
-// İsimde hiç harf yoksa (numara, "??????????" gibi bozuk karakter) isim sayılmaz.
 function displayName(p: GooglePerson): string {
   const n = p.names?.[0];
   return [n?.givenName, n?.middleName, n?.familyName].filter(Boolean).join(" ");
 }
 
-function hasRealName(p: GooglePerson): boolean {
-  const full = displayName(p);
-  return /\p{L}/u.test(full);
-}
-
-// Kişisel (etiketsiz) kayıtta YALNIZ boş olan alanlar — var olan asla ezilmez.
-// Elle yazılmış "Seçkin Abi Kırgülü Sk 10/3" gibi isimler olduğu gibi kalır.
-function missingFields(p: GooglePerson, c: ContactData): Field[] {
-  const out: Field[] = [];
-  if (!hasRealName(p)) out.push("names");
-  if (c.notes && !p.biographies?.some((b) => b.value?.trim())) out.push("biographies");
-  if (c.addresses.length && !p.addresses?.length) out.push("addresses");
-  return out;
-}
-
-// Google'daki kişi zaten istediğimiz halde mi — gereksiz yazım yapılmasın.
+// Google'daki kişi zaten sistemdeki halde mi — gereksiz yazım yapılmasın.
 function isUpToDate(p: GooglePerson, c: ContactData): boolean {
   const n = p.names?.[0];
   const nameOk =
@@ -332,31 +279,30 @@ function isUpToDate(p: GooglePerson, c: ContactData): boolean {
 
 export interface SyncStats {
   created: number; // rehberde yoktu, eklendi
-  updated: number; // bizim etiketli kayıttı, güncel bilgiyle yeniden yazıldı
-  completed: number; // kişisel kayıttı, yalnız eksik alanları (adres/not/isim) dolduruldu
-  skipped: number; // kişisel kayıttı ve eksiği yoktu → dokunulmadı
-  duplicates: number; // aynı numaralı ikinci/üçüncü "Paket Servis" kişisi
+  updated: number; // rehberdeydi, sistemdeki bilgiyle yeniden yazıldı
+  skipped: number; // rehberdeydi ve zaten sistemdeki haldeydi
+  duplicates: number; // aynı numaralı fazladan kopya (hepsi aynı bilgiyle yazılır)
 }
 
 // Değişen her kişi — gönderim geçmişine (ContactSyncLog) yazılır.
 export interface SyncItem {
   phone: string;
   name: string;
-  action: "created" | "updated" | "completed";
-  fields?: Field[];
+  action: "created" | "updated";
+  // updated: üzerine yazılan eski isim (elle yazılmış isim kaybolmasın)
+  previousName?: string;
 }
 
-// Rehberi müşteri listesine göre düzenler:
-//  - Numarası rehberde olmayan → yeni kişi (Paket Servis etiketiyle).
-//  - Numarası bizim kişide (uygulamanın işaretli kişisi ya da CSV "içe aktarıldı"
-//    etiketli) olan → o kişi güncel isim /
-//    adres / notla DÜZELTİLİR (eski CSV aktarımlarındaki numara-isimli, adressiz
-//    kayıtlar böyle toparlanır). Aynı numaralı birden fazla kopya varsa yalnız
-//    ilki düzeltilir; kopyalar Google'ın "Birleştir ve düzelt"iyle birleşir.
-//  - Numarası etiketsiz (elle eklenmiş, kişisel) bir kişide olan → yalnız BOŞ
-//    alanları doldurulur (adres yoksa adres, not yoksa not, isim numaraysa isim);
-//    dolu alan asla ezilmez.
-//  - Eşleşen her kişi "Paket Servis" etiketine alınır → müşteriler tek yerde.
+// Rehberi müşteri listesine göre düzenler. SİSTEM TEK DOĞRU KAYNAK:
+//  - Numarası rehberde olmayan müşteri → yeni kişi.
+//  - Numarası rehberde olan müşteri → kişi kim eklemiş olursa olsun (uygulama,
+//    CSV ya da elle) isim / adres / not sistemdeki haliyle yeniden yazılır;
+//    telefonda her müşteri aynı biçimde görünür ("Birsel Sk 23/3 - Ahmet").
+//    Aynı numaralı kopyaların hepsi aynı bilgiyle yazılır → Google'ın
+//    "Birleştir ve düzelt"i tek tıkla birleştirir.
+//  - Müşteri OLMAYAN numaralara (aile, tedarikçi…) dokunulmaz.
+//  - Üzerine yazılan eski isim gönderim geçmişine düşer (previousName).
+//  - Eşleşen her kişi "Paket Servis" etiketine alınır.
 // Google aynı kullanıcı için eşzamanlı yazımları sevmediğinden partiler sırayla.
 export async function syncGoogleContacts(
   s: GoogleContactsSetting,
@@ -364,71 +310,44 @@ export async function syncGoogleContacts(
   normalize: (p: string) => string,
 ): Promise<SyncStats & { items: SyncItem[] }> {
   const items: SyncItem[] = [];
-  const stats: SyncStats = {
-    created: 0,
-    updated: 0,
-    completed: 0,
-    skipped: 0,
-    duplicates: 0,
-  };
+  const stats: SyncStats = { created: 0, updated: 0, skipped: 0, duplicates: 0 };
   if (contacts.length === 0) return { ...stats, items };
   const token = await getAccessToken(s);
-  const { main: group, ours: ourGroups } = await ensureContactGroups(token);
+  const group = await ensureContactGroup(token);
   const existing = await listAllContacts(token);
 
-  // numara → { bizim etiketli kişiler, etiketsiz (kişisel) kişiler }
-  const byPhone = new Map<string, { ours: GooglePerson[]; foreign: GooglePerson[] }>();
+  const byPhone = new Map<string, GooglePerson[]>();
   for (const p of existing) {
-    const inGroup =
-      isOwned(p) ||
-      (p.memberships ?? []).some((m) =>
-        ourGroups.has(m.contactGroupMembership?.contactGroupResourceName ?? ""),
-      );
     const phones = new Set(
       (p.phoneNumbers ?? [])
         .map((n) => n.canonicalForm || normalize(n.value ?? ""))
         .filter(Boolean),
     );
-    for (const ph of phones) {
-      const e = byPhone.get(ph) ?? { ours: [], foreign: [] };
-      (inGroup ? e.ours : e.foreign).push(p);
-      byPhone.set(ph, e);
-    }
+    for (const ph of phones) byPhone.set(ph, [...(byPhone.get(ph) ?? []), p]);
   }
 
   const toCreate: ContactData[] = [];
-  const toUpdate: {
-    person: GooglePerson;
-    data: ContactData;
-    fields: Field[];
-    kind: "updated" | "completed";
-  }[] = [];
-  const touched = new Set<string>(); // aynı kişi iki müşteriyle güncellenmesin
+  const toUpdate: { person: GooglePerson; data: ContactData }[] = [];
+  const touched = new Set<string>(); // bir kişi iki müşteriyle yazılmasın
   for (const c of contacts) {
-    const e = byPhone.get(c.phone);
-    if (!e) {
+    const all = byPhone.get(c.phone);
+    if (!all) {
       toCreate.push(c);
       continue;
     }
-    const ours = e.ours.find((p) => !touched.has(p.resourceName));
-    if (ours) {
-      touched.add(ours.resourceName);
-      stats.duplicates += e.ours.length - 1;
-      if (!isUpToDate(ours, c)) {
-        toUpdate.push({ person: ours, data: c, fields: ALL_FIELDS, kind: "updated" });
-      }
-      continue;
+    const matches = all.filter((p) => !touched.has(p.resourceName));
+    stats.duplicates += Math.max(matches.length - 1, 0);
+    for (const p of matches) {
+      touched.add(p.resourceName);
+      if (isUpToDate(p, c)) stats.skipped++;
+      else toUpdate.push({ person: p, data: c });
     }
-    const personal = e.foreign.find((p) => !touched.has(p.resourceName));
-    if (!personal) continue;
-    touched.add(personal.resourceName);
-    const fields = missingFields(personal, c);
-    if (fields.length) toUpdate.push({ person: personal, data: c, fields, kind: "completed" });
-    else stats.skipped++;
   }
 
+  let wrote = false;
   for (let i = 0; i < toCreate.length; i += BATCH_SIZE) {
-    if (i > 0) await pause(1000);
+    if (wrote) await pause(1000);
+    wrote = true;
     const batch = toCreate.slice(i, i + BATCH_SIZE);
     await api(token, "/people:batchCreateContacts", {
       method: "POST",
@@ -438,7 +357,6 @@ export async function syncGoogleContacts(
           contactPerson: {
             ...personFields(c),
             phoneNumbers: [{ value: c.phone, type: "mobile" }],
-            clientData: OWNER_MARK,
             // myContacts açıkça verilmezse kişi "Diğer kişiler"e düşebiliyor.
             memberships: [
               { contactGroupMembership: { contactGroupResourceName: "contactGroups/myContacts" } },
@@ -452,53 +370,36 @@ export async function syncGoogleContacts(
     for (const c of batch) items.push({ phone: c.phone, name: c.name, action: "created" });
   }
 
-  // Tek batchUpdate çağrısındaki kişiler aynı updateMask'i paylaşmalı →
-  // güncellenecek alan kümesine göre gruplanır.
-  const byMask = new Map<string, typeof toUpdate>();
-  for (const u of toUpdate) {
-    // Bizim kayıt yeniden yazılırken işaret de konur (CSV'den gelen eski
-    // kayıtlar böylece bir sonraki turda etiket silinse de "bizim" kalır).
-    const key = u.kind === "updated" ? [...u.fields, "clientData"].join(",") : u.fields.join(",");
-    byMask.set(key, [...(byMask.get(key) ?? []), u]);
-  }
-  let wrote = toCreate.length > 0;
-  for (const [mask, pending] of byMask) {
-    for (let i = 0; i < pending.length; i += BATCH_SIZE) {
-      if (wrote) await pause(1000);
-      wrote = true;
-      const batch = pending.slice(i, i + BATCH_SIZE);
-      await api(token, "/people:batchUpdateContacts", {
-        method: "POST",
-        body: {
-          updateMask: mask,
-          readMask: "names",
-          contacts: Object.fromEntries(
-            batch.map(({ person, data, fields }) => [
-              person.resourceName,
-              {
-                etag: person.etag,
-                ...personFields(data, fields),
-                ...(mask.includes("clientData") ? { clientData: OWNER_MARK } : {}),
-              },
-            ]),
-          ),
-        },
+  for (let i = 0; i < toUpdate.length; i += BATCH_SIZE) {
+    if (wrote) await pause(1000);
+    wrote = true;
+    const batch = toUpdate.slice(i, i + BATCH_SIZE);
+    await api(token, "/people:batchUpdateContacts", {
+      method: "POST",
+      body: {
+        updateMask: "names,biographies,addresses",
+        readMask: "names",
+        contacts: Object.fromEntries(
+          batch.map(({ person, data }) => [
+            person.resourceName,
+            { etag: person.etag, ...personFields(data) },
+          ]),
+        ),
+      },
+    });
+    stats.updated += batch.length;
+    for (const { person, data } of batch) {
+      const previousName = displayName(person);
+      items.push({
+        phone: data.phone,
+        name: data.name,
+        action: "updated",
+        ...(previousName && previousName !== data.name ? { previousName } : {}),
       });
-      for (const u of batch) {
-        stats[u.kind]++;
-        items.push({
-          phone: u.data.phone,
-          // Kişisel kayıtta isim değişmediyse rehberdeki mevcut isim gösterilir.
-          name: u.fields.includes("names") ? u.data.name : displayName(u.person) || u.data.name,
-          action: u.kind,
-          ...(u.kind === "completed" ? { fields: u.fields } : {}),
-        });
-      }
     }
   }
 
-  // Eski "içe aktarıldı" etiketinden eşleşenler de "Paket Servis"e alınsın —
-  // tüm müşteriler rehberde tek etikette toplanır.
+  // Eşleşen kişiler de "Paket Servis"e alınsın — müşteriler rehberde tek yerde.
   const outsideMain = existing
     .filter((p) => touched.has(p.resourceName))
     .filter(
@@ -525,7 +426,7 @@ export async function syncGoogleContacts(
     } catch (err) {
       try {
         await pause(2000);
-        await addToGroup((await ensureContactGroups(token)).main);
+        await addToGroup(await ensureContactGroup(token));
       } catch {
         console.warn("[googleContacts] Paket Servis etiketine eklenemedi:", err);
       }
