@@ -16,6 +16,7 @@ import {
   recordTrendyolShipped,
   upsertTrendyolPackages,
 } from "@/lib/trendyol/archive";
+import { after } from "next/server";
 import { notifyOrdersChanged } from "@/lib/pusher/server";
 import type { Order } from "@/types";
 
@@ -215,10 +216,13 @@ export async function claimTrendyolPackage(
       };
     }
 
-    await assignTrendyolCourier([packageId], name).catch((e) =>
-      console.warn("[trendyol claim → archive]", e),
-    );
-    await notifyOrdersChanged("trendyol-courier-claimed");
+    // Arşiv yazımı + bildirim yanıttan SONRA: kurye ekranı bu yan işleri beklemez.
+    after(async () => {
+      await assignTrendyolCourier([packageId], name).catch((e) =>
+        console.warn("[trendyol claim → archive]", e),
+      );
+      await notifyOrdersChanged("trendyol-courier-claimed");
+    });
     return { ok: true };
   } catch (err) {
     console.error("[claimTrendyolPackage]", err);
@@ -253,10 +257,13 @@ export async function takeOverTrendyolPackage(
       return { ok: false, error: "Paket el değiştirdi", takenBy: cur.courier };
     }
 
-    await assignTrendyolCourier([packageId], name).catch((e) =>
-      console.warn("[trendyol take-over → archive]", e),
-    );
-    await notifyOrdersChanged("trendyol-courier-taken-over");
+    // Arşiv yazımı + bildirim yanıttan SONRA: kurye ekranı bu yan işleri beklemez.
+    after(async () => {
+      await assignTrendyolCourier([packageId], name).catch((e) =>
+        console.warn("[trendyol take-over → archive]", e),
+      );
+      await notifyOrdersChanged("trendyol-courier-taken-over");
+    });
     return { ok: true };
   } catch (err) {
     console.error("[takeOverTrendyolPackage]", err);
@@ -277,10 +284,13 @@ export async function unclaimTrendyolPackage(
       { $unset: { courier: "" } },
     );
     if (!doc) return { ok: false, error: "Bu paketi sen almamışsın" };
-    await clearTrendyolCourier(packageId, name).catch((e) =>
-      console.warn("[trendyol unclaim → archive]", e),
-    );
-    await notifyOrdersChanged("trendyol-courier-unclaimed");
+    // Arşiv yazımı + bildirim yanıttan SONRA: kurye ekranı bu yan işleri beklemez.
+    after(async () => {
+      await clearTrendyolCourier(packageId, name).catch((e) =>
+        console.warn("[trendyol unclaim → archive]", e),
+      );
+      await notifyOrdersChanged("trendyol-courier-unclaimed");
+    });
     return { ok: true };
   } catch (err) {
     console.error("[unclaimTrendyolPackage]", err);
@@ -306,17 +316,20 @@ export async function claimManyTrendyolPackages(
       { $set: { courier: name } },
     );
     if (res.modifiedCount > 0) {
-      const mine = await TrendyolCourierPackageModel.find({
-        packageId: { $in: packageIds },
-        courier: name,
-      })
-        .select({ packageId: 1 })
-        .lean();
-      await assignTrendyolCourier(
-        mine.map((d) => d.packageId),
-        name,
-      ).catch((e) => console.warn("[trendyol claim-many → archive]", e));
-      await notifyOrdersChanged("trendyol-courier-claimed-bulk");
+      // Arşiv yazımı + bildirim yanıttan SONRA: kurye ekranı beklemez.
+      after(async () => {
+        const mine = await TrendyolCourierPackageModel.find({
+          packageId: { $in: packageIds },
+          courier: name,
+        })
+          .select({ packageId: 1 })
+          .lean();
+        await assignTrendyolCourier(
+          mine.map((d) => d.packageId),
+          name,
+        ).catch((e) => console.warn("[trendyol claim-many → archive]", e));
+        await notifyOrdersChanged("trendyol-courier-claimed-bulk");
+      });
     }
     return { ok: true, claimed: res.modifiedCount };
   } catch (err) {

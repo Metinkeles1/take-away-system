@@ -3,6 +3,7 @@
 import { connectDB } from "@/lib/mongodb";
 import OrderModel from "@/models/Order";
 import { type GeoPoint, type Order } from "@/types";
+import { after } from "next/server";
 import { notifyOrdersChanged } from "@/lib/pusher/server";
 import {
   getMultiCourierMode,
@@ -144,7 +145,7 @@ export async function claimOrder(
       };
     }
 
-    await notifyOrdersChanged("courier-claimed");
+    after(() => notifyOrdersChanged("courier-claimed"));
     return { ok: true };
   } catch (error) {
     console.error("[claimOrder]", error);
@@ -181,7 +182,7 @@ export async function takeOverOrder(
       return { ok: false, error: "Paket el değiştirdi", takenBy: cur.courier };
     }
 
-    await notifyOrdersChanged("courier-taken-over");
+    after(() => notifyOrdersChanged("courier-taken-over"));
     return { ok: true };
   } catch (error) {
     console.error("[takeOverOrder]", error);
@@ -204,7 +205,7 @@ export async function setOrderCourier(
       : { $unset: { courier: "" } };
     const doc = await OrderModel.findOneAndUpdate({ id: orderId }, update);
     if (!doc) return { ok: false, error: "Sipariş bulunamadı" };
-    await notifyOrdersChanged("courier-assigned");
+    after(() => notifyOrdersChanged("courier-assigned"));
     return { ok: true };
   } catch (error) {
     console.error("[setOrderCourier]", error);
@@ -232,7 +233,7 @@ export async function claimManyOrders(
       { $set: { courier: name } },
     );
 
-    if (res.modifiedCount > 0) await notifyOrdersChanged("courier-claimed-bulk");
+    if (res.modifiedCount > 0) after(() => notifyOrdersChanged("courier-claimed-bulk"));
     return { ok: true, claimed: res.modifiedCount };
   } catch (error) {
     console.error("[claimManyOrders]", error);
@@ -280,7 +281,7 @@ export async function unclaimOrder(
     );
     if (!doc) return { ok: false, error: "Bu paketi sen almamışsın" };
 
-    await notifyOrdersChanged("courier-unclaimed");
+    after(() => notifyOrdersChanged("courier-unclaimed"));
     return { ok: true };
   } catch (error) {
     console.error("[unclaimOrder]", error);

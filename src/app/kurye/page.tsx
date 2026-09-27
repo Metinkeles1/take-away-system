@@ -385,8 +385,15 @@ export default function KuryePage() {
   // Sekme: "mine" = Benim Paketlerim (detaylı teslim kartları), "pool" = Tüm
   // Paketler (kısa liste, check'leyerek üstlen).
   const [tab, setTab] = useState<"mine" | "pool">("mine");
-  // Üstlenme (claim) işlemi süren sipariş — satırda spinner için.
-  const [claimingId, setClaimingId] = useState<string | null>(null);
+  // Üstlenme (claim) yazımı süren siparişler. Satır optimistic güncellendiği
+  // için spinner yok; bu küme yalnız aynı satıra çift dokunuşu engeller. Ref:
+  // render beklemeden anında görünür (hızlı çift tık da yakalanır) ve birden çok
+  // farklı satır aynı anda işaretlenebilir.
+  const claimingIds = useRef<Set<string>>(new Set());
+  const markClaiming = (id: string, on: boolean) => {
+    if (on) claimingIds.current.add(id);
+    else claimingIds.current.delete(id);
+  };
   // Havuzda devral başarısız olursa kısa uyarı (örn. "Paket el değiştirdi").
   const [claimError, setClaimError] = useState<string | null>(null);
   const [active, setActive] = useState(0);
@@ -435,23 +442,47 @@ export default function KuryePage() {
   const [refreshing, setRefreshing] = useState(false);
   const startX = useRef<number | null>(null);
 
+  // Üstlen/bırak yazımları: sayaç her başlangıç/bitişte artar, pending süren
+  // yazım sayısı. load() başladığı andaki sayacı saklar; arada yazım olduysa
+  // (ya da hâlâ sürüyorsa) gelen liste bayattır → optimistic durumu EZMESİN diye
+  // paket listesi uygulanmaz. Yazım bitince Pusher zaten taze load tetikler.
+  const mutationSeq = useRef(0);
+  const pendingMutations = useRef(0);
+  const beginMutation = () => {
+    mutationSeq.current++;
+    pendingMutations.current++;
+  };
+  const endMutation = () => {
+    mutationSeq.current++;
+    pendingMutations.current--;
+  };
+
   const load = async () => {
+    const seq = mutationSeq.current;
     try {
       // Tek round-trip: paketler + çoklu kurye modu + dükkan konumu birlikte gelir.
+      // GET ile (server action değil) — action kuyruğunu tıkayıp üstlen/bırak
+      // tıklamalarını bekletmesin.
+      const res = await fetch("/api/courier/board", { cache: "no-store" });
+      if (!res.ok) return;
       const {
         orders: data,
         trendyolOrders: ty,
         multiCourierMode: mode,
         shopLocation: shop,
         shopIban: iban,
-      } = await getCourierBoard();
-      setOrders(data);
-      // Trendyol siparişleri artık paylaşımlı depodan gelir → her kuryenin
-      // ekranında görünür. Sync (buton) Pusher yaydığı için otomatik tazelenir.
-      setTrendyolOrders(ty);
+      } = (await res.json()) as Awaited<ReturnType<typeof getCourierBoard>>;
+      if (seq === mutationSeq.current && pendingMutations.current === 0) {
+        setOrders(data);
+        // Trendyol siparişleri artık paylaşımlı depodan gelir → her kuryenin
+        // ekranında görünür. Sync (buton) Pusher yaydığı için otomatik tazelenir.
+        setTrendyolOrders(ty);
+      }
       setMultiCourierMode(mode);
       setShopLocation(shop);
       setShopIban(iban);
+    } catch {
+      // Ağ hatası — sessiz geç; poll / Pusher tekrar dener.
     } finally {
       setLoading(false);
     }
@@ -929,7 +960,11 @@ export default function KuryePage() {
     // Başka kurye almışsa kilitli — dokunulmaz.
     if (o.courier && !mine) return;
 
-    setClaimingId(o.id);
+    // Aynı satıra yazım sürerken ikinci dokunuş yok sayılır (çift tık yarışı).
+    if (claimingIds.current.has(o.id)) return;
+
+    markClaiming(o.id, true);
+    beginMutation();
     const isTrendyol = o.source === "trendyol";
     // Optimistic — Trendyol ayrı state'te tutulur, kendi siparişler orders'ta.
     const setter = isTrendyol ? setTrendyolOrders : setOrders;
@@ -947,7 +982,8 @@ export default function KuryePage() {
       : mine
         ? await unclaimOrder(o.id, courier)
         : await claimOrder(o.id, courier);
-    setClaimingId(null);
+    endMutation();
+    markClaiming(o.id, false);
     if (!res.ok) {
       // Çakışma/başarısızlık → sunucudaki gerçek duruma senkronla.
       await load();
@@ -960,7 +996,9 @@ export default function KuryePage() {
   const takeOver = async (o: Order) => {
     if (!courier || !o.courier || o.courier === courier) return;
     const from = o.courier;
-    setClaimingId(o.id);
+    if (claimingIds.current.has(o.id)) return;
+    markClaiming(o.id, true);
+    beginMutation();
     setClaimError(null);
     const isTrendyol = o.source === "trendyol";
     const setter = isTrendyol ? setTrendyolOrders : setOrders;
@@ -968,7 +1006,8 @@ export default function KuryePage() {
     const res = isTrendyol
       ? await takeOverTrendyolPackage(o.externalRef ?? "", courier, from)
       : await takeOverOrder(o.id, courier, from);
-    setClaimingId(null);
+    endMutation();
+    markClaiming(o.id, false);
     if (!res.ok) {
       setClaimError(res.error ?? "Paket devralınamadı");
       await load();
@@ -1001,6 +1040,7 @@ export default function KuryePage() {
       .filter((o) => o.source === "trendyol")
       .map((o) => o.externalRef ?? "")
       .filter(Boolean);
+    beginMutation();
     const [r1, r2] = await Promise.all([
       dbIds.length
         ? claimManyOrders(dbIds, courier)
@@ -1009,6 +1049,7 @@ export default function KuryePage() {
         ? claimManyTrendyolPackages(tyIds, courier)
         : Promise.resolve({ ok: true }),
     ]);
+    endMutation();
     if (!r1.ok || !r2.ok) await load(); // çakışma/başarısızlık → gerçek duruma
   };
 
@@ -1031,6 +1072,7 @@ export default function KuryePage() {
       .filter((o) => o.source === "trendyol")
       .map((o) => o.externalRef ?? "")
       .filter(Boolean);
+    beginMutation();
     const [r1, r2] = await Promise.all([
       dbIds.length
         ? claimManyOrders(dbIds, courier)
@@ -1039,6 +1081,7 @@ export default function KuryePage() {
         ? claimManyTrendyolPackages(tyIds, courier)
         : Promise.resolve({ ok: true }),
     ]);
+    endMutation();
     if (!r1.ok || !r2.ok) await load();
   };
 
@@ -1308,7 +1351,6 @@ export default function KuryePage() {
           <PoolList
             orders={allSorted}
             courier={courier}
-            claimingId={claimingId}
             claimError={claimError}
             onToggle={(o) => void toggleClaim(o)}
             onTakeOver={(o) => void takeOver(o)}
@@ -1880,7 +1922,6 @@ const HOLD_MS = 800;
 function PoolList({
   orders,
   courier,
-  claimingId,
   claimError,
   onToggle,
   onTakeOver,
@@ -1889,7 +1930,6 @@ function PoolList({
 }: {
   orders: Order[];
   courier: string | null;
-  claimingId: string | null;
   claimError: string | null;
   onToggle: (o: Order) => void;
   onTakeOver: (o: Order) => void;
@@ -1988,7 +2028,6 @@ function PoolList({
       {orders.map((o) => {
         const mine = o.courier === courier;
         const claimedByOther = !!o.courier && !mine;
-        const busy = claimingId === o.id;
         const holding = holdingId === o.id;
         const canTakeOver = claimedByOther && !!courier;
         const pay = PAYMENT_LABEL[o.payment.method];
@@ -2001,7 +2040,9 @@ function PoolList({
               if (!claimedByOther) onToggle(o);
             }}
             // Kilitli satır tıklamaya kapalı ama basılı tutmaya açık (devral).
-            disabled={busy || (claimedByOther && !canTakeOver)}
+            // Yazım sürerken de tıklanabilir görünür (optimistic); çift dokunuşu
+            // toggleClaim kendisi yok sayar.
+            disabled={claimedByOther && !canTakeOver}
             onPointerDown={
               canTakeOver ? (e) => startHold(o, e.clientX, e.clientY) : undefined
             }
@@ -2042,9 +2083,8 @@ function PoolList({
                     : "bg-white ring-slate-300",
               )}
             >
-              {busy ? (
-                <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
-              ) : mine ? (
+              {/* Spinner yok: tik optimistic olarak ANINDA düşer, sunucu arkada yazar. */}
+              {mine ? (
                 <Check className="h-4 w-4" />
               ) : claimedByOther ? (
                 <Lock className="h-3.5 w-3.5" />
