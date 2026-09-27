@@ -45,6 +45,9 @@ const CustomerSchema = new Schema(
     geoAddress: String,
     addresses: { type: [AddressSchema], default: undefined },
     defaultAddressId: String,
+    // Telefon rehberine (Google Contacts CSV) en son aktarıldığı an. Boşsa
+    // müşteri henüz rehbere hiç aktarılmamış → "Yeni kişileri indir" onu alır.
+    contactExportedAt: Date,
   },
   { timestamps: true },
 );
@@ -58,7 +61,11 @@ const cached = mongoose.models.Customer as mongoose.Model<unknown> | undefined;
 const cachedAddresses = cached?.schema.path("addresses") as
   | { schema?: Schema }
   | undefined;
-if (cached && !cachedAddresses?.schema?.path("streetKey")) {
+if (
+  cached &&
+  (!cachedAddresses?.schema?.path("streetKey") ||
+    !cached.schema.path("contactExportedAt"))
+) {
   mongoose.deleteModel("Customer");
 }
 

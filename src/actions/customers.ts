@@ -44,6 +44,33 @@ export async function getSavedCustomers(): Promise<SavedCustomer[]> {
   return docs.map((d) => docToCustomer(d as Record<string, unknown>));
 }
 
+// ─── Rehber (Google Contacts) aktarımı ───────────────────────────────────────
+// "new": yalnız rehbere hiç aktarılmamış müşteriler — telefona aynı kişiyi
+// tekrar yükleyip çift kayıt / birleşmiş bozuk kayıt üretmemek için.
+// "all": hepsi (rehberi sıfırdan kurarken). Arama kutusundan bağımsız: her
+// zaman veritabanındaki tam listeden okunur.
+export async function getCustomersForContactExport(
+  mode: "new" | "all",
+): Promise<SavedCustomer[]> {
+  await connectDB();
+  const filter = mode === "new" ? { contactExportedAt: { $exists: false } } : {};
+  const docs = await CustomerModel.find(filter).sort({ createdAt: 1 }).lean();
+  return docs.map((d) => docToCustomer(d as Record<string, unknown>));
+}
+
+// İndirilen müşterileri "rehbere aktarıldı" olarak işaretle — bir sonraki
+// "Yeni kişileri indir" bunları tekrar vermez.
+export async function markCustomersContactExported(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  await connectDB();
+  // timestamps: false → updatedAt değişmesin (liste "son sipariş"e göre sıralı).
+  await CustomerModel.updateMany(
+    { id: { $in: ids } },
+    { $set: { contactExportedAt: new Date() } },
+    { timestamps: false },
+  );
+}
+
 // ─── Tek müşteri getir (adres işlemleri sonrası tazeleme) ─────────────────────
 export async function getSavedCustomer(id: string): Promise<SavedCustomer | null> {
   await connectDB();

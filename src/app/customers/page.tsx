@@ -1,7 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState, useTransition } from "react";
-import { getSavedCustomers, searchCustomers } from "@/actions/customers";
+import {
+  getCustomersForContactExport,
+  getSavedCustomers,
+  markCustomersContactExported,
+  searchCustomers,
+} from "@/actions/customers";
 import { type SavedCustomer } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -64,14 +69,35 @@ export default function CustomersPage() {
   const handleOpenDelete = useCallback((c: SavedCustomer) => setDeletingCustomer(c), []);
   const handleViewHistory = useCallback((c: SavedCustomer) => setHistoryCustomer(c), []);
 
-  const handleExportCSV = useCallback(() => {
-    if (customers.length === 0) {
-      toast.error("İndirilecek müşteri bulunamadı");
-      return;
+  // "new": yalnız rehbere henüz aktarılmamış müşteriler (normal kullanım).
+  // "all": hepsi — rehberi sıfırdan kurarken. İkisi de indirilenleri
+  // "aktarıldı" işaretler; sonraki "Yeni Kişiler" onları tekrar vermez.
+  const [exporting, setExporting] = useState<"new" | "all" | null>(null);
+  const handleExportCSV = useCallback(async (mode: "new" | "all") => {
+    setExporting(mode);
+    try {
+      const list = await getCustomersForContactExport(mode);
+      if (list.length === 0) {
+        toast.info(
+          mode === "new"
+            ? "Rehbere aktarılmamış yeni müşteri yok"
+            : "İndirilecek müşteri bulunamadı",
+        );
+        return;
+      }
+      exportCustomersToCsv(list, mode === "new" ? "yeni_musteriler" : "tum_musteriler");
+      await markCustomersContactExported(list.map((c) => c.id));
+      toast.success(
+        mode === "new"
+          ? `${list.length} yeni müşteri indirildi`
+          : `${list.length} müşteri indirildi`,
+      );
+    } catch {
+      toast.error("CSV oluşturulamadı");
+    } finally {
+      setExporting(null);
     }
-    exportCustomersToCsv(customers);
-    toast.success(`${customers.length} müşteri CSV olarak indirildi`);
-  }, [customers]);
+  }, []);
 
   return (
     <main className="h-full flex flex-col px-4 pt-4 pb-4 md:px-6 md:pt-5 lg:px-8 lg:pt-6 overflow-hidden">
@@ -82,10 +108,23 @@ export default function CustomersPage() {
             Toplam {customers.length} müşteri
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={handleExportCSV}>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button
+            variant="outline"
+            onClick={() => handleExportCSV("new")}
+            disabled={exporting !== null}
+            title="Sadece telefona daha önce aktarılmamış müşteriler"
+          >
             <Download className="mr-2 h-4 w-4" />
-            CSV İndir
+            Yeni Kişileri İndir
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={() => handleExportCSV("all")}
+            disabled={exporting !== null}
+            title="Tüm müşteriler — rehberi sıfırdan kurarken"
+          >
+            Tümü
           </Button>
           <Button onClick={handleOpenAdd}>
             <Plus className="mr-2 h-4 w-4" />

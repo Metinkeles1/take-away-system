@@ -25,6 +25,10 @@ const GOOGLE_HEADER = [
   "Phone 1 - Value",
 ].join(",");
 
+// Tüm aktarılan kişiler rehberde bu etiketle gruplanır → Google Contacts'ta
+// tek tıkla hepsi seçilip silinebilir / yeniden kurulabilir.
+const CONTACT_LABEL = "Paket Servis ::: * myContacts";
+
 // Telefonu E.164'e çevir: 5XXXXXXXXX → +905XXXXXXXXX, 90XXXXXXXXXX → +90...
 function normalizePhone(p: string): string {
   if (!p) return "";
@@ -62,7 +66,9 @@ function buildOtherAddresses(c: SavedCustomer): string {
     .join(" | ");
 }
 
-// Adres + sipariş sayısı Notes'a — Google Contacts'ta arama yapılabilen alan
+// Adres Notes'a — Google Contacts'ta arama yapılabilen alan. Sipariş sayısı
+// gibi zamanla DEĞİŞEN bilgi yazılmaz: aynı kişi tekrar içe aktarılırsa Google
+// farklı notları birleştirip "veri üstüne veri" üretiyordu.
 function buildNotes(c: SavedCustomer): string {
   const parts: string[] = [];
   // First Name adres değilse adresi de Notes'a koy (yedek)
@@ -71,13 +77,15 @@ function buildNotes(c: SavedCustomer): string {
     parts.push(c.address.trim());
   }
   if (c.addressDetail && c.addressDetail.trim()) parts.push(c.addressDetail.trim());
-  if (c.orderCount > 0) parts.push(`Sipariş sayısı: ${c.orderCount}`);
   const others = buildOtherAddresses(c);
   if (others) parts.push(`Diğer adresler: ${others}`);
   return parts.join(" · ");
 }
 
-export function exportCustomersToCsv(customers: SavedCustomer[]): void {
+export function exportCustomersToCsv(
+  customers: SavedCustomer[],
+  fileTag = "musteriler",
+): void {
   // Adres çok satırlı (Textarea) girilebildiği için içinde gizli satır sonu
   // olabilir; CSV satırını bölüp sonraki sütunları (Notes'taki bina/daire)
   // kaydırır. Önce satır sonlarını boşluğa indir, sonra tırnakla.
@@ -85,7 +93,16 @@ export function exportCustomersToCsv(customers: SavedCustomer[]): void {
     `"${(v ?? "").replace(/[\r\n]+/g, " ").replace(/"/g, '""')}"`;
   const empty = esc("");
 
-  const rows = customers.map((c) => {
+  // Aynı telefon iki kez yazılmasın (rehberde çift kişi olur) — ilk kayıt kalır.
+  const seen = new Set<string>();
+  const unique = customers.filter((c) => {
+    const key = normalizePhone(c.phone);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  const rows = unique.map((c) => {
     const firstName = buildFirstName(c);
     const notes = buildNotes(c);
     const phone = normalizePhone(c.phone);
@@ -106,7 +123,7 @@ export function exportCustomersToCsv(customers: SavedCustomer[]): void {
       empty,                // Birthday
       esc(notes),           // Notes
       empty,                // Photo
-      esc("* myContacts"),  // Labels
+      esc(CONTACT_LABEL),   // Labels
       esc("Mobile"),        // Phone 1 - Label
       esc(phone),           // Phone 1 - Value
     ].join(",");
@@ -118,7 +135,7 @@ export function exportCustomersToCsv(customers: SavedCustomer[]): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `musteriler_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = `${fileTag}_${new Date().toISOString().slice(0, 10)}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }
