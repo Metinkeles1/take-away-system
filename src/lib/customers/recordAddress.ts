@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import CustomerModel from "@/models/Customer";
 import { toLocalPhone } from "@/lib/utils";
 import { phoneMatchRegex } from "@/lib/customers/geoByPhone";
@@ -8,6 +9,7 @@ import {
   pickDefaultAddress,
 } from "@/lib/customers/addresses";
 import { streetFields } from "@/lib/customers/streetKey";
+import { syncNewCustomersToGoogleContacts } from "@/lib/customers/googleContactsSync";
 import type { CustomerAddress, CustomerInfo, GeoPoint } from "@/types";
 
 type CustomerDoc = Record<string, unknown> & { _id: unknown };
@@ -90,6 +92,8 @@ export async function recordCustomerAddress(
       orderCount: opts.countOrder ? 1 : 0,
       ...addressesSetFields([addr]),
     });
+    // Yeni müşteri → yanıt döndükten sonra Google Kişiler'e (env yoksa atlanır).
+    after(() => syncNewCustomersToGoogleContacts());
     return addr.id;
   }
 

@@ -1,5 +1,9 @@
 import { type SavedCustomer } from "@/types";
-import { pickDefaultAddress } from "@/lib/customers/addresses";
+import {
+  buildFirstName,
+  buildNotes,
+  normalizePhone,
+} from "@/lib/customers/contactFields";
 
 // Google Contacts'ın beklediği tam başlık şeması. Sütun sayısı/sırası birebir
 // eşleşmeli — yoksa Drive Contacts içe aktarmayı reddediyor.
@@ -28,59 +32,6 @@ const GOOGLE_HEADER = [
 // Tüm aktarılan kişiler rehberde bu etiketle gruplanır → Google Contacts'ta
 // tek tıkla hepsi seçilip silinebilir / yeniden kurulabilir.
 const CONTACT_LABEL = "Paket Servis ::: * myContacts";
-
-// Telefonu E.164'e çevir: 5XXXXXXXXX → +905XXXXXXXXX, 90XXXXXXXXXX → +90...
-function normalizePhone(p: string): string {
-  if (!p) return "";
-  const trimmed = p.trim();
-  if (trimmed.startsWith("+")) return trimmed.replace(/\s+/g, "");
-  const digits = trimmed.replace(/\D/g, "");
-  if (digits.length === 10 && digits.startsWith("5")) return `+90${digits}`;
-  if (digits.length === 11 && digits.startsWith("0")) return `+90${digits.slice(1)}`;
-  if (digits.length === 12 && digits.startsWith("90")) return `+${digits}`;
-  return digits ? `+${digits}` : "";
-}
-
-// "First Name" → kullanıcının ad alanı; ad telefonla aynıysa adresi kullan
-// (uygulamada müşteri kaydederken çoğu zaman name=phone setleniyor).
-function buildFirstName(c: SavedCustomer): string {
-  const nameDigits = c.name.replace(/\D/g, "");
-  const phoneDigits = c.phone.replace(/\D/g, "");
-  const nameIsPhone = nameDigits.length > 0 && nameDigits === phoneDigits;
-
-  if (c.name && c.name.trim() && !nameIsPhone) return c.name.trim();
-  if (c.address && c.address.trim()) return c.address.trim();
-  return phoneDigits ? `Müşteri ${phoneDigits.slice(-4)}` : "Müşteri";
-}
-
-// Varsayılan olmayan adresler (varsa) — " | " ile birleştirilmiş metin.
-// Not: Google Contacts import'u sütun sayısı/sırasının birebir eşleşmesini
-// istiyor (bkz. GOOGLE_HEADER yorumu), bu yüzden ayrı bir sütun açmak yerine
-// Notes alanına ekleniyor.
-function buildOtherAddresses(c: SavedCustomer): string {
-  if (!c.addresses || c.addresses.length <= 1) return "";
-  const def = pickDefaultAddress(c.addresses, c.defaultAddressId);
-  return c.addresses
-    .filter((a) => a.id !== def?.id)
-    .map((a) => (a.addressDetail ? `${a.address} - ${a.addressDetail}` : a.address))
-    .join(" | ");
-}
-
-// Adres Notes'a — Google Contacts'ta arama yapılabilen alan. Sipariş sayısı
-// gibi zamanla DEĞİŞEN bilgi yazılmaz: aynı kişi tekrar içe aktarılırsa Google
-// farklı notları birleştirip "veri üstüne veri" üretiyordu.
-function buildNotes(c: SavedCustomer): string {
-  const parts: string[] = [];
-  // First Name adres değilse adresi de Notes'a koy (yedek)
-  const firstName = buildFirstName(c);
-  if (c.address && c.address.trim() && c.address.trim() !== firstName) {
-    parts.push(c.address.trim());
-  }
-  if (c.addressDetail && c.addressDetail.trim()) parts.push(c.addressDetail.trim());
-  const others = buildOtherAddresses(c);
-  if (others) parts.push(`Diğer adresler: ${others}`);
-  return parts.join(" · ");
-}
 
 export function exportCustomersToCsv(
   customers: SavedCustomer[],

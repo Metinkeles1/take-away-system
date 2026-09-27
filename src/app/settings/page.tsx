@@ -21,6 +21,7 @@ import {
   setMonthlyTarget,
 } from "@/actions/settings";
 import { LocationPicker, type LatLng } from "@/components/kurye/LocationPicker";
+import { GoogleContactsCard } from "@/components/settings/GoogleContactsCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -375,6 +376,9 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
         </section>
+
+        {/* Google Kişiler — müşteriler telefon rehberine otomatik */}
+        <GoogleContactsCard />
 
         {/* Kuryeler */}
         <section>

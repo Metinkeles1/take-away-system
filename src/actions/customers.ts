@@ -1,5 +1,6 @@
 "use server";
 
+import { after } from "next/server";
 import { connectDB } from "@/lib/mongodb";
 import CustomerModel from "@/models/Customer";
 import OrderModel from "@/models/Order";
@@ -11,6 +12,10 @@ import {
   pickDefaultAddress,
 } from "@/lib/customers/addresses";
 import { addressesSetFields } from "@/lib/customers/recordAddress";
+import {
+  type ContactSyncResult,
+  syncNewCustomersToGoogleContacts,
+} from "@/lib/customers/googleContactsSync";
 import {
   type CustomerAddress,
   type CustomerOrderSummary,
@@ -69,6 +74,15 @@ export async function markCustomersContactExported(ids: string[]): Promise<void>
     { $set: { contactExportedAt: new Date() } },
     { timestamps: false },
   );
+}
+
+// Rehbere aktarılmamış müşterileri CSV yerine doğrudan Google Kişiler'e yazar.
+// Normalde yeni müşteri oluşunca kendiliğinden çalışır; buton kaçanlar için.
+// "all": rehberde eksik kalan tüm müşterileri tamamlar (bkz. googleContactsSync).
+export async function syncCustomersToGoogleContacts(
+  mode: "new" | "all" = "new",
+): Promise<ContactSyncResult> {
+  return syncNewCustomersToGoogleContacts(mode, mode === "all" ? "manual-all" : "manual-new");
 }
 
 // ─── Tek müşteri getir (adres işlemleri sonrası tazeleme) ─────────────────────
@@ -191,6 +205,7 @@ export async function createCustomer(customer: {
     orderCount: 0,
     ...addressesSetFields([newAddress(customer.address, customer.addressDetail)]),
   });
+  after(() => syncNewCustomersToGoogleContacts());
 }
 
 function newAddress(address: string, addressDetail?: string): CustomerAddress {

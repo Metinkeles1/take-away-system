@@ -3,6 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { connectDB } from "@/lib/mongodb";
 import SettingModel from "@/models/Setting";
+import ContactSyncLogModel from "@/models/ContactSyncLog";
+import {
+  patchGoogleContactsSetting,
+  readGoogleContactsSetting,
+} from "@/lib/integrations/googleContacts";
 
 const MULTI_COURIER_KEY = "multiCourierMode";
 const SHOP_LOCATION_KEY = "shopLocation";
@@ -188,4 +193,180 @@ export async function setMultiCourierMode(
     console.error("[setMultiCourierMode]", error);
     return { ok: false, error: "Ayar kaydedilemedi" };
   }
+}
+
+// ─── Google Kişiler bağlantısı ──────────────────────────────────────────────
+// Client secret ve refresh token tarayıcıya hiç gönderilmez; ekran yalnız
+// "girilmiş mi / bağlı mı / hangi hesap" bilgisini görür.
+export interface GoogleContactsStatus {
+  clientId: string;
+  hasSecret: boolean;
+  connected: boolean;
+  email?: string;
+  connectedAt?: string;
+  lastSync?: {
+    at: string;
+    created: number;
+    updated?: number;
+    completed?: number;
+    skipped: number;
+    duplicates?: number;
+    error?: string;
+  };
+}
+
+export async function getGoogleContactsStatus(): Promise<GoogleContactsStatus> {
+  const s = await readGoogleContactsSetting();
+  return {
+    clientId: s.clientId ?? "",
+    hasSecret: Boolean(s.clientSecret),
+    connected: Boolean(s.clientId && s.clientSecret && s.refreshToken),
+    email: s.email,
+    connectedAt: s.connectedAt ? new Date(s.connectedAt).toISOString() : undefined,
+    lastSync: s.lastSync
+      ? { ...s.lastSync, at: new Date(s.lastSync.at).toISOString() }
+      : undefined,
+  };
+}
+
+// Secret boş bırakılırsa mevcut olan korunur (ekranda gösterilmediği için).
+export async function saveGoogleContactsClient(data: {
+  clientId: string;
+  clientSecret: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const clientId = data.clientId.trim();
+    const clientSecret = data.clientSecret.trim();
+    if (!clientId.endsWith(".apps.googleusercontent.com")) {
+      return { ok: false, error: "Client ID '.apps.googleusercontent.com' ile bitmeli" };
+    }
+    const current = await readGoogleContactsSetting();
+    if (!clientSecret && !current.clientSecret) {
+      return { ok: false, error: "Client Secret gerekli" };
+    }
+    const clientChanged = current.clientId && current.clientId !== clientId;
+    await patchGoogleContactsSetting(
+      { clientId, ...(clientSecret ? { clientSecret } : {}) },
+      // Başka bir OAuth istemcisine geçildiyse eski token onunla çalışmaz.
+      clientChanged ? ["refreshToken", "email", "connectedAt"] : [],
+    );
+    revalidatePath("/settings");
+    return { ok: true };
+  } catch (error) {
+    console.error("[saveGoogleContactsClient]", error);
+    return { ok: false, error: "Kaydedilemedi" };
+  }
+}
+
+export async function disconnectGoogleContacts(): Promise<{ ok: boolean }> {
+  try {
+    await patchGoogleContactsSetting({}, ["refreshToken", "email", "connectedAt"]);
+    revalidatePath("/settings");
+    return { ok: true };
+  } catch (error) {
+    console.error("[disconnectGoogleContacts]", error);
+    return { ok: false };
+  }
+}
+
+// ─── Google Kişiler gönderim geçmişi ────────────────────────────────────────
+export type SyncTriggerLabel = "new-customer" | "cron" | "manual-new" | "manual-all";
+
+export interface ContactSyncRun {
+  id: string;
+  at: string;
+  trigger: SyncTriggerLabel;
+  ok: boolean;
+  error?: string;
+  durationMs?: number;
+  created: number;
+  updated: number;
+  completed: number;
+  skipped: number;
+  duplicates: number;
+  itemCount: number;
+}
+
+export interface ContactSyncLogItem {
+  at: string;
+  trigger: SyncTriggerLabel;
+  customerId?: string;
+  name: string;
+  phone: string;
+  action: "created" | "updated" | "completed";
+  fields?: string[];
+}
+
+// Son gönderimler (kişi listesi olmadan — bir Düzelt turunda 1000+ satır olabilir).
+export async function getContactSyncRuns(limit = 50): Promise<ContactSyncRun[]> {
+  await connectDB();
+  const docs = await ContactSyncLogModel.aggregate([
+    { $sort: { at: -1 } },
+    { $limit: Math.min(limit, 200) },
+    { $addFields: { itemCount: { $size: "$items" } } },
+    { $project: { items: 0 } },
+  ]);
+  return docs.map((d) => ({
+    id: String(d._id),
+    at: new Date(d.at).toISOString(),
+    trigger: d.trigger,
+    ok: d.ok,
+    error: d.error,
+    durationMs: d.durationMs,
+    created: d.created ?? 0,
+    updated: d.updated ?? 0,
+    completed: d.completed ?? 0,
+    skipped: d.skipped ?? 0,
+    duplicates: d.duplicates ?? 0,
+    itemCount: d.itemCount ?? 0,
+  }));
+}
+
+// Tek gönderimde değişen kişiler.
+export async function getContactSyncRunItems(id: string): Promise<ContactSyncLogItem[]> {
+  if (!/^[a-f0-9]{24}$/.test(id)) return [];
+  await connectDB();
+  const doc = (await ContactSyncLogModel.findById(id).lean()) as {
+    at: Date;
+    trigger: SyncTriggerLabel;
+    items?: Omit<ContactSyncLogItem, "at" | "trigger">[];
+  } | null;
+  if (!doc) return [];
+  return (doc.items ?? []).map((it) => ({
+    ...it,
+    at: new Date(doc.at).toISOString(),
+    trigger: doc.trigger,
+  }));
+}
+
+// İsim ya da numarayla arama: "bu müşteri rehbere ne zaman gitti?"
+export async function searchContactSyncLog(query: string): Promise<ContactSyncLogItem[]> {
+  const q = query.trim();
+  if (q.length < 2) return [];
+  const digits = q.replace(/\D/g, "");
+  // Numara: son 10 haneye kadar parça eşleşmesi ("0532 111", "5321112233").
+  const match =
+    digits.length >= 3 && digits.length >= q.replace(/\s/g, "").length - 1
+      ? { "items.phone": { $regex: digits.replace(/^0/, "").slice(-10) } }
+      : {
+          "items.name": {
+            $regex: q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+            $options: "i",
+          },
+        };
+  await connectDB();
+  const docs = await ContactSyncLogModel.aggregate([
+    { $match: match },
+    { $sort: { at: -1 } },
+    { $limit: 200 },
+    { $unwind: "$items" },
+    { $match: match },
+    { $limit: 100 },
+    { $project: { _id: 0, at: 1, trigger: 1, item: "$items" } },
+  ]);
+  return docs.map((d) => ({
+    ...d.item,
+    at: new Date(d.at).toISOString(),
+    trigger: d.trigger,
+  }));
 }

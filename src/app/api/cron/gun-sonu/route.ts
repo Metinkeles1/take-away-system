@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { saveEndOfDaySnapshot } from "@/actions/endOfDay";
 import { istanbulDateISO } from "@/lib/datetime";
 import { ensureTrendyolArchiveFresh } from "@/lib/trendyol/archive";
+import { syncNewCustomersToGoogleContacts } from "@/lib/customers/googleContactsSync";
 
 // Vercel Cron — 23:59 IST (20:59 UTC) çalışır, bkz. vercel.json. Gün biterken
 // O GÜNÜ dondurur (kullanıcı isteği). Trendyol cirosu da o anki settlement ile
@@ -38,6 +39,10 @@ export async function GET(req: NextRequest) {
     // Trendyol sipariş arşivi: günün paketleri + hakediş kayıtları + KVKK temizliği.
     // Hata gün sonunu bozmasın (fonksiyon kendi içinde hatayı loglar).
     await ensureTrendyolArchiveFresh({ force: true });
+
+    // Gün içinde anlık senkronu kaçan (ör. Google o an hata verdi) müşteriler.
+    // Hata döner ama fırlatmaz; gün sonunu etkilemez.
+    await syncNewCustomersToGoogleContacts("new", "cron");
     return NextResponse.json({
       ok: true,
       date: report.date,

@@ -5,12 +5,13 @@ import {
   getCustomersForContactExport,
   getSavedCustomers,
   markCustomersContactExported,
+  syncCustomersToGoogleContacts,
   searchCustomers,
 } from "@/actions/customers";
 import { type SavedCustomer } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Plus, Download } from "lucide-react";
+import { Search, Plus, Download, CloudUpload } from "lucide-react";
 import { toast } from "sonner";
 import { CustomerList } from "@/components/customers/CustomerList";
 import { CustomerFormDialog } from "@/components/customers/CustomerFormDialog";
@@ -99,6 +100,31 @@ export default function CustomersPage() {
     }
   }, []);
 
+  // CSV yerine doğrudan Google Kişiler. Yeni müşteriler zaten kendiliğinden
+  // gider; bu buton kaçanları (ör. Google o an hata verdiyse) hemen yollar.
+  const [syncing, setSyncing] = useState(false);
+  const handleGoogleSync = useCallback(async () => {
+    setSyncing(true);
+    try {
+      const res = await syncCustomersToGoogleContacts();
+      if (res.ok) {
+        toast.success(
+          res.created > 0 || res.updated > 0
+            ? `Google Kişiler: ${res.created} eklendi, ${res.updated} düzeltildi`
+            : "Google Kişiler güncel — yeni müşteri yok",
+        );
+      } else if (res.reason === "not-configured") {
+        toast.error("Google Kişiler bağlı değil — Ayarlar'dan bağlayın");
+      } else {
+        toast.error("Google Kişiler'e gönderilemedi", { description: res.error });
+      }
+    } catch {
+      toast.error("Google Kişiler'e gönderilemedi");
+    } finally {
+      setSyncing(false);
+    }
+  }, []);
+
   return (
     <main className="h-full flex flex-col px-4 pt-4 pb-4 md:px-6 md:pt-5 lg:px-8 lg:pt-6 overflow-hidden">
       <div className="mb-4 flex items-center justify-between shrink-0">
@@ -109,6 +135,15 @@ export default function CustomersPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button
+            variant="outline"
+            onClick={handleGoogleSync}
+            disabled={syncing}
+            title="Rehbere aktarılmamış müşterileri doğrudan Google Kişiler'e ekle"
+          >
+            <CloudUpload className="mr-2 h-4 w-4" />
+            Google&apos;a Gönder
+          </Button>
           <Button
             variant="outline"
             onClick={() => handleExportCSV("new")}
