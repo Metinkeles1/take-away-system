@@ -8,7 +8,6 @@ import { getActiveOrdersCount, getOpenAccountsCount } from "@/actions/orders";
 import { subscribeOrders } from "@/lib/pusher/client";
 import {
   Home,
-  BarChart3,
   ShoppingBag,
   ClipboardList,
   Users,
@@ -31,6 +30,8 @@ import {
   ReceiptText,
   Landmark,
   Settings,
+  Gauge,
+  UserRound,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -58,50 +59,75 @@ type NavGroup = {
 
 type NavEntry = NavLeaf | NavGroup;
 
-export const NAV_ITEMS: readonly NavEntry[] = [
-  { kind: "leaf", href: "/",          label: "Panel",        icon: Home,           color: "text-slate-300" },
-  { kind: "leaf", href: "/komuta",    label: "Komuta Merkezi", icon: LayoutDashboard, color: "text-blue-400", activeBg: "bg-blue-500/15" },
-  { kind: "leaf", href: "/dashboard", label: "Dashboard",    icon: BarChart3,      color: "text-blue-400",   activeBg: "bg-blue-500/15" },
+// Menü "ne yapıyorum?" sorusuna göre üç bölüm: günlük iş, analiz, kayıtlar.
+type NavSection = { title: string; items: readonly NavEntry[] };
+
+export const NAV_SECTIONS: readonly NavSection[] = [
   {
-    kind: "group",
-    id: "trendyol",
-    label: "Trendyol",
-    icon: Store,
-    color: "text-emerald-400",
-    activeBg: "bg-emerald-500/15",
-    basePath: "/dashboard/trendyol",
-    children: [
-      { href: "/dashboard/trendyol",           label: "Genel Bakış",     icon: LayoutDashboard },
-      { href: "/dashboard/trendyol/gun-sonu",  label: "Gün Sonu",        icon: Landmark },
-      { href: "/dashboard/trendyol/sales",     label: "Satış Analitiği", icon: LineChart },
-      { href: "/dashboard/trendyol/customers", label: "Müşteri",         icon: UserSearch },
-      { href: "/dashboard/trendyol/regions",   label: "Bölgeler",        icon: MapIcon },
-      { href: "/dashboard/trendyol/menu",      label: "Menü",            icon: UtensilsCrossed },
-      { href: "/dashboard/trendyol/categories", label: "Kategoriler",    icon: Tags },
-      { href: "/dashboard/trendyol/reviews",    label: "Değerlendirmeler", icon: MessageSquare },
-      { href: "/dashboard/trendyol/promotions", label: "Kampanyalar",     icon: Megaphone },
+    title: "Günlük İş",
+    items: [
+      { kind: "leaf", href: "/",          label: "Panel",        icon: Home,           color: "text-slate-300" },
+      { kind: "leaf", href: "/orders/new", label: "Yeni Sipariş", icon: ShoppingBag,    color: "text-orange-400", activeBg: "bg-orange-500/15" },
+      { kind: "leaf", href: "/orders",     label: "Siparişler",   icon: ClipboardList,  color: "text-emerald-400", activeBg: "bg-emerald-500/15" },
+      { kind: "leaf", href: "/kurye",      label: "Kurye",        icon: Bike,           color: "text-lime-400",   activeBg: "bg-lime-500/15" },
+      { kind: "leaf", href: "/gun-sonu",   label: "Gün Sonu",     icon: ReceiptText,    color: "text-violet-400", activeBg: "bg-violet-500/15" },
+      { kind: "leaf", href: "/open-accounts", label: "Açık Hesaplar", icon: Wallet,     color: "text-amber-400",  activeBg: "bg-amber-500/15" },
     ],
   },
-  { kind: "leaf", href: "/orders/new", label: "Yeni Sipariş", icon: ShoppingBag,    color: "text-orange-400", activeBg: "bg-orange-500/15" },
-  { kind: "leaf", href: "/orders",     label: "Siparişler",   icon: ClipboardList,  color: "text-emerald-400", activeBg: "bg-emerald-500/15" },
-  { kind: "leaf", href: "/open-accounts", label: "Açık Hesaplar", icon: Wallet,     color: "text-amber-400",  activeBg: "bg-amber-500/15" },
-  { kind: "leaf", href: "/gun-sonu",   label: "Gün Sonu",     icon: ReceiptText,    color: "text-violet-400", activeBg: "bg-violet-500/15" },
-  { kind: "leaf", href: "/customers",  label: "Müşteriler",   icon: Users,          color: "text-pink-400",   activeBg: "bg-pink-500/15" },
-  { kind: "leaf", href: "/corporate",  label: "Kurumsal",     icon: Building2,      color: "text-cyan-400",   activeBg: "bg-cyan-500/15" },
-  { kind: "leaf", href: "/products",   label: "Menü",         icon: UtensilsCrossed, color: "text-amber-400", activeBg: "bg-amber-500/15" },
-  { kind: "leaf", href: "/kurye",      label: "Kurye",        icon: Bike,           color: "text-lime-400",   activeBg: "bg-lime-500/15" },
-  { kind: "leaf", href: "/settings",   label: "Ayarlar",      icon: Settings,       color: "text-slate-300",  activeBg: "bg-white/10" },
+  {
+    title: "Analiz",
+    items: [
+      {
+        kind: "group",
+        id: "komuta",
+        label: "Komuta Merkezi",
+        icon: LayoutDashboard,
+        color: "text-blue-400",
+        activeBg: "bg-blue-500/15",
+        basePath: "/komuta",
+        children: [
+          { href: "/komuta",            label: "Genel Bakış", icon: LayoutDashboard },
+          { href: "/komuta/performans", label: "Performans",  icon: Gauge },
+          { href: "/komuta/musteri",    label: "Müşteri",     icon: UserRound },
+        ],
+      },
+      {
+        kind: "group",
+        id: "trendyol",
+        label: "Trendyol",
+        icon: Store,
+        color: "text-emerald-400",
+        activeBg: "bg-emerald-500/15",
+        basePath: "/dashboard/trendyol",
+        children: [
+          { href: "/dashboard/trendyol",           label: "Genel Bakış",     icon: LayoutDashboard },
+          { href: "/dashboard/trendyol/gun-sonu",  label: "Gün Sonu",        icon: Landmark },
+          { href: "/dashboard/trendyol/sales",     label: "Satış Analitiği", icon: LineChart },
+          { href: "/dashboard/trendyol/customers", label: "Müşteri",         icon: UserSearch },
+          { href: "/dashboard/trendyol/regions",   label: "Bölgeler",        icon: MapIcon },
+          { href: "/dashboard/trendyol/menu",      label: "Menü",            icon: UtensilsCrossed },
+          { href: "/dashboard/trendyol/categories", label: "Kategoriler",    icon: Tags },
+          { href: "/dashboard/trendyol/reviews",    label: "Değerlendirmeler", icon: MessageSquare },
+          { href: "/dashboard/trendyol/promotions", label: "Kampanyalar",     icon: Megaphone },
+        ],
+      },
+    ],
+  },
+  {
+    title: "Kayıtlar",
+    items: [
+      { kind: "leaf", href: "/customers",  label: "Müşteriler",   icon: Users,          color: "text-pink-400",   activeBg: "bg-pink-500/15" },
+      { kind: "leaf", href: "/corporate",  label: "Kurumsal",     icon: Building2,      color: "text-cyan-400",   activeBg: "bg-cyan-500/15" },
+      { kind: "leaf", href: "/products",   label: "Menü",         icon: UtensilsCrossed, color: "text-amber-400", activeBg: "bg-amber-500/15" },
+      { kind: "leaf", href: "/settings",   label: "Ayarlar",      icon: Settings,       color: "text-slate-300",  activeBg: "bg-white/10" },
+    ],
+  },
 ];
 
 function isLeafActive(pathname: string, href: string) {
   if (href === "/") return pathname === "/";
   if (href === "/orders") {
     return pathname === "/orders" || (pathname.startsWith("/orders") && !pathname.startsWith("/orders/new"));
-  }
-  if (href === "/dashboard") {
-    // Trendyol kendi grubuna ait; Dashboard sadece kendi alt yollarını kapsasın.
-    if (pathname.startsWith("/dashboard/trendyol")) return false;
-    return pathname === "/dashboard" || pathname.startsWith("/dashboard/");
   }
   return pathname.startsWith(href);
 }
@@ -380,44 +406,52 @@ export default function AppSidebar({ variant = "desktop", onNavigate }: Props) {
       </div>
 
       <nav className="flex-1 py-4 overflow-y-auto px-2">
-        {!showCollapsed && (
-          <p className="px-3 mb-2 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
-            Menü
-          </p>
-        )}
-        <div className="space-y-0.5">
-          {NAV_ITEMS.map((item) => {
-            if (item.kind === "group") {
-              return (
-                <GroupBlock
-                  key={item.id}
-                  group={item}
-                  pathname={pathname}
-                  showCollapsed={showCollapsed}
-                  expanded={isGroupExpanded(item)}
-                  onToggle={() => toggleGroup(item)}
-                  onNavigate={onNavigate}
-                />
-              );
-            }
-            const active = isLeafActive(pathname, item.href);
-            return (
-              <LeafLink
-                key={item.href}
-                item={item}
-                isActive={active}
-                showCollapsed={showCollapsed}
-                badge={
-                  item.href === "/orders"
-                    ? activeOrdersCount
-                    : item.href === "/open-accounts"
-                      ? openAccountsCount
-                      : undefined
-                }
-                onNavigate={onNavigate}
-              />
-            );
-          })}
+        <div className="space-y-4">
+          {NAV_SECTIONS.map((section, i) => (
+            <div key={section.title}>
+              {showCollapsed ? (
+                i > 0 && <div className="mx-3 mb-3 h-px bg-white/10" />
+              ) : (
+                <p className="px-3 mb-2 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+                  {section.title}
+                </p>
+              )}
+              <div className="space-y-0.5">
+                {section.items.map((item) => {
+                  if (item.kind === "group") {
+                    return (
+                      <GroupBlock
+                        key={item.id}
+                        group={item}
+                        pathname={pathname}
+                        showCollapsed={showCollapsed}
+                        expanded={isGroupExpanded(item)}
+                        onToggle={() => toggleGroup(item)}
+                        onNavigate={onNavigate}
+                      />
+                    );
+                  }
+                  const active = isLeafActive(pathname, item.href);
+                  return (
+                    <LeafLink
+                      key={item.href}
+                      item={item}
+                      isActive={active}
+                      showCollapsed={showCollapsed}
+                      badge={
+                        item.href === "/orders"
+                          ? activeOrdersCount
+                          : item.href === "/open-accounts"
+                            ? openAccountsCount
+                            : undefined
+                      }
+                      onNavigate={onNavigate}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </div>
       </nav>
 

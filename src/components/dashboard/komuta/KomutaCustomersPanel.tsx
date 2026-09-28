@@ -1,19 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Repeat } from "lucide-react";
 
 import {
-  getKomutaCustomers,
   type KomutaCustomers,
   type KomutaCustomerRow,
 } from "@/actions/komutaOverview";
 import { type DashboardPeriod } from "@/lib/dashboardPeriods";
 import { type OrderSource } from "@/types";
 import { formatCurrencyShort } from "@/lib/utils";
-import { Card, CardContent } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
 import { KomutaRankList, type KomutaRankItem } from "./KomutaRankList";
+import { StatStrip, StripStat } from "./KomutaUI";
+import { useKomutaFilters } from "./KomutaShell";
+import { useKomutaQuery } from "./useKomutaQuery";
 
 interface Props {
   period: DashboardPeriod;
@@ -35,24 +33,10 @@ export function KomutaCustomersPanel({
   onCustomerClick,
   cohorts,
 }: Props) {
-  // Veriyi anahtarla sakla; data'yı render'da türet (efektte senkron setState yok).
-  const key = `${period}|${channel}|${dayOffset}`;
-  const [fetched, setFetched] = useState<{
-    key: string;
-    data: KomutaCustomers;
-  } | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    getKomutaCustomers(period, channel, dayOffset).then((r) => {
-      if (alive) setFetched({ key, data: r });
-    });
-    return () => {
-      alive = false;
-    };
-  }, [period, channel, dayOffset, key]);
-
-  const data = fetched?.key === key ? fetched.data : null;
+  const { refreshKey } = useKomutaFilters();
+  const { data } = useKomutaQuery<KomutaCustomers>("customers", [period, channel, dayOffset], {
+    refreshKey,
+  });
 
   const seg = data?.segments;
   const customers = data?.topCustomers ?? [];
@@ -69,38 +53,11 @@ export function KomutaCustomersPanel({
   return (
     <div className="flex flex-col gap-4">
       {/* Kanal segmentleri */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <SegmentCard
-          label="Sadece Kendi"
-          value={seg?.onlyOwn}
-          sub="yalnız paket/manuel"
-          dot="bg-blue-500"
-          isLoading={data === null}
-        />
-        <SegmentCard
-          label="Sadece Trendyol"
-          value={seg?.onlyTrendyol}
-          sub="yalnız Trendyol'dan"
-          dot="bg-orange-500"
-          isLoading={data === null}
-        />
-        <Card className="border-2 border-violet-200 bg-violet-50/40 dark:border-violet-900 dark:bg-violet-950/20">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between text-violet-700 dark:text-violet-300">
-              <span className="text-sm font-medium">Her İki Kanal</span>
-              <Repeat className="size-4" />
-            </div>
-            {data === null ? (
-              <Skeleton className="mt-2 h-8 w-16" />
-            ) : (
-              <p className="mt-1 text-2xl font-bold tabular-nums text-violet-700 dark:text-violet-300">
-                {seg?.both ?? 0}
-              </p>
-            )}
-            <p className="text-[11px] text-muted-foreground">hem senden hem Trendyol&apos;dan</p>
-          </CardContent>
-        </Card>
-      </div>
+      <StatStrip className="grid-cols-1 sm:grid-cols-3">
+        <StripStat label="Sadece Kendi" value={String(seg?.onlyOwn ?? 0)} sub="yalnız paket/manuel" dot="bg-blue-500" isLoading={data === null} />
+        <StripStat label="Sadece Trendyol" value={String(seg?.onlyTrendyol ?? 0)} sub="yalnız Trendyol'dan" dot="bg-orange-500" isLoading={data === null} />
+        <StripStat label="Her iki kanal" value={String(seg?.both ?? 0)} sub="hem senden hem Trendyol'dan" dot="bg-violet-500" tone="violet" isLoading={data === null} />
+      </StatStrip>
 
       {cohorts}
 
@@ -117,36 +74,5 @@ export function KomutaCustomersPanel({
         }}
       />
     </div>
-  );
-}
-
-function SegmentCard({
-  label,
-  value,
-  sub,
-  dot,
-  isLoading,
-}: {
-  label: string;
-  value: number | undefined;
-  sub: string;
-  dot: string;
-  isLoading: boolean;
-}) {
-  return (
-    <Card>
-      <CardContent className="p-4">
-        <div className="flex items-center justify-between text-muted-foreground">
-          <span className="text-sm">{label}</span>
-          <span className={`size-2.5 rounded-sm ${dot}`} />
-        </div>
-        {isLoading ? (
-          <Skeleton className="mt-2 h-8 w-16" />
-        ) : (
-          <p className="mt-1 text-2xl font-bold tabular-nums">{value ?? 0}</p>
-        )}
-        <p className="text-[11px] text-muted-foreground">{sub}</p>
-      </CardContent>
-    </Card>
   );
 }

@@ -1,37 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
-import {
-  Banknote,
-  Bike,
-  ChevronLeft,
-  ChevronRight,
-  LayoutDashboard,
-  MapPin,
-  Plus,
-  RefreshCw,
-  ShoppingBag,
-  Store,
-  TrendingUp,
-  Users,
-  Wallet,
-} from "lucide-react";
+import { useState } from "react";
 
-import {
-  getKomutaOverview,
-  type KomutaOverview,
-  type KomutaRegionRow,
-  type KomutaCustomerRow,
-} from "@/actions/komutaOverview";
-import { type DashboardPeriod } from "@/lib/dashboardPeriods";
-import {
-  getDashboardInsights,
-  type DashboardInsights,
-} from "@/actions/dashboardInsights";
-import { getMonthlyTarget } from "@/actions/settings";
-import { type OrderSource } from "@/types";
-import { Button } from "@/components/ui/button";
+import { type KomutaOperations, type KomutaOverview } from "@/actions/komutaOverview";
+import { type DashboardInsights } from "@/actions/dashboardInsights";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -39,192 +12,55 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { cn, formatCurrencyShort } from "@/lib/utils";
 
+import { useKomutaFilters } from "@/components/dashboard/komuta/KomutaShell";
+import { useKomutaQuery } from "@/components/dashboard/komuta/useKomutaQuery";
+import { ChannelSplitBar, Segmented, StatStrip } from "@/components/dashboard/komuta/KomutaUI";
 import { KomutaMetricCard } from "@/components/dashboard/komuta/KomutaMetricCard";
 import { KomutaRecentOrders } from "@/components/dashboard/komuta/KomutaRecentOrders";
 import { KomutaTrendChart } from "@/components/dashboard/komuta/KomutaTrendChart";
-import {
-  KomutaRankList,
-  type KomutaRankItem,
-} from "@/components/dashboard/komuta/KomutaRankList";
-import {
-  ChannelSplitSheet,
-  type ChannelSplitData,
-} from "@/components/dashboard/komuta/ChannelSplitSheet";
+import { KomutaHeatmap } from "@/components/dashboard/komuta/KomutaHeatmap";
+import { KomutaRankList, type KomutaRankItem } from "@/components/dashboard/komuta/KomutaRankList";
+import { ChannelSplitSheet, type ChannelSplitData } from "@/components/dashboard/komuta/ChannelSplitSheet";
 import { KomutaOrdersDialog } from "@/components/dashboard/komuta/KomutaOrdersDialog";
-import { OverviewRegionMap } from "@/components/dashboard/overview/OverviewRegionMap";
-import { InsightStat } from "@/components/dashboard/overview/InsightStat";
-import { KomutaOperationsPanel } from "@/components/dashboard/komuta/KomutaOperationsPanel";
-import { KomutaCustomersPanel } from "@/components/dashboard/komuta/KomutaCustomersPanel";
-import { KomutaTrendyolLoyalty } from "@/components/dashboard/komuta/KomutaTrendyolLoyalty";
-import { Card, CardContent } from "@/components/ui/card";
-
-// Aşama 2 — mevcut sayfa/bileşenler sekmelerin içine gömülüyor (route'lar duruyor).
-import EndOfDayPage from "@/app/gun-sonu/page";
-import TrendyolSalesPage from "@/app/dashboard/trendyol/sales/page";
-import { OverviewTab } from "@/components/dashboard/trendyol/OverviewTab";
-import { MenuTab } from "@/components/dashboard/trendyol/MenuTab";
-import { CategoriesTab } from "@/components/dashboard/trendyol/CategoriesTab";
-import { RegionsTab } from "@/components/dashboard/trendyol/RegionsTab";
-import { ReviewsTab } from "@/components/dashboard/trendyol/ReviewsTab";
-import { PromotionsTab } from "@/components/dashboard/trendyol/PromotionsTab";
-import { AllCustomersTab } from "@/components/dashboard/trendyol/AllCustomersTab";
-
-// ─── Kanal (kaynak) filtresi — birleştirmenin kalbi ─────────────────────────
-// "all" = Hepsi · "manual" = Kendi (paket/elle) · "trendyol" = Trendyol.
-// Mevcut action'lar üçünü de destekliyor (source: OrderSource | "all").
-type Channel = OrderSource | "all";
-const CHANNELS: { id: Channel; label: string }[] = [
-  { id: "all", label: "Hepsi" },
-  { id: "manual", label: "Kendi" },
-  { id: "trendyol", label: "Trendyol" },
-];
-
-const PERIODS: { id: DashboardPeriod; label: string }[] = [
-  { id: "day", label: "Gün" },
-  { id: "week", label: "Bu Hafta" },
-  { id: "month", label: "Bu Ay" },
-];
-
-function periodLabel(period: DashboardPeriod, offset: number): string {
-  if (period === "day") {
-    if (offset === 0) return "Bugün";
-    if (offset === 1) return "Dün";
-    const d = new Date();
-    d.setDate(d.getDate() - offset);
-    return d.toLocaleDateString("tr-TR", {
-      weekday: "short",
-      day: "numeric",
-      month: "short",
-    });
-  }
-  if (period === "week") {
-    if (offset === 0) return "Bu Hafta";
-    if (offset === 1) return "Geçen Hafta";
-    return `${offset} hafta önce`;
-  }
-  if (offset === 0) return "Bu Ay";
-  if (offset === 1) return "Geçen Ay";
-  return `${offset} ay önce`;
-}
-
-const MAX_OFFSET: Record<DashboardPeriod, number> = {
-  day: 365,
-  week: 52,
-  month: 24,
-};
-
-// Sayfa-içi sekmeler. Genel Bakış/Operasyon/Müşteri canlı; Para & Gün Sonu ve
-// Trendyol Detay bir sonraki adımda mevcut sayfalardan taşınacak (şimdilik köprü).
-type KomutaView = "ozet" | "operasyon" | "musteri" | "finans" | "trendyol";
-const VIEWS: { id: KomutaView; label: string; icon: React.ElementType; color: string }[] = [
-  { id: "ozet", label: "Genel Bakış", icon: LayoutDashboard, color: "text-blue-600 dark:text-blue-400" },
-  { id: "operasyon", label: "Operasyon", icon: Bike, color: "text-lime-600 dark:text-lime-400" },
-  { id: "musteri", label: "Müşteri", icon: Users, color: "text-pink-600 dark:text-pink-400" },
-  { id: "finans", label: "Para & Gün Sonu", icon: Wallet, color: "text-emerald-600 dark:text-emerald-400" },
-  { id: "trendyol", label: "Trendyol Detay", icon: Store, color: "text-orange-600 dark:text-orange-400" },
-];
-
-// Trendyol Detay iç alt-sekmeleri — mevcut Trendyol bileşenleri.
-type TyView =
-  | "overview"
-  | "sales"
-  | "customers"
-  | "regions"
-  | "menu"
-  | "categories"
-  | "reviews"
-  | "promotions";
-const TY_VIEWS: { id: TyView; label: string }[] = [
-  { id: "overview", label: "Genel Bakış" },
-  { id: "sales", label: "Satış Analitiği" },
-  { id: "customers", label: "Müşteri" },
-  { id: "regions", label: "Bölgeler" },
-  { id: "menu", label: "Menü" },
-  { id: "categories", label: "Kategoriler" },
-  { id: "reviews", label: "Değerlendirmeler" },
-  { id: "promotions", label: "Kampanyalar" },
-];
+import { KomutaPerformanceAlert } from "@/components/dashboard/komuta/performance/KomutaPerformanceAlert";
 
 function pct(cur: number, prev: number): number | null {
   if (prev === 0) return null;
   return ((cur - prev) / prev) * 100;
 }
 
-// Komuta "Gün" döneminde seçili günün ISO tarihi (Istanbul) — gün-sonu'na geçilir.
-function komutaDayISO(dayOffset: number): string {
-  const ist = new Date(Date.now() + 3 * 60 * 60 * 1000 - dayOffset * 24 * 60 * 60 * 1000);
-  return `${ist.getUTCFullYear()}-${String(ist.getUTCMonth() + 1).padStart(2, "0")}-${String(
-    ist.getUTCDate(),
-  ).padStart(2, "0")}`;
-}
+const fmtInt = (n: number) => n.toLocaleString("tr-TR");
 
-export default function KomutaPage() {
-  const [period, setPeriod] = useState<DashboardPeriod>("day");
-  const [dayOffset, setDayOffset] = useState(0);
-  const [view, setView] = useState<KomutaView>("ozet");
-  const [tyView, setTyView] = useState<TyView>("overview");
-  const [channel, setChannel] = useState<Channel>("all");
+// Komuta › Genel Bakış — KPI şeridi, dikkat şeridi, ciro trendi + son siparişler,
+// ürün / ödeme / bölge ve saat bazlı yoğunluk. Filtreler çerçevede (KomutaShell).
+export default function KomutaOverviewPage() {
+  const { period, channel, dayOffset, label, refreshKey } = useKomutaFilters();
 
   const [ordersOpen, setOrdersOpen] = useState(false);
-  const [mapOpen, setMapOpen] = useState(false);
   const [allProductsOpen, setAllProductsOpen] = useState(false);
   const [productSort, setProductSort] = useState<"most" | "least">("most");
-
-  const [data, setData] = useState<KomutaOverview | null>(null);
   const [split, setSplit] = useState<ChannelSplitData | null>(null);
-  const [insights, setInsights] = useState<DashboardInsights | null>(null);
-  const [target, setTarget] = useState(0);
 
-  const [isInitialLoading, setIsInitialLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const hasDataRef = useRef(false);
+  // Hepsi paralel çekilir ve sayfalar arası hafızada kalır (useKomutaQuery).
+  const args = [period, channel, dayOffset];
+  const overviewQ = useKomutaQuery<KomutaOverview>("overview", args, { refreshKey });
+  const insightsQ = useKomutaQuery<DashboardInsights>("insights", args, { refreshKey });
+  const targetQ = useKomutaQuery<number>("target", [], { refreshKey });
+  // Bölge + saat yoğunluğu — ağır sorgu, KPI'ları bekletmez.
+  const opsQ = useKomutaQuery<KomutaOperations>("operations", args, { refreshKey });
 
-  const load = useCallback(async () => {
-    if (hasDataRef.current) setIsRefreshing(true);
-    else setIsInitialLoading(true);
-    try {
-      const [overview, ins, tgt] = await Promise.all([
-        getKomutaOverview(period, channel, dayOffset),
-        getDashboardInsights(period, channel, dayOffset),
-        getMonthlyTarget(),
-      ]);
-      setData(overview);
-      setInsights(ins);
-      setTarget(tgt);
-      hasDataRef.current = true;
-    } finally {
-      setIsInitialLoading(false);
-      setIsRefreshing(false);
-    }
-  }, [period, channel, dayOffset]);
+  const data = overviewQ.data;
+  const insights = insightsQ.data;
+  const operations = opsQ.data;
+  const target = targetQ.data ?? 0;
 
-  useEffect(() => {
-    load();
-    const onFocus = () => load();
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
-  }, [load]);
-
-  useEffect(() => {
-    document.title = "Komuta Merkezi · Paket Sipariş";
-  }, []);
-
-  const isLoading = isInitialLoading;
+  const isLoading = overviewQ.isLoading;
   const cur = data?.current;
   const prev = data?.previous;
-
-  // Canlı operasyon yalnız "bugün" anlamlı.
   const showLive = period === "day" && dayOffset === 0;
-  const label = periodLabel(period, dayOffset);
+  const showLegend = channel === "all";
 
   const compareLabel =
     period === "day"
@@ -241,42 +77,43 @@ export default function KomutaPage() {
 
   const trendDesc =
     period === "day"
-      ? `${label} · saat saat ciro`
+      ? `${label} · saat saat`
       : channel === "trendyol"
         ? `${label} · saat dağılımı (Trendyol günlük veri vermez)`
         : channel === "all"
-          ? `${label} · gün gün ciro (Trendyol günlük dökümü hariç)`
-          : `${label} · gün gün ciro`;
-  const subtitle = `${label} · ${CHANNELS.find((c) => c.id === channel)?.label}`;
+          ? `${label} · gün gün (Trendyol günlük dökümü hariç)`
+          : `${label} · gün gün`;
 
-  // ─── Kanal kırılımı çipleri — Kendi (mavi) + Trendyol (turuncu, ikonlu) ──────
-  // Yalnız "Hepsi" seçiliyken ve iki kanalda da değer varken anlamlı.
+  // ─── Kanal oranı — yalnız "Hepsi"de anlamlı ───
   const bd = data?.breakdown;
-  const showChips = channel === "all" && !!bd;
+  const splitBar = (own: number, ty: number, fmt: (n: number) => string) =>
+    channel === "all" && bd ? <ChannelSplitBar own={own} trendyol={ty} format={fmt} /> : null;
 
-  const channelChips = (ownVal: number, tyVal: number, fmt: (n: number) => string) =>
-    showChips && (ownVal > 0 || tyVal > 0) ? (
-      <div className="flex flex-wrap gap-1.5 text-[11px] font-medium">
-        <span className="rounded bg-blue-50 px-1.5 py-0.5 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
-          Kendi {fmt(ownVal)}
-        </span>
-        <span className="inline-flex items-center gap-1 rounded bg-orange-50 px-1.5 py-0.5 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300">
-          <Store className="size-3" />
-          {fmt(tyVal)}
-        </span>
-      </div>
-    ) : undefined;
+  // ─── İptal — kendi (DB) + Trendyol (API) birleşik; Sipariş hücresinin altında ───
+  const tyOps = data?.trendyolOps;
+  const tyOpsIncluded = (channel === "all" || channel === "trendyol") && !!tyOps?.available;
+  const ownCancel = channel !== "trendyol" ? insights?.cancel : undefined;
+  const cancelCount = (ownCancel?.cancelled ?? 0) + (tyOpsIncluded ? tyOps!.cancelled : 0);
+  const cancelBase =
+    (ownCancel?.total ?? 0) + (tyOpsIncluded ? tyOps!.orderCount + tyOps!.cancelled : 0);
+  const cancelRate = cancelBase > 0 ? (cancelCount / cancelBase) * 100 : 0;
+  const cancelLine =
+    insights && cancelBase > 0 ? (
+      <span
+        className={cn(
+          "text-[11px] tabular-nums",
+          cancelRate > 5 ? "text-rose-600 dark:text-rose-400" : "text-muted-foreground",
+        )}
+      >
+        {cancelCount > 0
+          ? `İptal %${cancelRate.toFixed(1)} · ${fmtInt(cancelCount)} sipariş`
+          : "İptal yok"}
+      </span>
+    ) : null;
 
-  const fmtInt = (n: number) => n.toLocaleString("tr-TR");
-  const revenueChips = channelChips(bd?.own.revenue ?? 0, bd?.trendyol.revenue ?? 0, formatCurrencyShort);
-  const netChips = channelChips(bd?.own.net ?? 0, bd?.trendyol.net ?? 0, formatCurrencyShort);
-  const orderChips = channelChips(bd?.own.orderCount ?? 0, bd?.trendyol.orderCount ?? 0, fmtInt);
-
-  // ─── Sıralı listeler (kanal kırılımlı — iki renkli çubuk) ────
-  // Not: modal listesi "Az satan" sırasına çevrilebilir (en az satılan üstte).
+  // ─── Sıralı listeler (iki renkli çubuk: mavi kendi, turuncu Trendyol) ───
   const splitProducts = data?.splitProducts ?? [];
   const splitPayments = data?.splitPayments ?? [];
-  const showLegend = channel === "all";
 
   const maxProductQty = Math.max(1, ...splitProducts.map((p) => p.quantity));
   const productItems: KomutaRankItem[] = splitProducts.map((p) => ({
@@ -286,17 +123,26 @@ export default function KomutaPage() {
     ownShare: (p.own.quantity / maxProductQty) * 100,
     tyShare: (p.trendyol.quantity / maxProductQty) * 100,
   }));
+  const modalProductItems = productSort === "most" ? productItems : [...productItems].reverse();
 
   const maxPayAmount = Math.max(1, ...splitPayments.map((p) => p.amount));
   const paymentTotal = Math.max(1, splitPayments.reduce((s, p) => s + p.amount, 0));
-  const modalProductItems =
-    productSort === "most" ? productItems : [...productItems].reverse();
   const paymentItems: KomutaRankItem[] = splitPayments.map((p) => ({
     id: p.key,
     label: p.label,
     primary: `${formatCurrencyShort(p.amount)} · %${Math.round((p.amount / paymentTotal) * 100)}`,
     ownShare: (p.own / maxPayAmount) * 100,
     tyShare: (p.trendyol / maxPayAmount) * 100,
+  }));
+
+  const regions = operations?.regions ?? [];
+  const maxRegion = Math.max(1, ...regions.map((r) => r.total));
+  const regionItems: KomutaRankItem[] = regions.map((r) => ({
+    id: r.name,
+    label: r.name,
+    primary: `${r.total} sip · ${formatCurrencyShort(r.revenue)}`,
+    ownShare: (r.own / maxRegion) * 100,
+    tyShare: (r.trendyol / maxRegion) * 100,
   }));
 
   // Satıra tıkla → kanal kırılımı yan panel ("kimde ne kadar").
@@ -335,8 +181,9 @@ export default function KomutaPage() {
       ordersQuery: { period, channel, dayOffset, method: p.key },
     });
   };
-  // Bölge satırına tıkla → kanal kırılımı + o bölgenin siparişleri.
-  const openRegionSplit = (r: KomutaRegionRow) => {
+  const openRegionSplit = (name: string) => {
+    const r = regions.find((x) => x.name === name);
+    if (!r) return;
     setSplit({
       title: r.name,
       subtitle: `${r.total} sipariş · ${formatCurrencyShort(r.revenue)} · ${label}`,
@@ -348,637 +195,159 @@ export default function KomutaPage() {
       ordersQuery: { period, channel, dayOffset, district: r.name },
     });
   };
-  // Müşteriye tıkla → kanal başına harcama + sipariş geçmişi.
-  const openCustomerSplit = (c: KomutaCustomerRow) => {
-    setSplit({
-      title: c.name && c.name !== "—" ? c.name : c.phone ?? "Trendyol müşterisi",
-      subtitle: `${formatCurrencyShort(c.total)} · ${c.own.orders + c.trendyol.orders} sipariş · ${label}`,
-      own: { value: `${c.own.orders} sip · ${formatCurrencyShort(c.own.revenue)}`, raw: c.own.revenue },
-      trendyol: {
-        value: `${c.trendyol.orders} sip · ${formatCurrencyShort(c.trendyol.revenue)}`,
-        raw: c.trendyol.revenue,
-      },
-      ordersQuery: {
-        period,
-        channel,
-        dayOffset,
-        phone: c.phone ?? undefined,
-        trendyolId: c.trendyolId ?? undefined,
-      },
-    });
-  };
-
-  const maxCourier = Math.max(1, ...(insights?.couriers ?? []).map((c) => c.deliveries));
-  const courierItems: KomutaRankItem[] = (insights?.couriers ?? []).map((c) => ({
-    id: c.name,
-    label: c.name,
-    primary: `${c.deliveries} teslimat`,
-    secondary: `${c.trendyolDeliveries > 0 ? `Kendi ${c.deliveries - c.trendyolDeliveries} · TY ${c.trendyolDeliveries} · ` : ""}${c.avgMin != null ? `${c.avgMin} dk · ` : ""}${formatCurrencyShort(c.amount)}`,
-    ownShare: ((c.deliveries - c.trendyolDeliveries) / maxCourier) * 100,
-    tyShare: (c.trendyolDeliveries / maxCourier) * 100,
-  }));
-  const courierHasTy = (insights?.couriers ?? []).some((c) => c.trendyolDeliveries > 0);
-
-  const cancelTrend =
-    insights && insights.cancel.prevRate != null
-      ? insights.cancel.rate - insights.cancel.prevRate
-      : null;
-
-  // Operasyon — Trendyol sipariş/teslim/iptal sayılarını kat (kurye/süre yok).
-  const tyOps = data?.trendyolOps;
-  const tyOpsIncluded = (channel === "all" || channel === "trendyol") && !!tyOps?.available;
-  const ownDelivered = insights?.delivery.delivered ?? 0;
-  const deliveredTotal = ownDelivered + (tyOpsIncluded ? tyOps!.delivered : 0);
-  const tyOnly = channel === "trendyol";
-  const tyCancelRate =
-    tyOps && tyOps.orderCount + tyOps.cancelled > 0
-      ? (tyOps.cancelled / (tyOps.orderCount + tyOps.cancelled)) * 100
-      : 0;
-
-  // Teslim süresi: kendi (DB) + Trendyol (sipariş arşivi) ağırlıklı birleşim.
-  const ownDel = insights?.delivery;
-  const tyDel = channel === "all" ? insights?.trendyolDelivery ?? null : null;
-  const delCount = (ownDel?.delivered ?? 0) + (tyDel?.delivered ?? 0);
-  const delOnTimeRate =
-    delCount > 0 ? (((ownDel?.onTime ?? 0) + (tyDel?.onTime ?? 0)) / delCount) * 100 : 0;
-  const delAvgMin =
-    delCount > 0
-      ? Math.round(
-          ((ownDel?.avgMin ?? 0) * (ownDel?.delivered ?? 0) +
-            (tyDel?.avgMin ?? 0) * (tyDel?.delivered ?? 0)) /
-            delCount,
-        )
-      : null;
-  const delSlowest = Math.max(ownDel?.slowestMin ?? 0, tyDel?.slowestMin ?? 0) || null;
-  const tyOnlyDel = insights?.trendyolDelivery ?? null;
 
   const showTarget = period === "month" && dayOffset === 0 && target > 0;
   const targetPct = showTarget && cur ? Math.min(100, (cur.revenue / target) * 100) : 0;
-
   const openAllOrders = () => setOrdersOpen(true);
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="mx-auto flex max-w-7xl flex-col gap-5 p-4 sm:p-6 lg:p-8">
-        {/* ─── Başlık + kontroller ─────────────────────────────── */}
-        <header className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Komuta Merkezi</h1>
-            <p className="text-sm text-muted-foreground">{subtitle}</p>
-          </div>
+    <>
+      {/* ─── KPI şeridi ─── */}
+      <StatStrip className="grid-cols-2 lg:grid-cols-4">
+        <KomutaMetricCard
+          label="Ciro"
+          value={formatCurrencyShort(cur?.revenue ?? 0)}
+          delta={cur && prev ? pct(cur.revenue, prev.revenue) : null}
+          comparisonLabel={compareLabel}
+          isLoading={isLoading}
+          onClick={openAllOrders}
+          footer={splitBar(bd?.own.revenue ?? 0, bd?.trendyol.revenue ?? 0, formatCurrencyShort)}
+        />
+        <KomutaMetricCard
+          label="Net (cebe giren)"
+          value={formatCurrencyShort(cur?.net ?? 0)}
+          delta={cur && prev ? pct(cur.net, prev.net) : null}
+          comparisonLabel={compareLabel}
+          accent
+          isLoading={isLoading}
+          onClick={openAllOrders}
+          footer={splitBar(bd?.own.net ?? 0, bd?.trendyol.net ?? 0, formatCurrencyShort)}
+        />
+        <KomutaMetricCard
+          label="Sipariş"
+          value={fmtInt(cur?.orderCount ?? 0)}
+          delta={cur && prev ? pct(cur.orderCount, prev.orderCount) : null}
+          comparisonLabel={compareLabel}
+          isLoading={isLoading}
+          onClick={openAllOrders}
+          footer={
+            splitBar(bd?.own.orderCount ?? 0, bd?.trendyol.orderCount ?? 0, fmtInt) || cancelLine ? (
+              <>
+                {splitBar(bd?.own.orderCount ?? 0, bd?.trendyol.orderCount ?? 0, fmtInt)}
+                {cancelLine}
+              </>
+            ) : null
+          }
+        />
+        <KomutaMetricCard
+          label="Ortalama sepet"
+          value={formatCurrencyShort(cur?.avgBasket ?? 0)}
+          delta={cur && prev ? pct(cur.avgBasket, prev.avgBasket) : null}
+          comparisonLabel={compareLabel}
+          isLoading={isLoading}
+          onClick={openAllOrders}
+        />
+      </StatStrip>
 
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Kanal seçici — dropdown (kompakt, mobil dostu) */}
-            <Select value={channel} onValueChange={(v) => setChannel(v as Channel)}>
-              <SelectTrigger className="w-26" aria-label="Kanal">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {CHANNELS.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            {/* Dönem seçici — dropdown */}
-            <Select
-              value={period}
-              onValueChange={(v) => {
-                setPeriod(v as DashboardPeriod);
-                setDayOffset(0);
-              }}
-            >
-              <SelectTrigger className="w-27.5" aria-label="Dönem">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {PERIODS.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            {/* Gezgin */}
-            <div className="inline-flex items-center rounded-lg border bg-background">
-              <button
-                type="button"
-                onClick={() => setDayOffset((o) => Math.min(MAX_OFFSET[period], o + 1))}
-                className="flex size-8 items-center justify-center rounded-l-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                aria-label="Önceki dönem"
-              >
-                <ChevronLeft className="size-4" />
-              </button>
-              <span className="min-w-24 px-2 text-center text-sm font-medium">{label}</span>
-              <button
-                type="button"
-                onClick={() => setDayOffset((o) => Math.max(0, o - 1))}
-                disabled={dayOffset === 0}
-                className="flex size-8 items-center justify-center rounded-r-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent"
-                aria-label="Sonraki dönem"
-              >
-                <ChevronRight className="size-4" />
-              </button>
+      {showTarget && cur && (
+        <Card className="py-0 shadow-xs">
+          <CardContent className="p-4">
+            <div className="mb-2 flex items-baseline justify-between text-sm">
+              <span className="font-medium">Aylık hedef</span>
+              <span className="tabular-nums text-muted-foreground">
+                {formatCurrencyShort(cur.revenue)} / {formatCurrencyShort(target)}
+                <span className="ml-2 font-semibold text-foreground">%{targetPct.toFixed(0)}</span>
+              </span>
             </div>
+            <div className="h-2 overflow-hidden rounded-full bg-muted">
+              <div
+                className={cn(
+                  "h-full rounded-full transition-all",
+                  targetPct >= 100 ? "bg-emerald-500" : "bg-primary",
+                )}
+                style={{ width: `${Math.max(targetPct, 2)}%` }}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
-            <Button variant="outline" size="sm" onClick={() => setMapOpen(true)} className="gap-1.5">
-              <MapPin className="size-3.5" />
-              <span className="hidden sm:inline">Harita</span>
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={load}
-              disabled={isInitialLoading || isRefreshing}
-              className="gap-1.5"
-            >
-              <RefreshCw className={cn("size-3.5", (isInitialLoading || isRefreshing) && "animate-spin")} />
-              <span className="hidden sm:inline">Yenile</span>
-            </Button>
-            <Button size="sm" asChild className="gap-1.5">
-              <Link href="/orders/new">
-                <Plus className="size-3.5" />
-                Yeni Sipariş
-              </Link>
-            </Button>
-          </div>
-        </header>
+      <KomutaPerformanceAlert period={period} channel={channel} dayOffset={dayOffset} />
 
-        {/* ─── Sayfa-içi sekmeler (segmented control — net tıklanabilir) ─── */}
-        <div className="overflow-x-auto rounded-xl border bg-muted/50 p-1 shadow-inner">
-          <div className="flex min-w-max gap-1 sm:min-w-full">
-            {VIEWS.map((v) => {
-              const Icon = v.icon;
-              const active = view === v.id;
-              return (
-                <button
-                  key={v.id}
-                  type="button"
-                  onClick={() => setView(v.id)}
-                  aria-pressed={active}
-                  className={cn(
-                    "flex flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-lg px-3 py-2.5 text-sm transition-all",
-                    active
-                      ? "bg-background font-semibold text-foreground shadow-sm ring-1 ring-border"
-                      : "font-medium text-muted-foreground hover:bg-background/70 hover:text-foreground",
-                  )}
-                >
-                  <Icon
-                    className={cn("size-4 shrink-0", active ? v.color : "text-muted-foreground/70")}
-                  />
-                  {v.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* ════════ GENEL BAKIŞ ════════ */}
-        {view === "ozet" && (
-          <>
-            <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-              <KomutaMetricCard
-                label="Ciro"
-                icon={TrendingUp}
-                value={formatCurrencyShort(cur?.revenue ?? 0)}
-                delta={cur && prev ? pct(cur.revenue, prev.revenue) : null}
-                comparisonLabel={compareLabel}
-                isLoading={isLoading}
-                onClick={openAllOrders}
-                chips={revenueChips}
-              />
-              <KomutaMetricCard
-                label="Net (Cebe Giren)"
-                icon={Banknote}
-                value={formatCurrencyShort(cur?.net ?? 0)}
-                delta={cur && prev ? pct(cur.net, prev.net) : null}
-                comparisonLabel={compareLabel}
-                accent
-                isLoading={isLoading}
-                onClick={openAllOrders}
-                chips={netChips}
-              />
-              <KomutaMetricCard
-                label="Sipariş"
-                icon={ShoppingBag}
-                value={(cur?.orderCount ?? 0).toLocaleString("tr-TR")}
-                delta={cur && prev ? pct(cur.orderCount, prev.orderCount) : null}
-                comparisonLabel={compareLabel}
-                isLoading={isLoading}
-                onClick={openAllOrders}
-                chips={orderChips}
-              />
-              <KomutaMetricCard
-                label="Ortalama Sepet"
-                icon={Wallet}
-                value={formatCurrencyShort(cur?.avgBasket ?? 0)}
-                delta={cur && prev ? pct(cur.avgBasket, prev.avgBasket) : null}
-                comparisonLabel={compareLabel}
-                isLoading={isLoading}
-                onClick={openAllOrders}
-              />
-            </section>
-
-            {showTarget && cur && (
-              <Card>
-                <CardContent className="p-4">
-                  <div className="mb-2 flex items-baseline justify-between text-sm">
-                    <span className="font-medium">Aylık Hedef</span>
-                    <span className="tabular-nums text-muted-foreground">
-                      {formatCurrencyShort(cur.revenue)} / {formatCurrencyShort(target)}
-                      <span className="ml-2 font-semibold text-foreground">
-                        %{targetPct.toFixed(0)}
-                      </span>
-                    </span>
-                  </div>
-                  <div className="h-3 overflow-hidden rounded-full bg-muted">
-                    <div
-                      className={cn(
-                        "h-full rounded-full transition-all",
-                        targetPct >= 100 ? "bg-emerald-500" : "bg-primary",
-                      )}
-                      style={{ width: `${Math.max(targetPct, 2)}%` }}
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            <section className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-3">
-              <div className={cn("h-full", showLive ? "lg:col-span-2" : "lg:col-span-3")}>
-                <KomutaTrendChart
-                  data={data?.splitTrend ?? []}
-                  title="Ciro Trendi"
-                  description={trendDesc}
-                  isLoading={isLoading}
-                />
-              </div>
-              {showLive && (
-                <KomutaRecentOrders period={period} channel={channel} dayOffset={dayOffset} />
-              )}
-            </section>
-
-            <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <KomutaRankList
-                title="En Çok Satan Ürünler"
-                items={productItems}
-                isLoading={isLoading}
-                emptyText="Bu dönemde satış yok."
-                showLegend={showLegend}
-                hint="Satıra tıkla → kendi/Trendyol kırılımı"
-                onItemClick={openProductSplit}
-                maxItems={5}
-                onShowAll={() => setAllProductsOpen(true)}
-              />
-              <KomutaRankList
-                title="Nasıl Ödendi"
-                items={paymentItems}
-                isLoading={isLoading}
-                emptyText="Tahsilat verisi yok."
-                showLegend={showLegend}
-                hint="Satıra tıkla → kendi/Trendyol kırılımı"
-                onItemClick={openPaymentSplit}
-              />
-            </section>
-          </>
-        )}
-
-        {/* ════════ OPERASYON — Trendyol kanalı (DB insight'ı boş, TY sayıları) ════════ */}
-        {view === "operasyon" && tyOnly && (
-          <>
-            <SectionTitle>Trendyol Teslimat</SectionTitle>
-            <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-              <InsightStat
-                label="Sipariş"
-                value={tyOps?.available ? String(tyOps.orderCount) : "—"}
-                isLoading={isLoading}
-              />
-              <InsightStat
-                label="Teslim Edilen"
-                value={tyOps?.available ? String(tyOps.delivered) : "—"}
-                tone="emerald"
-                isLoading={isLoading}
-              />
-              <InsightStat
-                label="İptal"
-                value={tyOps?.available ? String(tyOps.cancelled) : "—"}
-                tone="rose"
-                isLoading={isLoading}
-              />
-              <InsightStat
-                label="İptal Oranı"
-                value={tyOps?.available ? `%${tyCancelRate.toFixed(1)}` : "—"}
-                tone={tyCancelRate > 5 ? "rose" : "default"}
-                isLoading={isLoading}
-              />
-            </section>
-            <section className="grid grid-cols-2 gap-4 lg:grid-cols-3">
-              <InsightStat
-                label="Zamanında Teslim"
-                value={tyOnlyDel?.delivered ? `%${tyOnlyDel.onTimeRate.toFixed(0)}` : "—"}
-                sub={tyOnlyDel ? `${tyOnlyDel.slaMin} dk altı` : undefined}
-                tone={
-                  !tyOnlyDel?.delivered
-                    ? "default"
-                    : tyOnlyDel.onTimeRate >= 80
-                      ? "emerald"
-                      : tyOnlyDel.onTimeRate < 50
-                        ? "rose"
-                        : "amber"
-                }
-                isLoading={isLoading}
-              />
-              <InsightStat
-                label="Ort. Teslim Süresi"
-                value={tyOnlyDel?.avgMin != null ? `${tyOnlyDel.avgMin} dk` : "—"}
-                sub={
-                  tyOnlyDel?.slowestMin != null ? `en yavaş ${tyOnlyDel.slowestMin} dk` : undefined
-                }
-                isLoading={isLoading}
-              />
-              <InsightStat
-                label="Süresi Ölçülen"
-                value={tyOnlyDel ? String(tyOnlyDel.delivered) : "—"}
-                sub="teslim edilen paket"
-                isLoading={isLoading}
-              />
-            </section>
-            <KomutaRankList
-              title="Kurye Performansı (Trendyol)"
-              items={courierItems}
-              isLoading={isLoading}
-              emptyText="Bu dönemde kuryelerin teslim ettiği Trendyol paketi yok."
-            />
-            <Card>
-              <CardContent className="p-4 text-sm text-muted-foreground">
-                Teslim süresi sipariş arşivinden hesaplanır: kendi kuryenin teslim ettiği
-                paketlerde kurye ekranındaki &quot;Teslim&quot; anı, diğerlerinde Trendyol&apos;daki
-                son durum değişikliği esas alınır. Kurye performansı yalnız kurye ekranından
-                teslim edilen paketleri sayar.
-              </CardContent>
-            </Card>
-            <KomutaOperationsPanel
-              period={period}
-              channel={channel}
-              dayOffset={dayOffset}
-              showLegend={false}
-              onRegionClick={openRegionSplit}
-            />
-          </>
-        )}
-
-        {/* ════════ OPERASYON — Kendi / Hepsi ════════ */}
-        {view === "operasyon" && !tyOnly && (
-          <>
-            <SectionTitle>Teslimat</SectionTitle>
-            <section className="grid grid-cols-2 gap-4 lg:grid-cols-5">
-              <InsightStat
-                label="Sipariş"
-                value={
-                  data ? fmtInt((bd?.own.orderCount ?? 0) + (bd?.trendyol.orderCount ?? 0)) : "—"
-                }
-                sub={
-                  channel === "all"
-                    ? `Kendi ${fmtInt(bd?.own.orderCount ?? 0)} · TY ${fmtInt(bd?.trendyol.orderCount ?? 0)}`
-                    : undefined
-                }
-                isLoading={isLoading}
-              />
-              <InsightStat
-                label="Zamanında Teslim"
-                value={insights && delCount > 0 ? `%${delOnTimeRate.toFixed(0)}` : "—"}
-                sub={insights ? `${insights.delivery.slaMin} dk altı` : undefined}
-                tone={
-                  !insights || delCount === 0
-                    ? "default"
-                    : delOnTimeRate >= 80
-                    ? "emerald"
-                    : insights && delOnTimeRate < 50
-                      ? "rose"
-                      : "amber"
-                }
-                isLoading={isLoading}
-              />
-              <InsightStat
-                label="Ort. Teslim Süresi"
-                value={delAvgMin != null ? `${delAvgMin} dk` : "—"}
-                sub={
-                  tyDel?.avgMin != null
-                    ? `Kendi ${ownDel?.avgMin ?? "—"} · TY ${tyDel.avgMin} dk`
-                    : delSlowest != null
-                      ? `en yavaş ${delSlowest} dk`
-                      : undefined
-                }
-                isLoading={isLoading}
-              />
-              <InsightStat
-                label="İptal Oranı"
-                value={insights ? `%${insights.cancel.rate.toFixed(1)}` : "—"}
-                sub={
-                  tyOpsIncluded
-                    ? `Kendi ${insights?.cancel.cancelled ?? 0} · TY ${tyOps!.cancelled} iptal`
-                    : insights
-                      ? `${insights.cancel.cancelled} iptal`
-                      : undefined
-                }
-                tone={insights && insights.cancel.rate > 5 ? "rose" : "default"}
-                trend={cancelTrend}
-                trendUpGood={false}
-                isLoading={isLoading}
-              />
-              <InsightStat
-                label="Teslim Edilen"
-                value={insights ? String(deliveredTotal) : "—"}
-                sub={
-                  tyOpsIncluded
-                    ? `Kendi ${ownDelivered} · TY ${tyOps!.delivered}`
-                    : "süresi ölçülen"
-                }
-                isLoading={isLoading}
-              />
-            </section>
-            <KomutaRankList
-              title="Kurye Performansı"
-              items={courierItems}
-              showLegend={courierHasTy}
-              isLoading={isLoading}
-              emptyText="Bu dönemde kurye atanmış teslimat yok."
-            />
-            <KomutaOperationsPanel
-              period={period}
-              channel={channel}
-              dayOffset={dayOffset}
-              showLegend={channel === "all"}
-              onRegionClick={openRegionSplit}
-            />
-          </>
-        )}
-
-        {/* ════════ MÜŞTERİ — kanal segmentleri + kohort + en değerli (kendi+TY) ════════ */}
-        {view === "musteri" && (
-          <KomutaCustomersPanel
-            period={period}
-            channel={channel}
-            dayOffset={dayOffset}
-            showLegend={channel === "all"}
-            onCustomerClick={openCustomerSplit}
-            cohorts={
-              channel !== "trendyol" ? (
-                <>
-                  <SectionTitle>Sadakat (kendi siparişler)</SectionTitle>
-                  <section className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6">
-                    <InsightStat
-                      label="Bu Dönem Aktif"
-                      value={insights ? String(insights.cohorts.activeInPeriod) : "—"}
-                      isLoading={isLoading}
-                    />
-                    <InsightStat
-                      label="Yeni"
-                      value={insights ? String(insights.cohorts.newInPeriod) : "—"}
-                      tone="emerald"
-                      isLoading={isLoading}
-                    />
-                    <InsightStat
-                      label="Dönen"
-                      value={insights ? String(insights.cohorts.returningInPeriod) : "—"}
-                      isLoading={isLoading}
-                    />
-                    <InsightStat
-                      label="Tekrar Oranı"
-                      value={insights ? `%${insights.cohorts.repeatRate.toFixed(0)}` : "—"}
-                      sub="tüm zamanlar"
-                      isLoading={isLoading}
-                    />
-                    <InsightStat
-                      label="Soğuyan"
-                      value={insights ? String(insights.cohorts.atRisk) : "—"}
-                      tone="amber"
-                      sub="30–90 gün"
-                      isLoading={isLoading}
-                    />
-                    <InsightStat
-                      label="Kayıp"
-                      value={insights ? String(insights.cohorts.lost) : "—"}
-                      tone="rose"
-                      sub="90+ gün"
-                      isLoading={isLoading}
-                    />
-                  </section>
-                  {channel === "all" && (
-                    <KomutaTrendyolLoyalty
-                      period={period}
-                      dayOffset={dayOffset}
-                      title={<SectionTitle>Sadakat (Trendyol)</SectionTitle>}
-                    />
-                  )}
-                </>
-              ) : (
-                <KomutaTrendyolLoyalty
-                  period={period}
-                  dayOffset={dayOffset}
-                  title={<SectionTitle>Sadakat (Trendyol)</SectionTitle>}
-                />
-              )
-            }
+      {/* ─── Trend + son siparişler ─── */}
+      <section className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-3">
+        <div className={cn("h-full", showLive ? "lg:col-span-2" : "lg:col-span-3")}>
+          <KomutaTrendChart
+            data={data?.splitTrend ?? []}
+            title="Ciro trendi"
+            description={trendDesc}
+            isLoading={isLoading}
+            trimEmptyEdges={period === "day"}
           />
+        </div>
+        {showLive && (
+          <KomutaRecentOrders period={period} channel={channel} dayOffset={dayOffset} />
         )}
+      </section>
 
-        {/* ════════ PARA & GÜN SONU ════════ */}
-        {/* Mevcut Gün Sonu sayfası gömülü — Trendyol hakediş + kasa + arşiv.
-            Negatif yatay margin parent padding'i nötrler (sayfa kendi padding'ini getirir). */}
-        {view === "finans" && (
-          <div className="-mx-4 sm:-mx-6 lg:-mx-8">
-            <EndOfDayPage
-              initialDate={period === "day" ? komutaDayISO(dayOffset) : undefined}
-            />
-          </div>
-        )}
+      {/* ─── Ürün / ödeme / bölge ─── */}
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <KomutaRankList
+          title="En çok satan"
+          items={productItems}
+          isLoading={isLoading}
+          emptyText="Bu dönemde satış yok."
+          showLegend={showLegend}
+          hint="Satıra tıkla → kendi/Trendyol kırılımı"
+          onItemClick={openProductSplit}
+          maxItems={5}
+          onShowAll={() => setAllProductsOpen(true)}
+        />
+        <KomutaRankList
+          title="Nasıl ödendi"
+          items={paymentItems}
+          isLoading={isLoading}
+          emptyText="Tahsilat verisi yok."
+          showLegend={showLegend}
+          hint="Yemek kartına tıkla → marka kırılımı"
+          onItemClick={openPaymentSplit}
+        />
+        <KomutaRankList
+          title="Bölgeler"
+          items={regionItems}
+          isLoading={opsQ.isLoading}
+          emptyText="Bu dönemde bölge verisi yok (siparişlerde mahalle kayıtlı değil)."
+          showLegend={showLegend}
+          hint="Satıra tıkla → o bölgenin siparişleri"
+          onItemClick={openRegionSplit}
+          maxItems={6}
+        />
+      </section>
 
-        {/* ════════ TRENDYOL DETAY ════════ */}
-        {view === "trendyol" && (
-          <div className="flex flex-col gap-4">
-            <div className="inline-flex w-full overflow-x-auto rounded-xl border bg-muted/60 p-1">
-              {TY_VIEWS.map((v) => (
-                <button
-                  key={v.id}
-                  type="button"
-                  onClick={() => setTyView(v.id)}
-                  className={cn(
-                    "flex-1 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
-                    tyView === v.id
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {v.label}
-                </button>
-              ))}
-            </div>
-
-            {tyView === "overview" && <OverviewTab />}
-            {tyView === "sales" && <TrendyolSalesPage />}
-            {tyView === "customers" && <AllCustomersTab />}
-            {tyView === "regions" && <RegionsTab />}
-            {tyView === "menu" && <MenuTab />}
-            {tyView === "categories" && <CategoriesTab />}
-            {tyView === "reviews" && <ReviewsTab />}
-            {tyView === "promotions" && <PromotionsTab />}
-          </div>
-        )}
-      </div>
-
-      {/* Bölge haritası — modalda */}
-      <Dialog open={mapOpen} onOpenChange={setMapOpen}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-4xl">
-          <DialogHeader>
-            <DialogTitle>Siparişler Nereden Geldi</DialogTitle>
-            <DialogDescription>{subtitle} · pinli sipariş konumları</DialogDescription>
-          </DialogHeader>
-          {mapOpen && (
-            <OverviewRegionMap period={period} source={channel} dayOffset={dayOffset} />
-          )}
-        </DialogContent>
-      </Dialog>
+      <KomutaHeatmap hourly={operations?.hourly ?? []} isLoading={opsQ.isLoading} />
 
       {/* En çok satan ürünlerin tamamı — modalda */}
       <Dialog open={allProductsOpen} onOpenChange={setAllProductsOpen}>
         <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>
-              {productSort === "most" ? "En Çok Satan Ürünler" : "En Az Satan Ürünler"}
-            </DialogTitle>
+            <DialogTitle>{productSort === "most" ? "En çok satan ürünler" : "En az satan ürünler"}</DialogTitle>
             <DialogDescription>
-              {subtitle} · {splitProducts.length} ürün · satıra tıkla → kendi/Trendyol kırılımı
+              {label} · {splitProducts.length} ürün · satıra tıkla → kendi/Trendyol kırılımı
             </DialogDescription>
           </DialogHeader>
-          <div className="inline-flex w-full rounded-lg border bg-muted/60 p-1">
-            {(
-              [
-                ["most", "Çok satan"],
-                ["least", "Az satan"],
-              ] as const
-            ).map(([id, text]) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setProductSort(id)}
-                className={cn(
-                  "flex-1 rounded-md px-3 py-1 text-sm font-medium transition-colors",
-                  productSort === id
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {text}
-              </button>
-            ))}
-          </div>
+          <Segmented
+            ariaLabel="Sıralama"
+            value={productSort}
+            onChange={setProductSort}
+            options={[
+              { id: "most", label: "Çok satan" },
+              { id: "least", label: "Az satan" },
+            ]}
+            className="self-start"
+          />
           <KomutaRankList
             bare
-            title={productSort === "most" ? "En Çok Satan Ürünler" : "En Az Satan Ürünler"}
+            title={productSort === "most" ? "En çok satan ürünler" : "En az satan ürünler"}
             items={modalProductItems}
             isLoading={isLoading}
             emptyText="Bu dönemde satış yok."
@@ -991,29 +360,17 @@ export default function KomutaPage() {
         </DialogContent>
       </Dialog>
 
-      {/* KPI kartı → dönem siparişleri (Kendi DB + Trendyol API birlikte) */}
+      {/* KPI → dönem siparişleri (Kendi DB + Trendyol API birlikte) */}
       <KomutaOrdersDialog
         open={ordersOpen}
         onOpenChange={setOrdersOpen}
-        title={`${subtitle} — Siparişler`}
+        title={`${label} — Siparişler`}
         period={period}
         channel={channel}
         dayOffset={dayOffset}
       />
 
-      {/* Ürün/ödeme satırı → kanal kırılımı (kendi vs Trendyol) */}
       <ChannelSplitSheet data={split} onClose={() => setSplit(null)} />
-    </div>
-  );
-}
-
-function SectionTitle({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="mt-2 flex items-center gap-3">
-      <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-        {children}
-      </h2>
-      <div className="h-px flex-1 bg-border" />
-    </div>
+    </>
   );
 }

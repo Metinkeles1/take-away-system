@@ -6,29 +6,29 @@ import { cn } from "@/lib/utils";
 interface Props {
   label: string;
   value: string;
-  icon: React.ElementType;
   delta: number | null;
   comparisonLabel: string;
   accent?: boolean;
   isLoading?: boolean;
   onClick?: () => void;
-  /** Alt satırdaki kanal kırılımı çipleri. */
-  chips?: React.ReactNode;
+  /** Alt kısım — kanal oranı çubuğu, iptal satırı vb. */
+  footer?: React.ReactNode;
 }
 
-// Komuta Merkezi KPI kartı — mockup tasarımı: üstte etiket + ikon, büyük değer,
-// sade delta (▲/▼ %), altta kanal çipleri.
+// Komuta KPI hücresi — StatStrip içinde yan yana durur: etiket, büyük değer,
+// sade delta (▲/▼ %), altta kanal oranı. Net hücresi yeşil üst çizgiyle ayrışır.
 export function KomutaMetricCard({
   label,
   value,
-  icon: Icon,
   delta,
   comparisonLabel,
   accent,
   isLoading,
   onClick,
-  chips,
+  footer,
 }: Props) {
+  // Yuvarlanınca %0 olan fark yön göstermez (kırmızı "▼ %0" yanıltıcı).
+  const flat = delta !== null && Math.abs(delta) < 0.5;
   const up = delta !== null && delta >= 0;
   const clickable = !!onClick && !isLoading;
 
@@ -48,58 +48,51 @@ export function KomutaMetricCard({
           : undefined
       }
       className={cn(
-        "rounded-xl border bg-card p-4",
-        accent &&
-          "border-2 border-emerald-200 bg-emerald-50/40 dark:border-emerald-900 dark:bg-emerald-950/20",
-        clickable && "cursor-pointer transition-colors hover:border-foreground/20 hover:bg-muted/30",
+        "flex min-w-0 flex-col gap-1.5 bg-card p-4",
+        accent && "bg-emerald-50/60 shadow-[inset_0_3px_0_var(--color-emerald-500)] dark:bg-emerald-950/20",
+        clickable && "cursor-pointer transition-colors hover:bg-muted/40",
       )}
     >
-      <div
+      <span
         className={cn(
-          "flex items-center justify-between text-sm",
+          "text-xs",
           accent ? "font-medium text-emerald-700 dark:text-emerald-400" : "text-muted-foreground",
         )}
       >
-        <span>{label}</span>
-        <Icon className="size-4" />
-      </div>
+        {label}
+      </span>
 
       {isLoading ? (
-        <Skeleton className="mt-2 h-8 w-24" />
+        <Skeleton className="h-8 w-28" />
       ) : (
-        <p
+        <span
           className={cn(
-            "mt-2 text-2xl font-bold tabular-nums",
+            "text-[26px] font-bold leading-tight tracking-tight tabular-nums",
             accent && "text-emerald-700 dark:text-emerald-300",
           )}
         >
           {value}
-        </p>
+        </span>
       )}
 
       {!isLoading && (
-        <div className="mt-1 flex items-center gap-2 text-[11px]">
-          {delta === null ? (
-            <span className="text-muted-foreground">{comparisonLabel}</span>
-          ) : (
-            <>
-              <span
-                className={cn(
-                  "font-medium tabular-nums",
-                  up
-                    ? "text-emerald-600 dark:text-emerald-400"
-                    : "text-rose-600 dark:text-rose-400",
-                )}
-              >
-                {up ? "▲" : "▼"} %{Math.abs(delta).toFixed(0)}
-              </span>
-              <span className="text-muted-foreground">{comparisonLabel}</span>
-            </>
+        <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          {flat && <span className="font-semibold tabular-nums">± %0</span>}
+          {delta !== null && !flat && (
+            <span
+              className={cn(
+                "font-semibold tabular-nums",
+                up ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400",
+              )}
+            >
+              {up ? "▲" : "▼"} %{Math.abs(delta).toFixed(0)}
+            </span>
           )}
-        </div>
+          {comparisonLabel}
+        </span>
       )}
 
-      {!isLoading && chips && <div className="mt-3">{chips}</div>}
+      {!isLoading && footer && <div className="mt-1.5 flex flex-col gap-1.5">{footer}</div>}
     </div>
   );
 }

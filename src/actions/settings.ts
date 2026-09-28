@@ -13,6 +13,7 @@ const MULTI_COURIER_KEY = "multiCourierMode";
 const SHOP_LOCATION_KEY = "shopLocation";
 const SHOP_IBAN_KEY = "shopIban";
 const MONTHLY_TARGET_KEY = "monthlyRevenueTarget";
+const DELIVERY_TARGET_KEY = "deliveryTargetMin";
 
 export interface ShopLocation {
   lat: number;
@@ -158,6 +159,44 @@ export async function setMonthlyTarget(
     return { ok: true };
   } catch (error) {
     console.error("[setMonthlyTarget]", error);
+    return { ok: false, error: "Hedef kaydedilemedi" };
+  }
+}
+
+// Kurye teslim hedefi (dakika) — Komuta › Performans'ta "hedefi aşan" oranı ve
+// grafiklerdeki hedef çizgisi bu değerden. Girilmemişse varsayılan.
+const DEFAULT_DELIVERY_TARGET_MIN = 35;
+
+export async function getDeliveryTargetMin(): Promise<number> {
+  try {
+    await connectDB();
+    const doc = await SettingModel.findOne({ key: DELIVERY_TARGET_KEY })
+      .select("value")
+      .lean();
+    const value = Number((doc as unknown as { value?: number })?.value);
+    return Number.isFinite(value) && value > 0 ? value : DEFAULT_DELIVERY_TARGET_MIN;
+  } catch (error) {
+    console.error("[getDeliveryTargetMin]", error);
+    return DEFAULT_DELIVERY_TARGET_MIN;
+  }
+}
+
+export async function setDeliveryTargetMin(
+  minutes: number,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    if (!Number.isFinite(minutes) || minutes < 10 || minutes > 120) {
+      return { ok: false, error: "Hedef 10–120 dk arasında olmalı" };
+    }
+    await connectDB();
+    await SettingModel.updateOne(
+      { key: DELIVERY_TARGET_KEY },
+      { $set: { value: Math.round(minutes) } },
+      { upsert: true },
+    );
+    return { ok: true };
+  } catch (error) {
+    console.error("[setDeliveryTargetMin]", error);
     return { ok: false, error: "Hedef kaydedilemedi" };
   }
 }

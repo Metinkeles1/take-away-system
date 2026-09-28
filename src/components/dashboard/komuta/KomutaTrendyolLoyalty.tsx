@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
 
-import { getTrendyolLoyalty, type TrendyolLoyalty } from "@/actions/trendyolArchive";
+import { type TrendyolLoyalty } from "@/actions/trendyolArchive";
 import { type DashboardPeriod } from "@/lib/dashboardPeriods";
-import { InsightStat } from "@/components/dashboard/overview/InsightStat";
+import { StatStrip, StripStat } from "./KomutaUI";
+import { useKomutaFilters } from "./KomutaShell";
+import { useKomutaQuery } from "./useKomutaQuery";
 
 interface Props {
   period: DashboardPeriod;
@@ -15,20 +16,8 @@ interface Props {
 // Trendyol müşteri sadakati — sipariş arşivinden (kalıcı geçmiş). Kendi
 // müşterilerin "Sadakat" kartlarıyla aynı tanımlar (yeni/dönen/soğuyan/kayıp).
 export function KomutaTrendyolLoyalty({ period, dayOffset, title }: Props) {
-  const key = `${period}|${dayOffset}`;
-  const [fetched, setFetched] = useState<{ key: string; data: TrendyolLoyalty } | null>(null);
-
-  useEffect(() => {
-    let alive = true;
-    getTrendyolLoyalty(period, dayOffset).then((r) => {
-      if (alive) setFetched({ key, data: r });
-    });
-    return () => {
-      alive = false;
-    };
-  }, [period, dayOffset, key]);
-
-  const d = fetched?.key === key ? fetched.data : null;
+  const { refreshKey } = useKomutaFilters();
+  const { data: d } = useKomutaQuery<TrendyolLoyalty>("tyLoyalty", [period, dayOffset], { refreshKey });
   const isLoading = d === null;
   if (d && !d.available) return null;
 
@@ -39,45 +28,45 @@ export function KomutaTrendyolLoyalty({ period, dayOffset, title }: Props) {
   return (
     <>
       {title}
-      <section className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6">
-        <InsightStat
-          label="Bu Dönem Aktif"
+      <StatStrip className="grid-cols-2 sm:grid-cols-3 xl:grid-cols-6">
+        <StripStat
+          label="Bu dönem aktif"
           value={d ? String(d.activeInPeriod) : "—"}
           isLoading={isLoading}
         />
-        <InsightStat
+        <StripStat
           label="Yeni"
           value={d ? String(d.newInPeriod) : "—"}
-          tone="emerald"
+          tone="good"
           sub={since ? `arşiv ${since}'dan beri` : undefined}
           isLoading={isLoading}
         />
-        <InsightStat
+        <StripStat
           label="Dönen"
           value={d ? String(d.returningInPeriod) : "—"}
           isLoading={isLoading}
         />
-        <InsightStat
-          label="Tekrar Oranı"
+        <StripStat
+          label="Tekrar oranı"
           value={d ? `%${d.repeatRate.toFixed(0)}` : "—"}
           sub={d ? `${d.totalCustomers} müşteri` : undefined}
           isLoading={isLoading}
         />
-        <InsightStat
+        <StripStat
           label="Soğuyan"
           value={d ? String(d.atRisk) : "—"}
-          tone="amber"
+          tone="warn"
           sub="30–90 gün"
           isLoading={isLoading}
         />
-        <InsightStat
+        <StripStat
           label="Kayıp"
           value={d ? String(d.lost) : "—"}
-          tone="rose"
+          tone="bad"
           sub="90+ gün"
           isLoading={isLoading}
         />
-      </section>
+      </StatStrip>
     </>
   );
 }

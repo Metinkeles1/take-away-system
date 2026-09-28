@@ -455,8 +455,35 @@ export interface TrendyolPeriodOrder {
   district: string | null;
 }
 
+// Son siparişler + Müşteri + sipariş listeleri aynı dönemi arka arkaya ister;
+// her seferinde Trendyol'dan tüm sayfaları çekmesin. Dashboard stats'la aynı
+// kural: bugün 60 sn, geçmiş günler 10 dk; anahtar İstanbul günü.
+const cachedPeriodOrdersToday = unstable_cache(
+  async (period: TrendyolPeriod, _key: string, refTs: number) =>
+    computeTrendyolPeriodOrders(period, refTs),
+  ["trendyol-period-orders-today-v1"],
+  { revalidate: 60 },
+);
+
+const cachedPeriodOrdersPast = unstable_cache(
+  async (period: TrendyolPeriod, _key: string, refTs: number) =>
+    computeTrendyolPeriodOrders(period, refTs),
+  ["trendyol-period-orders-past-v1"],
+  { revalidate: 600 },
+);
+
 export async function getTrendyolPeriodOrders(
   period: TrendyolPeriod = "today",
+  referenceDate?: number,
+): Promise<TrendyolPeriodOrder[]> {
+  const key = dateKey(referenceDate);
+  const refTs = istanbulDayStart(referenceDate ?? Date.now()).getTime();
+  const fn = isReferenceToday(referenceDate) ? cachedPeriodOrdersToday : cachedPeriodOrdersPast;
+  return fn(period, key, refTs);
+}
+
+async function computeTrendyolPeriodOrders(
+  period: TrendyolPeriod,
   referenceDate?: number,
 ): Promise<TrendyolPeriodOrder[]> {
   const { start, end } = periodRange(period, referenceDate);
