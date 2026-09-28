@@ -39,7 +39,10 @@ function toSavedCustomer(doc: Record<string, unknown>): SavedCustomer {
   };
 }
 
-// Müşteri listesini rehber kişisine çevirir; aynı numara bir kez.
+// Müşteri listesini rehber kişisine çevirir; aynı numara bir kez. TÜM
+// müşterilerle çağrılır: aynı ismi alan müşterilere numaranın son 4 hanesi
+// eklenir ("sancaktar cd (8102)") — isimler aynı kalırsa Google "Birleştir"
+// önerir, birleşince iki müşteri tek kişide kalır ve biri ötekinin adıyla görünür.
 function toContacts(docs: Record<string, unknown>[]): ContactData[] {
   const seen = new Set<string>();
   const out: ContactData[] = [];
@@ -54,6 +57,12 @@ function toContacts(docs: Record<string, unknown>[]): ContactData[] {
       notes: buildNotes(c),
       addresses: buildAddresses(c),
     });
+  }
+  const nameKey = (n: string) => n.toLocaleLowerCase("tr").replace(/\s+/g, " ");
+  const nameCount = new Map<string, number>();
+  for (const c of out) nameCount.set(nameKey(c.name), (nameCount.get(nameKey(c.name)) ?? 0) + 1);
+  for (const c of out) {
+    if (nameCount.get(nameKey(c.name))! > 1) c.name = `${c.name} (${c.phone.slice(-4)})`;
   }
   return out;
 }
@@ -82,12 +91,14 @@ export async function syncNewCustomersToGoogleContacts(
   const claimedAt = new Date();
   let docs: Record<string, unknown>[];
   const claimedIds: string[] = [];
+  // İsim çakışması ve kişi sahipliği tüm müşterilere bakılarak belirlenir.
+  const allDocs = (await CustomerModel.find().sort({ createdAt: 1 }).lean()) as Record<
+    string,
+    unknown
+  >[];
 
   if (mode === "all") {
-    docs = (await CustomerModel.find().sort({ createdAt: 1 }).lean()) as Record<
-      string,
-      unknown
-    >[];
+    docs = allDocs;
   } else {
     const pending = (await CustomerModel.find({ contactExportedAt: { $exists: false } })
       .sort({ createdAt: 1 })
@@ -114,10 +125,13 @@ export async function syncNewCustomersToGoogleContacts(
   );
 
   try {
+    const allContacts = toContacts(allDocs);
+    const docPhones = new Set(docs.map((d) => normalizePhone(d.phone as string)));
     const { items, ...stats } = await syncGoogleContacts(
       setting,
-      toContacts(docs),
+      allContacts.filter((c) => docPhones.has(c.phone)),
       normalizePhone,
+      new Set(allContacts.map((c) => c.phone)),
     );
     if (mode === "all") {
       await CustomerModel.updateMany(

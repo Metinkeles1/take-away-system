@@ -221,7 +221,7 @@ interface GooglePerson {
   resourceName: string;
   etag: string;
   names?: { givenName?: string; familyName?: string; middleName?: string }[];
-  phoneNumbers?: { value?: string; canonicalForm?: string }[];
+  phoneNumbers?: { value?: string; canonicalForm?: string; type?: string }[];
   biographies?: { value?: string }[];
   addresses?: { streetAddress?: string; extendedAddress?: string }[];
   memberships?: { contactGroupMembership?: { contactGroupResourceName?: string } }[];
@@ -302,12 +302,19 @@ export interface SyncItem {
 //    "Birleştir ve düzelt"i tek tıkla birleştirir.
 //  - Müşteri OLMAYAN numaralara (aile, tedarikçi…) dokunulmaz.
 //  - Üzerine yazılan eski isim gönderim geçmişine düşer (previousName).
+//  - Birden çok müşterinin numarasını taşıyan kişi (Google "Birleştir" aynı
+//    isimli iki müşteriyi tek kişide toplamış) ayrıştırılır: kişide ilk
+//    sıradaki müşteri numarası kalır, diğer müşteriler ayrı kişi olarak
+//    eklenir. Yoksa arayan müşteri başkasının adıyla görünür.
 //  - Eşleşen her kişi "Paket Servis" etiketine alınır.
 // Google aynı kullanıcı için eşzamanlı yazımları sevmediğinden partiler sırayla.
+// customerPhones: TÜM müşteri numaraları (yalnız bu turda yazılanlar değil) —
+// kişinin kime ait olduğu hangi turda bakılırsa bakılsın aynı çıksın diye.
 export async function syncGoogleContacts(
   s: GoogleContactsSetting,
   contacts: ContactData[],
   normalize: (p: string) => string,
+  customerPhones: Set<string>,
 ): Promise<SyncStats & { items: SyncItem[] }> {
   const items: SyncItem[] = [];
   const stats: SyncStats = { created: 0, updated: 0, skipped: 0, duplicates: 0 };
@@ -316,38 +323,59 @@ export async function syncGoogleContacts(
   const group = await ensureContactGroup(token);
   const existing = await listAllContacts(token);
 
+  const phoneOf = (n: { value?: string; canonicalForm?: string }) =>
+    n.canonicalForm || normalize(n.value ?? "");
+  const syncing = new Set(contacts.map((c) => c.phone));
   const byPhone = new Map<string, GooglePerson[]>();
+  // Kişinin sahibi olan müşteri numarası ve kişiden çıkarılacak diğer müşteri
+  // numaraları (yalnız bu turda yazılanlar — onlar ayrı kişi olarak eklenecek).
+  const ownerOf = new Map<string, string>();
+  const detach = new Map<string, Set<string>>();
   for (const p of existing) {
-    const phones = new Set(
-      (p.phoneNumbers ?? [])
-        .map((n) => n.canonicalForm || normalize(n.value ?? ""))
-        .filter(Boolean),
-    );
+    const phones = [...new Set((p.phoneNumbers ?? []).map(phoneOf).filter(Boolean))];
     for (const ph of phones) byPhone.set(ph, [...(byPhone.get(ph) ?? []), p]);
+    const custPhones = phones.filter((ph) => customerPhones.has(ph));
+    if (custPhones.length === 0) continue;
+    ownerOf.set(p.resourceName, custPhones[0]);
+    const drop = custPhones.slice(1).filter((ph) => syncing.has(ph));
+    if (drop.length > 0) detach.set(p.resourceName, new Set(drop));
   }
 
   const toCreate: ContactData[] = [];
   const toUpdate: { person: GooglePerson; data: ContactData }[] = [];
-  const touched = new Set<string>(); // bir kişi iki müşteriyle yazılmasın
+  const touched = new Set<string>(); // bu turdaki müşterilerin sahip olduğu kişiler
   for (const c of contacts) {
-    const all = byPhone.get(c.phone);
-    if (!all) {
+    const owned = (byPhone.get(c.phone) ?? []).filter(
+      (p) => ownerOf.get(p.resourceName) === c.phone,
+    );
+    if (owned.length === 0) {
       toCreate.push(c);
       continue;
     }
-    const matches = all.filter((p) => !touched.has(p.resourceName));
-    stats.duplicates += Math.max(matches.length - 1, 0);
-    for (const p of matches) {
+    stats.duplicates += owned.length - 1;
+    for (const p of owned) {
       touched.add(p.resourceName);
-      if (isUpToDate(p, c)) stats.skipped++;
+      if (!detach.has(p.resourceName) && isUpToDate(p, c)) stats.skipped++;
       else toUpdate.push({ person: p, data: c });
     }
   }
+  // Sahibi bu turda yazılmayan ama içinden müşteri numarası ayrılacak kişiler:
+  // yalnız numaraları güncellenir, isim/adres sahibinin turunu bekler.
+  const phonesOnly = existing.filter(
+    (p) => detach.has(p.resourceName) && !touched.has(p.resourceName),
+  );
+  const keptPhones = (p: GooglePerson) =>
+    (p.phoneNumbers ?? [])
+      .filter((n) => !detach.get(p.resourceName)?.has(phoneOf(n)))
+      .map((n) => ({ value: n.value, ...(n.type ? { type: n.type } : {}) }));
 
   let wrote = false;
-  for (let i = 0; i < toCreate.length; i += BATCH_SIZE) {
+  const nextWrite = async () => {
     if (wrote) await pause(1000);
     wrote = true;
+  };
+  for (let i = 0; i < toCreate.length; i += BATCH_SIZE) {
+    await nextWrite();
     const batch = toCreate.slice(i, i + BATCH_SIZE);
     await api(token, "/people:batchCreateContacts", {
       method: "POST",
@@ -371,18 +399,17 @@ export async function syncGoogleContacts(
   }
 
   for (let i = 0; i < toUpdate.length; i += BATCH_SIZE) {
-    if (wrote) await pause(1000);
-    wrote = true;
+    await nextWrite();
     const batch = toUpdate.slice(i, i + BATCH_SIZE);
     await api(token, "/people:batchUpdateContacts", {
       method: "POST",
       body: {
-        updateMask: "names,biographies,addresses",
+        updateMask: "names,biographies,addresses,phoneNumbers",
         readMask: "names",
         contacts: Object.fromEntries(
           batch.map(({ person, data }) => [
             person.resourceName,
-            { etag: person.etag, ...personFields(data) },
+            { etag: person.etag, ...personFields(data), phoneNumbers: keptPhones(person) },
           ]),
         ),
       },
@@ -397,6 +424,22 @@ export async function syncGoogleContacts(
         ...(previousName && previousName !== data.name ? { previousName } : {}),
       });
     }
+  }
+
+  for (let i = 0; i < phonesOnly.length; i += BATCH_SIZE) {
+    await nextWrite();
+    await api(token, "/people:batchUpdateContacts", {
+      method: "POST",
+      body: {
+        updateMask: "phoneNumbers",
+        readMask: "names",
+        contacts: Object.fromEntries(
+          phonesOnly
+            .slice(i, i + BATCH_SIZE)
+            .map((p) => [p.resourceName, { etag: p.etag, phoneNumbers: keptPhones(p) }]),
+        ),
+      },
+    });
   }
 
   // Eşleşen kişiler de "Paket Servis"e alınsın — müşteriler rehberde tek yerde.
