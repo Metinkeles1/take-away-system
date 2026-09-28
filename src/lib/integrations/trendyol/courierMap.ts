@@ -144,6 +144,10 @@ export function mapTrendyolPackageToOrder(p: TrendyolPackage): Order {
   });
 
   const { method, mealCardBrand } = mapTrendyolPayment(p.payment);
+  // Yemek kartı hem online (PAY_WITH_MEAL_CARD) hem kapıda (PAY_WITH_ON_DELIVERY)
+  // olabildiği için "online mı" bilgisi yöntemden çıkarılamaz; ham tipten okunur.
+  const payType = (p.payment?.paymentType ?? "").toString().trim().toUpperCase();
+  const prepaid = payType === "PAY_WITH_CARD" || payType === "PAY_WITH_MEAL_CARD";
   const createdAt = new Date(p.packageCreationDate);
 
   // Kurye tahsilat tutarı: p.totalPrice indirimden ÖNCEKİ (brüt) tutardır —
@@ -176,7 +180,7 @@ export function mapTrendyolPackageToOrder(p: TrendyolPackage): Order {
       district,
       geo,
     },
-    payment: { method, mealCardBrand },
+    payment: { method, mealCardBrand, prepaid },
     status,
     notes: p.customerNote || undefined,
     subtotal: netTotal,

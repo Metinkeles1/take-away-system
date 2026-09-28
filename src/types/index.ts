@@ -90,6 +90,7 @@ export interface PaymentInfo {
   mealCardBrand?: MealCardBrand; // Yemek kartı markası
   ibanName?: string; // IBAN sahibi ad soyad
   ibanNumber?: string; // IBAN numarası
+  prepaid?: boolean; // Trendyol: online ödenmiş (kurye tahsilat yapmaz)
 }
 
 // ─── Tahsilat Kaydı (kısmi ödeme) ─────────────────────────────────────────────

@@ -2188,9 +2188,11 @@ function OrderCard({
   // belirlenmiştir (kurye değiştiremez), claim/açık hesap uygulanmaz.
   const isTrendyol = o.source === "trendyol";
   // Online ödenen (kart/yemek kartı online) Trendyol siparişlerinde kurye tahsilat
-  // YAPMAZ; kapıda ödemede (nakit/kart) yapar.
+  // YAPMAZ; kapıda ödemede (nakit/kart/yemek kartı) yapar. Kapıda yemek kartı da
+  // "meal_card" olduğundan yönteme değil eşlemedeki prepaid işaretine bakılır.
+  // İşaretsiz eski kayıtta yalnızca "online" ön ödemeli sayılır (güvenli taraf).
   const trendyolPrepaid =
-    isTrendyol && (o.payment.method === "online" || o.payment.method === "meal_card");
+    isTrendyol && (o.payment.prepaid ?? o.payment.method === "online");
   // Kapıda toplanacak toplam = bu sipariş + müşterinin eski açık hesapları.
   const grandTotal = o.total + (debt?.total ?? 0);
   // Pinlenmiş konum varsa kesin koordinata git; yoksa metin adresini geocode et.
