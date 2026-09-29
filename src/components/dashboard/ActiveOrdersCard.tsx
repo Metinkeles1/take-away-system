@@ -56,7 +56,7 @@ function usePendingCash() {
   const items: PendingCash[] = (state?.rows ?? [])
     .flatMap((r) => r.orders.map((o) => ({ ...o, courier: r.courier })))
     .sort((a, b) => a.deliveredAt.localeCompare(b.deliveredAt));
-  return { items, alert: state?.alert ?? null, now, reload: load };
+  return { items, rows: state?.rows ?? [], alert: state?.alert ?? null, now, reload: load };
 }
 
 interface ActiveOrdersCardProps {
@@ -111,7 +111,7 @@ export function ActiveOrdersCard({
             </Link>
           </div>
         </div>
-        <div className="flex flex-wrap gap-1.5 -mx-1 px-1 overflow-x-auto scrollbar-hide">
+        <div className="flex flex-nowrap sm:flex-wrap gap-1.5 -mx-1 px-1 overflow-x-auto scrollbar-hide">
           {STATUS_FILTERS.map((f) => {
             const count =
               f.key === "all"
@@ -128,7 +128,7 @@ export function ActiveOrdersCard({
                 type="button"
                 onClick={() => setStatusFilter(f.key)}
                 className={cn(
-                  "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors whitespace-nowrap",
+                  "inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 sm:py-1 text-xs font-medium transition-colors whitespace-nowrap",
                   isActive
                     ? "bg-foreground text-background"
                     : "bg-muted text-muted-foreground hover:bg-muted/70",
@@ -179,44 +179,51 @@ export function ActiveOrdersCard({
             </p>
           </div>
         ) : (
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2">
             {activeOrders.map((order) => (
               <ActiveOrderRow key={order.id} order={order} />
             ))}
             {cashItems.length > 0 && (
-              <>
-                {/* Teslim edildi ama parası kasaya gelmedi — tek tek ya da hepsi birden teslim al */}
-                <div
-                  className={cn(
-                    "flex flex-wrap items-center justify-between gap-2",
-                    activeOrders.length > 0 && "mt-2 border-t pt-3",
-                  )}
-                >
+              // Mobilde para teslim alma en üstte (telefondan en sık yapılan iş bu);
+              // masaüstünde aktif siparişlerin altında.
+              <div
+                className={cn(
+                  "order-first flex flex-col gap-2 lg:order-0",
+                  activeOrders.length > 0 &&
+                    "mb-2 border-b pb-3 lg:mb-0 lg:mt-2 lg:border-b-0 lg:border-t lg:pb-0 lg:pt-3",
+                )}
+              >
+                {/* Teslim edildi ama parası kasaya gelmedi — tek tek, kurye kurye ya da hepsi birden */}
+                <div className="flex items-center justify-between gap-2 rounded-lg bg-amber-50 p-3 dark:bg-amber-500/10 lg:bg-transparent lg:p-0 lg:dark:bg-transparent">
                   <div className="min-w-0">
-                    <p className="flex items-center gap-1.5 text-xs font-semibold">
-                      <Wallet className="h-3.5 w-3.5 text-amber-600" />
+                    <p className="flex items-center gap-1.5 text-sm font-semibold lg:text-xs">
+                      <Wallet className="h-4 w-4 text-amber-600 lg:h-3.5 lg:w-3.5" />
                       Kasaya teslim bekleyen
                     </p>
-                    <p className="text-[11px] tabular-nums text-muted-foreground">
-                      Nakit {formatCurrency(cashTotal)} · Kart {formatCurrency(cardTotal)}
+                    <p className="text-xs tabular-nums text-muted-foreground lg:text-[11px]">
+                      Nakit <span className="font-semibold text-foreground">{formatCurrency(cashTotal)}</span> · Kart{" "}
+                      <span className="font-semibold text-foreground">{formatCurrency(cardTotal)}</span>
                     </p>
                   </div>
                   <Button
                     size="sm"
                     variant="outline"
-                    className="h-7 gap-1 px-2 text-xs"
+                    className="h-10 shrink-0 gap-1 px-3 text-xs lg:h-7 lg:px-2"
                     onClick={() => void handleAll()}
                     disabled={handingAll}
                   >
-                    {handingAll ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCheck className="h-3 w-3" />}
-                    Hepsini teslim aldım
+                    {handingAll ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCheck className="h-3.5 w-3.5" />}
+                    <span className="lg:hidden">Hepsi</span>
+                    <span className="hidden lg:inline">Hepsini teslim aldım</span>
                   </Button>
                 </div>
-                {cashItems.map((o) => (
-                  <PendingCashRow
-                    key={`${o.source}:${o.ref}`}
-                    item={o}
-                    late={
+                {cash.rows.map((row) => (
+                  <CourierCashGroup
+                    key={row.courier || "_"}
+                    courier={row.courier}
+                    items={cashItems.filter((o) => o.courier === row.courier)}
+                    showHeader={cash.rows.length > 1}
+                    isLate={(o) =>
                       !!cash.alert &&
                       o.method === "cash" &&
                       cash.now - new Date(o.deliveredAt).getTime() >= cash.alert.minutes * 60_000
@@ -224,12 +231,80 @@ export function ActiveOrdersCard({
                     onDone={cash.reload}
                   />
                 ))}
-              </>
+              </div>
             )}
           </div>
         )}
       </CardContent>
     </Card>
+  );
+}
+
+// Bir kuryenin kasaya getirmediği siparişler — kurye gelince tek dokunuşla hepsi alınır.
+function CourierCashGroup({
+  courier,
+  items,
+  showHeader,
+  isLate,
+  onDone,
+}: {
+  courier: string;
+  items: PendingCash[];
+  showHeader: boolean;
+  isLate: (o: PendingCash) => boolean;
+  onDone: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  if (items.length === 0) return null;
+  const cashSum = items.filter((o) => o.method === "cash").reduce((s, o) => s + o.amount, 0);
+  const cardSum = items.filter((o) => o.method === "card").reduce((s, o) => s + o.amount, 0);
+  const name = courier || "Kurye belirtilmemiş";
+
+  const handle = async () => {
+    if (busy) return;
+    const ok = window.confirm(
+      `${name}: ${items.length} siparişin parası teslim alınacak.\nNakit ${formatCurrency(cashSum)} · Kart ${formatCurrency(cardSum)}\nDevam edilsin mi?`,
+    );
+    if (!ok) return;
+    setBusy(true);
+    const res = await handOverCourierCash({
+      courier,
+      refs: items.map((o) => ({ source: o.source, ref: o.ref })),
+    });
+    setBusy(false);
+    if (res.ok) toast.success(`${name} — ${items.length} siparişin parası teslim alındı`);
+    else toast.error(res.error ?? "Teslim kaydedilemedi");
+    onDone();
+  };
+
+  return (
+    <div className="flex flex-col gap-2">
+      {showHeader && (
+        <div className="flex items-center justify-between gap-2 pt-1">
+          <div className="min-w-0">
+            <p className="truncate text-xs font-semibold">{name}</p>
+            <p className="text-[11px] tabular-nums text-muted-foreground">
+              {items.length} sipariş · Nakit {formatCurrency(cashSum)} · Kart {formatCurrency(cardSum)}
+            </p>
+          </div>
+          {items.length > 1 && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-9 shrink-0 gap-1 px-2 text-xs lg:h-7"
+              onClick={() => void handle()}
+              disabled={busy}
+            >
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCheck className="h-3.5 w-3.5" />}
+              Kuryeden al
+            </Button>
+          )}
+        </div>
+      )}
+      {items.map((o) => (
+        <PendingCashRow key={`${o.source}:${o.ref}`} item={o} late={isLate(o)} onDone={onDone} />
+      ))}
+    </div>
   );
 }
 
@@ -350,7 +425,7 @@ function PendingCashRow({
   };
 
   const className = cn(
-    "flex flex-col gap-2 rounded-lg border border-dashed p-3 transition-colors sm:flex-row sm:items-center sm:justify-between",
+    "flex items-center justify-between gap-3 rounded-lg border border-dashed p-3 transition-colors",
     late ? "border-rose-300 bg-rose-50/60 dark:bg-rose-500/10" : "bg-amber-50/40 dark:bg-amber-500/5",
     !isTrendyol && "hover:bg-accent",
   );
@@ -369,7 +444,9 @@ function PendingCashRow({
         <div className="min-w-0 text-sm">
           <div className="flex flex-wrap items-center gap-x-2">
             <span className="font-semibold">#{item.orderNumber}</span>
-            {item.customer && <span className="truncate text-muted-foreground">{item.customer}</span>}
+            {item.customer && (
+              <span className="truncate text-xs text-muted-foreground sm:text-sm">{item.customer}</span>
+            )}
           </div>
           <p
             className={cn(
@@ -381,21 +458,29 @@ function PendingCashRow({
           </p>
         </div>
       </div>
-      <div className="flex shrink-0 items-center justify-between gap-2 sm:justify-end sm:gap-3">
-        <span className="text-sm font-medium tabular-nums">{formatCurrency(item.amount)}</span>
-        <span className="flex items-center gap-1 rounded-full bg-muted px-2 py-1 text-xs font-medium">
-          <MethodIcon className="h-3 w-3" />
-          {item.method === "cash" ? "Nakit" : "Kart"}
-        </span>
+      <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+        {/* Mobilde tutar + yöntem alt alta, dar ekrana sığsın */}
+        <div className="flex flex-col items-end gap-0.5 sm:flex-row sm:items-center sm:gap-3">
+          <span className="text-sm font-semibold tabular-nums">{formatCurrency(item.amount)}</span>
+          <span className="flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium sm:py-1 sm:text-xs">
+            <MethodIcon className="h-3 w-3" />
+            {item.method === "cash" ? "Nakit" : "Kart"}
+          </span>
+        </div>
         <Button
           size="sm"
           variant="outline"
-          className="h-7 gap-1 px-2 text-xs hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700"
+          className="h-10 gap-1 px-3 text-xs hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 sm:h-7 sm:px-2"
           onClick={handle}
           disabled={busy}
         >
-          {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
-          Teslim aldım
+          {busy ? (
+            <Loader2 className="h-4 w-4 animate-spin sm:h-3 sm:w-3" />
+          ) : (
+            <CheckCircle2 className="h-4 w-4 sm:h-3 sm:w-3" />
+          )}
+          <span className="sm:hidden">Aldım</span>
+          <span className="hidden sm:inline">Teslim aldım</span>
         </Button>
       </div>
     </>
