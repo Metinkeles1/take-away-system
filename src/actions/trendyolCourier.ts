@@ -201,7 +201,7 @@ export async function claimTrendyolPackage(
         $or: [{ courier: { $exists: false } }, { courier: null }, { courier: name }],
       },
       { $set: { courier: name } },
-      { new: true },
+      { returnDocument: "after" },
     ).lean();
 
     if (!doc) {
@@ -245,7 +245,7 @@ export async function takeOverTrendyolPackage(
     const doc = await TrendyolCourierPackageModel.findOneAndUpdate(
       { packageId, courier: from },
       { $set: { courier: name } },
-      { new: true },
+      { returnDocument: "after" },
     ).lean();
 
     if (!doc) {

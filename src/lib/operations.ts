@@ -13,3 +13,22 @@ export function slaLevel(ageMin: number): SlaLevel {
   if (ageMin >= SLA_WARN_MIN) return "warn";
   return "ok";
 }
+
+// Kurye ekranı "öncelik" işareti — sipariş yaşı kurye teslim hedefine
+// (Ayarlar › deliveryTargetMin) göre. Uyarı/ses yok; sadece sessiz etiket:
+//  • soon: hedefe PRIORITY_LEAD_MIN dk kala (sarı)
+//  • late: hedef aşıldı (kırmızı)
+export const PRIORITY_LEAD_MIN = 10;
+
+export type PriorityLevel = "none" | "soon" | "late";
+
+export function orderPriority(
+  createdAt: string | Date,
+  targetMin: number,
+  now: number,
+): PriorityLevel {
+  const ageMin = (now - new Date(createdAt).getTime()) / 60_000;
+  if (ageMin >= targetMin) return "late";
+  if (ageMin >= targetMin - PRIORITY_LEAD_MIN) return "soon";
+  return "none";
+}

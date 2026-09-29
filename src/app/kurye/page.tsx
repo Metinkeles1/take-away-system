@@ -28,6 +28,7 @@ import {
   Send,
   Eye,
   Store,
+  Flame,
 } from "lucide-react";
 import {
   getCourierBoard,
@@ -50,6 +51,7 @@ import { getActiveCouriers, type Courier } from "@/actions/couriers";
 import { type ShopLocation, type ShopIban } from "@/actions/settings";
 import { setOrderPaymentMethod } from "@/actions/orders";
 import { subscribeOrders } from "@/lib/pusher/client";
+import { orderPriority, type PriorityLevel } from "@/lib/operations";
 import { CourierCashBanner } from "@/components/cash/CourierCashBanner";
 import {
   type Order,
@@ -147,6 +149,39 @@ const MEAL_CARD_BRANDS: { value: MealCardBrand; label: string }[] = [
 const MEAL_CARD_BRAND_LABEL: Record<string, string> = Object.fromEntries(
   MEAL_CARD_BRANDS.map((b) => [b.value, b.label]),
 );
+
+// Öncelik etiketi — ses/pop-up yok, sadece renk. Sekme rozeti yalnızca hedef
+// aşılınca (late) kırmızıya döner; "soon" rozetin normal rengini bozmaz.
+const PRIORITY_BADGE: Partial<Record<PriorityLevel, string>> = {
+  late: "bg-rose-500 text-white",
+};
+const PRIORITY_DOT: Record<PriorityLevel, string> = {
+  none: "bg-slate-300",
+  soon: "bg-amber-400",
+  late: "bg-rose-500",
+};
+
+function PriorityChip({
+  level,
+  className,
+}: {
+  level: PriorityLevel;
+  className?: string;
+}) {
+  if (level === "none") return null;
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-bold",
+        level === "late" ? "bg-rose-500 text-white" : "bg-amber-100 text-amber-800",
+        className,
+      )}
+    >
+      <Flame className="h-3 w-3" />
+      Öncelikli
+    </span>
+  );
+}
 
 function fullAddress(o: Order): string {
   return [o.customer.address, o.customer.addressDetail, o.customer.district]
@@ -383,6 +418,14 @@ export default function KuryePage() {
   const [shopLocation, setShopLocation] = useState<ShopLocation | null>(null);
   // Dükkan tahsilat IBAN'ı (Ayarlar'dan girilir). "IBAN" ödemede gösterilir/gönderilir.
   const [shopIban, setShopIban] = useState<ShopIban | null>(null);
+  // Kurye teslim hedefi (dk, Ayarlar) — "Öncelikli" etiketi buna göre. `now`
+  // 30 sn'de bir ilerler ki etiket yeni veri gelmese de zamanla kendiliğinden düşsün.
+  const [targetMin, setTargetMin] = useState(35);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, []);
   // Sekme: "mine" = Benim Paketlerim (detaylı teslim kartları), "pool" = Tüm
   // Paketler (kısa liste, check'leyerek üstlen).
   const [tab, setTab] = useState<"mine" | "pool">("mine");
@@ -472,6 +515,7 @@ export default function KuryePage() {
         multiCourierMode: mode,
         shopLocation: shop,
         shopIban: iban,
+        deliveryTargetMin: target,
       } = (await res.json()) as Awaited<ReturnType<typeof getCourierBoard>>;
       if (seq === mutationSeq.current && pendingMutations.current === 0) {
         setOrders(data);
@@ -482,6 +526,7 @@ export default function KuryePage() {
       setMultiCourierMode(mode);
       setShopLocation(shop);
       setShopIban(iban);
+      setTargetMin(target);
     } catch {
       // Ağ hatası — sessiz geç; poll / Pusher tekrar dener.
     } finally {
@@ -623,6 +668,17 @@ export default function KuryePage() {
     () => allSorted.filter((o) => !o.courier).length,
     [allSorted],
   );
+  // Öncelik (sessiz etiket): sekme rozetleri, nokta göstergesi ve kartlar
+  // aynı hesaptan beslenir. Rozet, listedeki en acil paketin rengini alır.
+  const priorityOf = (o: Order): PriorityLevel =>
+    orderPriority(o.createdAt, targetMin, now);
+  const worstPriority = (list: Order[]): PriorityLevel =>
+    list.reduce<PriorityLevel>((acc, o) => {
+      const p = priorityOf(o);
+      return p === "late" || acc === "late" ? "late" : p === "soon" ? "soon" : acc;
+    }, "none");
+  const minePriority = worstPriority(sorted);
+  const poolPriority = worstPriority(allSorted.filter((o) => !o.courier));
   // Çoklu kurye modu açıkken üstlenme/checklist görünür; kapalıyken sistem sade
   // kalır: sekme yok, üstlenme yok — tüm paketler doğrudan teslimatta (eski akış).
   const multiCourier = multiCourierMode;
@@ -1285,7 +1341,8 @@ export default function KuryePage() {
                 <span
                   className={cn(
                     "grid h-5 min-w-5 place-items-center rounded-full px-1 text-[11px]",
-                    activeTab === "mine" ? "bg-slate-900 text-white" : "bg-lime-500 text-slate-900",
+                    PRIORITY_BADGE[minePriority] ??
+                      (activeTab === "mine" ? "bg-slate-900 text-white" : "bg-lime-500 text-slate-900"),
                   )}
                 >
                   {deliverableCount}
@@ -1307,7 +1364,8 @@ export default function KuryePage() {
                 <span
                   className={cn(
                     "grid h-5 min-w-5 place-items-center rounded-full px-1 text-[11px]",
-                    activeTab === "pool" ? "bg-slate-900 text-white" : "bg-amber-400 text-slate-900",
+                    PRIORITY_BADGE[poolPriority] ??
+                      (activeTab === "pool" ? "bg-slate-900 text-white" : "bg-amber-400 text-slate-900"),
                   )}
                 >
                   {poolCount}
@@ -1360,6 +1418,7 @@ export default function KuryePage() {
             onTakeOver={(o) => void takeOver(o)}
             onClaimAll={() => void claimAll()}
             onOpenMap={() => setPoolMapOpen(true)}
+            priorityOf={priorityOf}
           />
         ) : sorted.length === 0 || !current ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
@@ -1438,6 +1497,7 @@ export default function KuryePage() {
                 onPickOnMap={() => openMapManual(current)}
                 estimate={unpinnedGeo[current.id]}
                 onSetPayment={(m) => void handleSetPayment(current, m)}
+                priority={priorityOf(current)}
               />
             </div>
 
@@ -1451,7 +1511,7 @@ export default function KuryePage() {
                     aria-label={`Sipariş ${i + 1}`}
                     className={cn(
                       "h-2 rounded-full transition-all",
-                      i === idx ? "w-6 bg-slate-900" : "w-2 bg-slate-300",
+                      i === idx ? "w-6 bg-slate-900" : cn("w-2", PRIORITY_DOT[priorityOf(o)]),
                     )}
                   />
                 ))}
@@ -1633,6 +1693,7 @@ export default function KuryePage() {
         shopLocation={shopLocation}
         onClose={() => setPoolMapOpen(false)}
         onClaim={claimSelected}
+        priorityOf={priorityOf}
       />
 
       {/* Teslimat haritası — bu sefer götürülecek partiyi seç, doğrudan rota (üstlenme yok). */}
@@ -1643,6 +1704,7 @@ export default function KuryePage() {
         shopLocation={shopLocation}
         onClose={() => setPlanMapOpen(false)}
         mode="route"
+        priorityOf={priorityOf}
       />
 
       {/* Rota alt sheet — başlıktaki "Rota" çipi açar. Tek giriş, iki yol:
@@ -1931,6 +1993,7 @@ function PoolList({
   onTakeOver,
   onClaimAll,
   onOpenMap,
+  priorityOf,
 }: {
   orders: Order[];
   courier: string | null;
@@ -1939,6 +2002,7 @@ function PoolList({
   onTakeOver: (o: Order) => void;
   onClaimAll: () => void;
   onOpenMap: () => void;
+  priorityOf: (o: Order) => PriorityLevel;
 }) {
   const freeCount = orders.filter((o) => !o.courier).length;
   // Basılı tutulan kilitli satır — dolan çubuk bununla çizilir.
@@ -2128,8 +2192,22 @@ function PoolList({
                     Yakın {group}
                   </span>
                 )}
-                <span className="ml-auto inline-flex items-center gap-1 text-[10px] text-slate-400">
-                  <Clock className="h-3 w-3" />
+                {/* Satır dar → ayrı etiket yerine süre renklenir (sarı/kırmızı + alev). */}
+                <span
+                  className={cn(
+                    "ml-auto inline-flex shrink-0 items-center gap-1 rounded-md text-[10px]",
+                    {
+                      none: "text-slate-400",
+                      soon: "bg-amber-100 px-1.5 py-0.5 font-bold text-amber-800",
+                      late: "bg-rose-500 px-1.5 py-0.5 font-bold text-white",
+                    }[priorityOf(o)],
+                  )}
+                >
+                  {priorityOf(o) === "none" ? (
+                    <Clock className="h-3 w-3" />
+                  ) : (
+                    <Flame className="h-3 w-3" />
+                  )}
                   {formatRelativeTime(o.createdAt)}
                 </span>
               </div>
@@ -2167,8 +2245,10 @@ function OrderCard({
   estimate,
   payError,
   onSetPayment,
+  priority,
 }: {
   o: Order;
+  priority: PriorityLevel;
   shopLocation: ShopLocation | null;
   pinning: boolean;
   pinError?: string;
@@ -2251,7 +2331,13 @@ function OrderCard({
             </span>
           </span>
         )}
-        <span className="ml-auto inline-flex shrink-0 items-center gap-1 text-xs text-slate-400">
+        <PriorityChip level={priority} className="ml-auto" />
+        <span
+          className={cn(
+            "inline-flex shrink-0 items-center gap-1 text-xs text-slate-400",
+            priority === "none" && "ml-auto",
+          )}
+        >
           <Clock className="h-3.5 w-3.5" /> {formatRelativeTime(o.createdAt)}
         </span>
       </div>

@@ -13,9 +13,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import "leaflet/dist/leaflet.css";
-import { X, Check, Loader2, Navigation, AlertTriangle } from "lucide-react";
+import { X, Check, Loader2, Navigation, AlertTriangle, Flame } from "lucide-react";
 import type { Order } from "@/types";
 import type { ShopLocation } from "@/actions/settings";
+import type { PriorityLevel } from "@/lib/operations";
 import { cn, formatCurrency, formatDistance, haversineMeters } from "@/lib/utils";
 import {
   buildGoogleRouteUrl,
@@ -42,6 +43,17 @@ const PIN_TAKEN = `<div style="transform:translate(-50%,-50%);width:18px;height:
 const PIN_MINE = `<div style="transform:translate(-50%,-50%);width:18px;height:18px;border-radius:9999px;background:#65a30d;border:2px solid #fff;opacity:.8"></div>`;
 const PIN_SHOP = `<div style="transform:translate(-50%,-50%);display:grid;place-items:center;width:28px;height:28px;border-radius:9999px;background:#0f172a;color:#fff;border:2px solid #fff;box-shadow:0 2px 4px rgba(0,0,0,.35)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 7l2-4h16l2 4"/><path d="M4 7v13h16V7"/><path d="M9 20v-6h6v6"/></svg></div>`;
 
+// Öncelikli paket pini: dış halka (sarı = hedefe az kaldı, kırmızı = hedef aşıldı).
+const PRIORITY_RING: Record<PriorityLevel, string | null> = {
+  none: null,
+  soon: "#f59e0b",
+  late: "#f43f5e",
+};
+function withPriorityRing(html: string, level: PriorityLevel): string {
+  const ring = PRIORITY_RING[level];
+  return ring ? html.replace("box-shadow:", `box-shadow:0 0 0 3px ${ring},`) : html;
+}
+
 function shortAddr(o: Order): string {
   return [o.customer.address, o.customer.district].filter(Boolean).join(", ");
 }
@@ -59,6 +71,7 @@ export function PoolMapSelect({
   onClose,
   onClaim,
   mode = "claim",
+  priorityOf,
 }: {
   open: boolean;
   orders: Order[];
@@ -68,6 +81,8 @@ export function PoolMapSelect({
   // claim modunda zorunlu — seçilen id'leri üstlenir. route modunda kullanılmaz.
   onClaim?: (ids: string[]) => Promise<void>;
   mode?: "claim" | "route";
+  // Kurye ekranıyla aynı öncelik hesabı — pinlere halka, listeye etiket.
+  priorityOf?: (o: Order) => PriorityLevel;
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [claiming, setClaiming] = useState(false);
@@ -252,6 +267,9 @@ export function PoolMapSelect({
 
   // İlk açılışta/yeni geocode'da tüm noktalara sığdır (seçimde tekrar zoom yapma).
   const approxKey = Object.keys(approxCoords).sort().join(",");
+  const levelOf = (o: Order): PriorityLevel => priorityOf?.(o) ?? "none";
+  // Öncelik zamanla değişir → pinler yeniden çizilsin.
+  const priorityKey = selectable.map(levelOf).join(",");
   const fitKey = [
     ...onMapStops.map((o) => o.id),
     ...takenOnMap.map((t) => t.o.id),
@@ -305,13 +323,16 @@ export function PoolMapSelect({
       const c = coordOf(o)!;
       const sel = selected.has(o.id);
       // Pinli → indigo; geocode'lu yaklaşık → turuncu; konumu yok (göstermelik) → gri ?.
-      const html = sel
-        ? PIN_SEL
-        : o.customer.geo
-          ? PIN_FREE
-          : approxCoords[o.id]
-            ? PIN_FREE_APPROX
-            : PIN_UNKNOWN;
+      const html = withPriorityRing(
+        sel
+          ? PIN_SEL
+          : o.customer.geo
+            ? PIN_FREE
+            : approxCoords[o.id]
+              ? PIN_FREE_APPROX
+              : PIN_UNKNOWN,
+        levelOf(o),
+      );
       const m = L.marker([c.lat, c.lng], {
         icon: L.divIcon({
           className: "",
@@ -322,7 +343,7 @@ export function PoolMapSelect({
       m.on("click", () => toggleRef.current(o.id));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, mapReady, selected, approxKey, fitKey]);
+  }, [open, mapReady, selected, approxKey, fitKey, priorityKey]);
 
   if (!open) return null;
 
@@ -445,6 +466,19 @@ export function PoolMapSelect({
             <span className="text-sm font-bold text-slate-900">
               #{o.orderNumber}
             </span>
+            {levelOf(o) !== "none" && (
+              <span
+                className={cn(
+                  "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-bold",
+                  levelOf(o) === "late"
+                    ? "bg-rose-500 text-white"
+                    : "bg-amber-100 text-amber-800",
+                )}
+              >
+                <Flame className="h-3 w-3" />
+                Öncelikli
+              </span>
+            )}
             {approx && (
               <span
                 className={cn(

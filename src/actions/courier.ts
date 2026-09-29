@@ -9,6 +9,7 @@ import {
   getMultiCourierMode,
   getShopLocation,
   getShopIban,
+  getDeliveryTargetMin,
   type ShopLocation,
   type ShopIban,
 } from "@/actions/settings";
@@ -97,7 +98,7 @@ export async function saveDeliveryLocation(
   const doc = await OrderModel.findOneAndUpdate(
     { id: orderId },
     { $set: { "customer.geo": geo } },
-    { new: true },
+    { returnDocument: "after" },
   ).lean();
   if (!doc) return;
 
@@ -129,7 +130,7 @@ export async function claimOrder(
         ],
       },
       { $set: { courier: name } },
-      { new: true },
+      { returnDocument: "after" },
     ).lean();
 
     if (!doc) {
@@ -170,7 +171,7 @@ export async function takeOverOrder(
     const doc = await OrderModel.findOneAndUpdate(
       { id: orderId, courier: from },
       { $set: { courier: name } },
-      { new: true },
+      { returnDocument: "after" },
     ).lean();
 
     if (!doc) {
@@ -253,16 +254,32 @@ export async function getCourierBoard(): Promise<{
   multiCourierMode: boolean;
   shopLocation: ShopLocation | null;
   shopIban: ShopIban | null;
+  // Öncelik etiketi (kurye ekranı) bu hedefe göre hesaplanır.
+  deliveryTargetMin: number;
 }> {
-  const [orders, trendyolOrders, multiCourierMode, shopLocation, shopIban] =
-    await Promise.all([
-      getCourierOrders(),
-      getStoredTrendyolCourierOrders(),
-      getMultiCourierMode(),
-      getShopLocation(),
-      getShopIban(),
-    ]);
-  return { orders, trendyolOrders, multiCourierMode, shopLocation, shopIban };
+  const [
+    orders,
+    trendyolOrders,
+    multiCourierMode,
+    shopLocation,
+    shopIban,
+    deliveryTargetMin,
+  ] = await Promise.all([
+    getCourierOrders(),
+    getStoredTrendyolCourierOrders(),
+    getMultiCourierMode(),
+    getShopLocation(),
+    getShopIban(),
+    getDeliveryTargetMin(),
+  ]);
+  return {
+    orders,
+    trendyolOrders,
+    multiCourierMode,
+    shopLocation,
+    shopIban,
+    deliveryTargetMin,
+  };
 }
 
 // Kurye üstlenmeyi bırakır (check'i kaldırır) → sipariş havuza döner. Güvenlik:

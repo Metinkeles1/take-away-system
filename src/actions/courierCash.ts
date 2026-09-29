@@ -72,7 +72,7 @@ async function trackingStart(): Promise<Date> {
   const doc = await SettingModel.findOneAndUpdate(
     { key: START_KEY },
     { $setOnInsert: { value: istanbulDayStart().toISOString() } },
-    { upsert: true, new: true },
+    { upsert: true, returnDocument: "after" },
   )
     .select("value")
     .lean();
