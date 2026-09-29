@@ -5,19 +5,22 @@ import { connectDB } from "@/lib/mongodb";
 import OrderModel from "@/models/Order";
 import { notifyOrdersChanged } from "@/lib/pusher/server";
 import { toLocalPhone } from "@/lib/utils";
-import { type CustomerInfo, type OrderItem } from "@/types";
+import { type CustomerInfo, type OrderItem, type PaymentInfo } from "@/types";
 import { recordCustomerAddress } from "@/lib/customers/recordAddress";
 
 interface UpdateOrderDetailsInput {
   items: OrderItem[];
   customer: CustomerInfo;
   notes?: string;
+  // Düzenleme ekranında ödeme yöntemi değiştirildiyse yeni ödeme bilgisi.
+  payment?: Partial<PaymentInfo>;
   // Seçilen kayıtlı adres (customer.addressId) yeni adres yerine güncellensin.
   updateSavedAddress?: boolean;
 }
 
 // Manuel oluşturulan siparişlerin kalem/müşteri/not bilgisini günceller.
-// Status ve payment için ayrı action'lar var (updateOrderStatus, updateOrderPayment).
+// Ödeme yöntemi de düzenleme ekranından değiştirilebildiği için burada yazılır;
+// status için ayrı action var (updateOrderStatus).
 export async function updateOrderDetails(
   id: string,
   input: UpdateOrderDetailsInput,
@@ -65,6 +68,10 @@ export async function updateOrderDetails(
       console.error("[updateOrderDetails] müşteri adresi kaydedilemedi", e);
     }
 
+    // Ödeme: yöntem seçiliyse yaz. Yönteme ait olmayan alanları temizle ki
+    // eski değerler takılı kalmasın (örn. nakitten karta geçince para üstü).
+    const payment = buildPayment(input.payment);
+
     await OrderModel.findOneAndUpdate(
       { id },
       {
@@ -73,6 +80,7 @@ export async function updateOrderDetails(
         notes: input.notes ?? "",
         subtotal,
         total,
+        ...(payment ? { payment } : {}),
       },
     );
 
@@ -86,4 +94,22 @@ export async function updateOrderDetails(
     console.error("[updateOrderDetails]", error);
     return { ok: false, error: "Sipariş güncellenemedi" };
   }
+}
+
+function buildPayment(p?: Partial<PaymentInfo>): PaymentInfo | null {
+  if (!p?.method) return null;
+  const out: PaymentInfo = { method: p.method };
+  if (p.prepaid) out.prepaid = p.prepaid;
+  if (p.method === "cash") {
+    if (p.cashGiven != null) out.cashGiven = p.cashGiven;
+    if (p.change != null) out.change = p.change;
+  }
+  if (p.method === "meal_card" && p.mealCardBrand) {
+    out.mealCardBrand = p.mealCardBrand;
+  }
+  if (p.method === "iban") {
+    if (p.ibanName) out.ibanName = p.ibanName;
+    if (p.ibanNumber) out.ibanNumber = p.ibanNumber;
+  }
+  return out;
 }

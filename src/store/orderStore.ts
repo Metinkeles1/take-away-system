@@ -361,6 +361,7 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
       items: draft.items,
       customer: draft.customer as CustomerInfo,
       notes: draft.notes,
+      payment: draft.payment,
       updateSavedAddress: draft.updateSavedAddress,
     });
 
@@ -376,6 +377,9 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
               items: draft.items,
               customer: draft.customer as CustomerInfo,
               notes: draft.notes,
+              ...(draft.payment.method
+                ? { payment: { ...o.payment, ...draft.payment } as PaymentInfo }
+                : {}),
               subtotal,
               total: subtotal + (o.deliveryFee ?? 0),
               updatedAt: new Date(),
@@ -462,7 +466,8 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
         o.id === orderId ? { ...o, payment, updatedAt: new Date() } : o,
       ),
     }));
-    await dbUpdatePayment(orderId, payment);
+    const res = await dbUpdatePayment(orderId, payment);
+    if (!res?.ok) await get().loadOrders();
   },
 
   // ── Açık hesabı tahsil et (kısmi olabilir) ─────────────────────────────
