@@ -63,6 +63,8 @@ import {
 } from "@/actions/endOfDay";
 import EndOfDayReceipt from "@/components/receipt/EndOfDayReceipt";
 import { formatCurrency, cn } from "@/lib/utils";
+import { CourierCashCard } from "@/components/cash/CourierCashCard";
+import { getCourierCash } from "@/actions/courierCash";
 
 // Ödeme yöntemi defteri — yöntem başına ikon + etiket + sabit sıra.
 const METHOD_META: Record<
@@ -1059,6 +1061,17 @@ export default function EndOfDayPage({ initialDate }: { initialDate?: string } =
       );
       if (!ok) return;
     }
+    // Bugünü kapatırken kuryelerde teslim alınmamış para varsa uyar.
+    if (date === istanbulToday()) {
+      const cash = await getCourierCash();
+      const pending = cash.totalCash + cash.totalCard;
+      if (pending > 0) {
+        const ok = window.confirm(
+          `Kuryelerde teslim alınmamış ${formatCurrency(pending)} var (nakit ${formatCurrency(cash.totalCash)}, kart ${formatCurrency(cash.totalCard)}). Yine de gün kapatılsın mı?`,
+        );
+        if (!ok) return;
+      }
+    }
     setIsClosing(true);
     try {
       // Kasa bölümü açıksa girilen değerleri, kapalıysa null gönder (saymadan kapat).
@@ -1287,6 +1300,9 @@ export default function EndOfDayPage({ initialDate }: { initialDate?: string } =
                 </span>
               </div>
             </section>
+
+            {/* Kuryelerde kalan para — canlı durum, yalnız bugün için anlamlı */}
+            {date === today && <CourierCashCard />}
 
             {/* Kurye tahsilat + kurumsal — tıkla, detayı modalda gör (veri varsa) */}
             {(report.courierBreakdown.length > 0 || report.corporateBreakdown.length > 0) && (

@@ -93,6 +93,9 @@ const TrendyolOrderSchema = new Schema(
 
     // Kurye (yalnız STORE paketleri, kurye ekranından)
     courier: { type: String, index: true, sparse: true },
+    // Kapıda alınan paranın (nakit/kart) kasaya teslimi — bkz. Order.handedOverAt.
+    handedOverAt: { type: Date },
+    handoverId: { type: String },
 
     // Hakediş — settlement kayıtları geldikçe dolar. netRevenue = settlementLines
     // toplamı (gerçek). Settlement'a hiç düşmeyen (yemek kartı vb.) siparişte boş

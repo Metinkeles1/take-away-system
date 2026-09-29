@@ -127,6 +127,10 @@ const OrderSchema = new Schema(
     // Siparişi teslim almak için üstlenen kurye adı. Kurye uygulamasında "Tüm
     // Paketler" listesinden check'lediğinde yazılır; boşsa havuzda (kimse almamış).
     courier: { type: String, default: undefined },
+    // Kapıda alınan paranın (nakit/kart) kasaya teslim edildiği an ve teslim
+    // kaydı (CashHandover.id). Boşsa para hâlâ kuryede sayılır.
+    handedOverAt: Date,
+    handoverId: String,
   },
   {
     timestamps: true, // createdAt & updatedAt otomatik

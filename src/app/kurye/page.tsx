@@ -50,6 +50,7 @@ import { getActiveCouriers, type Courier } from "@/actions/couriers";
 import { type ShopLocation, type ShopIban } from "@/actions/settings";
 import { setOrderPaymentMethod } from "@/actions/orders";
 import { subscribeOrders } from "@/lib/pusher/client";
+import { CourierCashBanner } from "@/components/cash/CourierCashBanner";
 import {
   type Order,
   type GeoPoint,
@@ -1316,6 +1317,9 @@ export default function KuryePage() {
           </div>
         )}
       </header>
+
+      {/* Üzerindeki (kasaya teslim edilmemiş) para — eşik aşılınca "Kasaya uğra" */}
+      <CourierCashBanner courier={courier} />
 
       {/* Trendyol çekme geri bildirimi — hata veya "sipariş yok" bilgisi. */}
       {activeTab === "mine" && trendyolError && (
