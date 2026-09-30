@@ -66,6 +66,7 @@ import {
   haversineMeters,
   formatDistance,
   toLocalPhone,
+  toWhatsAppPhone,
   cn,
 } from "@/lib/utils";
 import { LocationPicker, type LatLng } from "@/components/kurye/LocationPicker";
@@ -240,16 +241,6 @@ function buildWhatsAppUrl(
     text += ` + ${settledDebt.count} eski hesap tahsil edildi (${formatCurrency(settledDebt.total)})`;
   }
   return `whatsapp://send?text=${encodeURIComponent(text)}`;
-}
-
-// TR telefonu wa.me'nin beklediği uluslararası biçime çevirir (90XXXXXXXXXX).
-// 0 ile başlıyorsa baştaki 0 → 90; 10 hane "5..." ise başına 90; zaten 90 ise olduğu gibi.
-function toWhatsAppPhone(raw: string): string {
-  const digits = raw.replace(/\D/g, "");
-  if (digits.startsWith("90")) return digits;
-  if (digits.startsWith("0")) return "90" + digits.slice(1);
-  if (digits.length === 10) return "90" + digits;
-  return digits;
 }
 
 // IBAN'ı 4'erli gruplayarak okunur biçimde gösterir (TR00 0000 ...). Sadece görsel.

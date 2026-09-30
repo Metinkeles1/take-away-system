@@ -32,6 +32,7 @@ import {
   Settings,
   Gauge,
   UserRound,
+  HeartHandshake,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -72,6 +73,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
       { kind: "leaf", href: "/kurye",      label: "Kurye",        icon: Bike,           color: "text-lime-400",   activeBg: "bg-lime-500/15" },
       { kind: "leaf", href: "/gun-sonu",   label: "Gün Sonu",     icon: ReceiptText,    color: "text-violet-400", activeBg: "bg-violet-500/15" },
       { kind: "leaf", href: "/open-accounts", label: "Açık Hesaplar", icon: Wallet,     color: "text-amber-400",  activeBg: "bg-amber-500/15" },
+      { kind: "leaf", href: "/geri-kazan", label: "Geri Kazan",   icon: HeartHandshake, color: "text-rose-400",   activeBg: "bg-rose-500/15" },
     ],
   },
   {

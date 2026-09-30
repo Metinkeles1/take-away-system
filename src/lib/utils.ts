@@ -101,3 +101,13 @@ export function toLocalPhone(raw: string): string {
   const k = phoneKey(raw);
   return k.length === 10 ? `0${k}` : raw.replace(/\D/g, "");
 }
+
+// TR telefonu wa.me'nin beklediği uluslararası biçime çevirir (90XXXXXXXXXX).
+// 0 ile başlıyorsa baştaki 0 → 90; 10 hane "5..." ise başına 90; zaten 90 ise olduğu gibi.
+export function toWhatsAppPhone(raw: string): string {
+  const digits = raw.replace(/\D/g, "");
+  if (digits.startsWith("90")) return digits;
+  if (digits.startsWith("0")) return "90" + digits.slice(1);
+  if (digits.length === 10) return "90" + digits;
+  return digits;
+}
