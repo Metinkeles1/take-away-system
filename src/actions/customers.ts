@@ -5,6 +5,7 @@ import { connectDB } from "@/lib/mongodb";
 import CustomerModel from "@/models/Customer";
 import OrderModel from "@/models/Order";
 import { toLocalPhone } from "@/lib/utils";
+import { normalizeOrderItems } from "@/lib/orders/items";
 import {
   findMatchingAddress,
   newAddressId,
@@ -127,7 +128,7 @@ export async function getCustomerOrderHistory(
 
   return docs.map((doc) => {
     const d = doc as Record<string, unknown>;
-    const items = (d.items as OrderItem[] | undefined) ?? [];
+    const items = normalizeOrderItems((d.items as OrderItem[] | undefined) ?? []);
     return {
       id: d.id as string,
       orderNumber: d.orderNumber as number,

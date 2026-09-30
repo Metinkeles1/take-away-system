@@ -16,6 +16,21 @@ const ProductSchema = new Schema(
       required: true,
     },
     available: { type: Boolean, default: true },
+    // Şemada yokken mongoose resmi sessizce atıyordu; düzenleme ekranında
+    // sepet küçük resimleri kayboluyordu.
+    image: String,
+  },
+  { _id: false },
+);
+
+// Satırın porsiyonu (0.5 / 1 / 1.5). Şemada yokken mongoose bu alanı sessizce
+// atıyordu: aynı ürünün farklı porsiyonları kayıttan sonra ayırt edilemiyor,
+// düzenlemede porsiyon fiyatı kayboluyordu.
+const OrderItemPortionSchema = new Schema(
+  {
+    size: { type: String, enum: ["half", "full", "one_and_half"], required: true },
+    label: { type: String, required: true },
+    multiplier: { type: Number, required: true },
   },
   { _id: false },
 );
@@ -24,6 +39,7 @@ const OrderItemSchema = new Schema(
   {
     product: { type: ProductSchema, required: true },
     quantity: { type: Number, required: true, min: 1 },
+    portion: { type: OrderItemPortionSchema, default: undefined },
     note: String,
     totalPrice: { type: Number, required: true },
   },
@@ -149,6 +165,13 @@ OrderSchema.index({ createdAt: -1 });
 OrderSchema.index({ status: 1 });
 
 export type OrderDocument = InferSchemaType<typeof OrderSchema>;
+
+// Dev hot-reload'da eski (porsiyonsuz şemalı) model kalırsa yeni alan yine
+// atılır — şemada items.portion yoksa eski model atılıp yeniden derlenir.
+const cachedOrder = mongoose.models.Order as mongoose.Model<unknown> | undefined;
+if (cachedOrder && !cachedOrder.schema.path("items.portion")) {
+  mongoose.deleteModel("Order");
+}
 
 // Hot-reload sırasında model çoğalmasını önle
 const OrderModel =

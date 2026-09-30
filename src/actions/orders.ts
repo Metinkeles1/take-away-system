@@ -10,6 +10,7 @@ import {
 } from "@/lib/customers/geoByPhone";
 import { recordCustomerAddress } from "@/lib/customers/recordAddress";
 import { toLocalPhone } from "@/lib/utils";
+import { normalizeOrderItems } from "@/lib/orders/items";
 import {
   cancelTrendyolPackage,
   deliverTrendyolPackage,
@@ -158,7 +159,7 @@ export async function getOrders(period: OrdersPeriod = "week"): Promise<Order[]>
   return docs.map((doc) => ({
     id: doc.id,
     orderNumber: doc.orderNumber,
-    items: doc.items as Order["items"],
+    items: normalizeOrderItems(doc.items as Order["items"]),
     customer: withFallbackGeo(doc.customer as Order["customer"], addressBook),
     payment: doc.payment as Order["payment"],
     status: doc.status as Order["status"],
@@ -197,7 +198,7 @@ export async function getOrderById(id: string): Promise<Order | null> {
   return {
     id: doc.id,
     orderNumber: doc.orderNumber,
-    items: doc.items as Order["items"],
+    items: normalizeOrderItems(doc.items as Order["items"]),
     customer: addressBook ? withFallbackGeo(customer, addressBook) : customer,
     payment: doc.payment as Order["payment"],
     status: doc.status as Order["status"],
@@ -447,7 +448,7 @@ export async function getOpenAccounts(
   return docs.map((doc) => ({
     id: doc.id,
     orderNumber: doc.orderNumber,
-    items: doc.items as Order["items"],
+    items: normalizeOrderItems(doc.items as Order["items"]),
     customer: doc.customer as Order["customer"],
     payment: doc.payment as Order["payment"],
     status: doc.status as Order["status"],

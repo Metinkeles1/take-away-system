@@ -3,6 +3,7 @@
 import { connectDB } from "@/lib/mongodb";
 import OrderModel from "@/models/Order";
 import { type GeoPoint, type Order } from "@/types";
+import { normalizeOrderItems } from "@/lib/orders/items";
 import { after } from "next/server";
 import { notifyOrdersChanged } from "@/lib/pusher/server";
 import {
@@ -55,7 +56,7 @@ export async function getCourierOrders(): Promise<Order[]> {
     return {
       id: doc.id,
       orderNumber: doc.orderNumber,
-      items: doc.items as Order["items"],
+      items: normalizeOrderItems(doc.items as Order["items"]),
       customer: { ...customer, geo },
       payment: doc.payment as Order["payment"],
       status: doc.status as Order["status"],
