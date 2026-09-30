@@ -16,9 +16,8 @@ const ProductSchema = new Schema(
       required: true,
     },
     available: { type: Boolean, default: true },
-    // Şemada yokken mongoose resmi sessizce atıyordu; düzenleme ekranında
-    // sepet küçük resimleri kayboluyordu.
-    image: String,
+    // image bilinçli olarak yok: her siparişe kopyalanmasın. Sepet resmi
+    // ürün id'si üzerinden canlı menüden okunur (CartList).
   },
   { _id: false },
 );

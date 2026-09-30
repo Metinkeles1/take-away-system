@@ -4,6 +4,7 @@ import { productImage, fallbackProductUrl } from "@/lib/images";
 import { formatCurrency } from "@/lib/utils";
 import { ShoppingCart, Plus, Minus, Trash2 } from "lucide-react";
 import { type OrderDraft } from "@/types";
+import { useMenuStore } from "@/store/menuStore";
 import { SectionTitle } from "./SectionTitle";
 
 interface CartListProps {
@@ -15,6 +16,9 @@ interface CartListProps {
 
 export function CartList({ items, onIncrement, onDecrement, onRemove }: CartListProps) {
   const totalItems = items.reduce((sum, i) => sum + i.quantity, 0);
+  // Sipariş kaydında ürün resmi tutulmaz (DB'yi şişirmesin); düzenleme
+  // ekranında resim ürün id'si üzerinden canlı menüden alınır.
+  const menuItems = useMenuStore((s) => s.items);
 
   return (
     <section>
@@ -50,7 +54,12 @@ export function CartList({ items, onIncrement, onDecrement, onRemove }: CartList
               >
                 <div className="h-9 w-9 rounded-md overflow-hidden shrink-0 ring-1 ring-foreground/8">
                   <ProductImage
-                    src={productImage(item.product)}
+                    src={productImage({
+                      ...item.product,
+                      image:
+                        menuItems.find((m) => m.id === item.product.id)?.image ??
+                        item.product.image,
+                    })}
                     alt={item.product.name}
                     fallbackSrc={fallbackProductUrl(
                       item.product.id,
