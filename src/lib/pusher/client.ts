@@ -25,7 +25,17 @@ export function subscribeOrders(onChange: () => void): () => void {
   if (!c) return () => {};
   const channel = c.subscribe(ORDERS_CHANNEL);
   channel.bind(ORDERS_EVENT, onChange);
+  // Bağlantı koptuğu sürede gelen olaylar tekrar gönderilmez — yeniden
+  // bağlanınca bir kez tazele ki aradaki sipariş kaçmasın.
+  let wasConnected = c.connection.state === "connected";
+  const onState = ({ current }: { current: string }) => {
+    if (current !== "connected") return;
+    if (wasConnected) onChange(); // ilk bağlantı değil, yeniden bağlanma
+    wasConnected = true;
+  };
+  c.connection.bind("state_change", onState);
   return () => {
     channel.unbind(ORDERS_EVENT, onChange);
+    c.connection.unbind("state_change", onState);
   };
 }

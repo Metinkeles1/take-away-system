@@ -83,8 +83,12 @@ import {
 } from "@/lib/kurye/geocode";
 
 // Pusher (websocket) anlık güncellemeyi sağlar; bu poll yalnızca emniyet ağı
-// (Pusher devre dışıysa / kaçan olay için). Bu yüzden seyrek tutulur.
-const REFRESH_MS = 60_000;
+// (Pusher devre dışıysa / kaçan olay için). Bu yüzden seyrek tutulur. Kopma
+// durumları (ekran kilidi, bağlantı kopması) zaten dönüşte ayrıca tazeleniyor.
+const REFRESH_MS = 5 * 60_000;
+// Odak + görünürlük olayları çoğu zaman birlikte tetiklenir; bu pencere içinde
+// ikinci tazeleme atlanır.
+const RESUME_THROTTLE_MS = 3_000;
 
 // Kurye adının cihazda saklandığı anahtar — login yok, kurye uygulamayı ilk
 // açışında listeden adını seçer, sonra hatırlanır ("değiştir" ile sıfırlanır).
@@ -501,8 +505,14 @@ export default function KuryePage() {
     pendingMutations.current--;
   };
 
+  // Aynı anda birden çok load() uçabilir (poll + Pusher + odak). Geç dönen ESKİ
+  // cevap yenisinin üzerine yazmasın — yoksa yeni sipariş listeden düşüyordu.
+  const loadSeq = useRef(0);
+  const appliedSeq = useRef(0);
+
   const load = async () => {
     const seq = mutationSeq.current;
+    const req = ++loadSeq.current;
     try {
       // Tek round-trip: paketler + çoklu kurye modu + dükkan konumu birlikte gelir.
       // GET ile (server action değil) — action kuyruğunu tıkayıp üstlen/bırak
@@ -517,6 +527,8 @@ export default function KuryePage() {
         shopIban: iban,
         deliveryTargetMin: target,
       } = (await res.json()) as Awaited<ReturnType<typeof getCourierBoard>>;
+      if (req < appliedSeq.current) return;
+      appliedSeq.current = req;
       if (seq === mutationSeq.current && pendingMutations.current === 0) {
         setOrders(data);
         // Trendyol siparişleri artık paylaşımlı depodan gelir → her kuryenin
@@ -610,8 +622,19 @@ export default function KuryePage() {
     const poll = setInterval(() => {
       if (!document.hidden) void load();
     }, REFRESH_MS);
-    const onFocus = () => void load();
+    let lastResume = 0;
+    const resumeLoad = () => {
+      if (document.hidden || Date.now() - lastResume < RESUME_THROTTLE_MS) return;
+      lastResume = Date.now();
+      void load();
+    };
+    const onFocus = resumeLoad;
     window.addEventListener("focus", onFocus);
+    // Telefonda ekran kilidi / uygulama değişimi "focus" tetiklemez; geri
+    // dönülünce hemen tazele. Arka plandayken gelen Pusher olayları atlandığı
+    // için bu olmadan yeni sipariş bir sonraki poll'e kalıyordu.
+    const onVisible = resumeLoad;
+    document.addEventListener("visibilitychange", onVisible);
     // Pusher patlamasını tek fetch'e indir: kısa bir pencerede gelen birçok olay
     // (örn. toplu durum değişikliği) tek bir yenilemede toplanır → refetch fırtınası yok.
     let burst: ReturnType<typeof setTimeout> | null = null;
@@ -627,6 +650,7 @@ export default function KuryePage() {
       clearInterval(poll);
       if (burst) clearTimeout(burst);
       window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
       unsubscribe();
     };
   }, []);
