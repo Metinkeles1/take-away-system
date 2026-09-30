@@ -65,6 +65,7 @@ import EndOfDayReceipt from "@/components/receipt/EndOfDayReceipt";
 import { formatCurrency, cn } from "@/lib/utils";
 import { CourierCashCard } from "@/components/cash/CourierCashCard";
 import { getCourierCash } from "@/actions/courierCash";
+import { DayBreakdown } from "@/components/gun-sonu/DayBreakdown";
 
 // Ödeme yöntemi defteri — yöntem başına ikon + etiket + sabit sıra.
 const METHOD_META: Record<
@@ -1300,6 +1301,9 @@ export default function EndOfDayPage({ initialDate }: { initialDate?: string } =
                 </span>
               </div>
             </section>
+
+            {/* Günün dökümü — paket / ödeme yöntemi / Trendyol brüt→net, grafikli */}
+            <DayBreakdown report={report} />
 
             {/* Kuryelerde kalan para — canlı durum, yalnız bugün için anlamlı */}
             {date === today && <CourierCashCard />}
