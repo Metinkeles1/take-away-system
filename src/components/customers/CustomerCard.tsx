@@ -1,9 +1,10 @@
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { type SavedCustomer } from "@/types";
 import { formatDate, formatPhone } from "@/lib/utils";
+import { customerSearchRegex } from "@/lib/customers/searchPattern";
 import {
   User,
   Phone,
@@ -15,6 +16,7 @@ import {
 
 interface CustomerCardProps {
   customer: SavedCustomer;
+  searchQuery?: string;
   onEdit: (customer: SavedCustomer) => void;
   onDelete: (customer: SavedCustomer) => void;
   onViewHistory: (customer: SavedCustomer) => void;
@@ -22,10 +24,28 @@ interface CustomerCardProps {
 
 export const CustomerCard = memo(function CustomerCard({
   customer,
+  searchQuery,
   onEdit,
   onDelete,
   onViewHistory,
 }: CustomerCardProps) {
+  // Tüm adresler alt alta: tek adres gösterilince (ör. Tekvin) aynı numaranın
+  // öbür adresi (ör. Süleyman Şah) numarayla aransa da görünmüyordu. Sıra:
+  // aramaya uyan adres → varsayılan → diğerleri.
+  const addressLines = useMemo(() => {
+    const list = customer.addresses.length
+      ? customer.addresses
+      : [{ address: customer.address, addressDetail: customer.addressDetail }];
+    const q = searchQuery?.trim();
+    const rx = q ? customerSearchRegex(q) : null;
+    const rank = (a: { address: string; addressDetail?: string }) =>
+      rx?.test(a.address)
+        ? 0
+        : a.address === customer.address && a.addressDetail === customer.addressDetail
+          ? 1
+          : 2;
+    return [...list].sort((a, b) => rank(a) - rank(b));
+  }, [searchQuery, customer]);
   return (
     <Card className="transition-shadow hover:shadow-md">
       <CardContent className="flex items-center gap-4 p-4">
@@ -42,18 +62,18 @@ export const CustomerCard = memo(function CustomerCard({
             <Phone className="h-3.5 w-3.5 shrink-0" />
             <span>{formatPhone(customer.phone)}</span>
           </div>
-          <div className="flex items-center gap-1 text-sm text-muted-foreground mt-0.5">
-            <MapPin className="h-3.5 w-3.5 shrink-0" />
-            <span className="truncate">
-              {customer.address}
-              {customer.addressDetail && ` - ${customer.addressDetail}`}
-            </span>
-            {customer.addresses.length > 1 && (
-              <Badge variant="outline" className="shrink-0 text-xs">
-                +{customer.addresses.length - 1} adres
-              </Badge>
-            )}
-          </div>
+          {addressLines.map((a, i) => (
+            <div
+              key={i}
+              className="flex items-center gap-1 text-sm text-muted-foreground mt-0.5"
+            >
+              <MapPin className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">
+                {a.address}
+                {a.addressDetail && ` - ${a.addressDetail}`}
+              </span>
+            </div>
+          ))}
         </button>
         <div className="flex items-center gap-2 shrink-0">
           <Badge

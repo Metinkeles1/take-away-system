@@ -119,6 +119,7 @@ export function CustomerList({
             >
               <CustomerCard
                 customer={customer}
+                searchQuery={searchQuery}
                 onEdit={onEdit}
                 onDelete={onDelete}
                 onViewHistory={onViewHistory}

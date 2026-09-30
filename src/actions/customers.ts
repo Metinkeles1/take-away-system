@@ -12,6 +12,7 @@ import {
   pickDefaultAddress,
 } from "@/lib/customers/addresses";
 import { addressesSetFields } from "@/lib/customers/recordAddress";
+import { customerSearchRegex } from "@/lib/customers/searchPattern";
 import {
   type ContactSyncResult,
   syncNewCustomersToGoogleContacts,
@@ -95,8 +96,7 @@ export async function getSavedCustomer(id: string): Promise<SavedCustomer | null
 // ─── İsim, telefon veya adrese göre ara ──────────────────────────────────────────────
 export async function searchCustomers(query: string): Promise<SavedCustomer[]> {
   await connectDB();
-  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const regex = new RegExp(escaped, "i");
+  const regex = customerSearchRegex(query);
 
   const docs = await CustomerModel.find({
     $or: [
