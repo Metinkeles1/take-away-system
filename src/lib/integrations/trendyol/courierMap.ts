@@ -171,6 +171,7 @@ export function mapTrendyolPackageToOrder(p: TrendyolPackage): Order {
     // orderNumber number tipinde (sıralama/uyumluluk için); insan-okur no orderCode'da.
     orderNumber: Number(p.orderNumber) || 0,
     orderCode: p.orderId || undefined,
+    callPin: a.pinCode?.replace(/\D/g, "") || p.orderNumber || undefined,
     items,
     customer: {
       name,

@@ -207,6 +207,9 @@ export interface TrendyolPackage {
     floor?: string;
     doorNumber?: string;
     phone?: string;
+    // Çağrı merkezi (phone/callCenterPhone) aranınca sesli menünün istediği kod.
+    // Canlı veride orderNumber ile aynı geliyor ama ayrı alan olarak okunur.
+    pinCode?: string;
     latitude?: string;
     longitude?: string;
   };

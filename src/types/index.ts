@@ -167,6 +167,9 @@ export interface Order {
   // İnsan-okur pazaryeri sipariş numarası (Trendyol string olup çok uzun/alfanümerik
   // olabildiği için number'a sığmaz). Kartta bu gösterilir; yoksa orderNumber kullanılır.
   orderCode?: string;
+  // Trendyol: müşteri numarası gizli, çağrı merkezi aranır ve bu PIN tuşlanır
+  // (address.pinCode). Kurye "Ara" düğmesi tel: bağlantısına ekler.
+  callPin?: string;
   // Tahsilat durumu — "open" ise açık hesap (henüz ödenmedi). Varsayılan "paid".
   // Kısmi ödenen sipariş tamamı tahsil edilene kadar "open" kalır (kalan = alacak).
   paymentStatus?: PaymentStatus;

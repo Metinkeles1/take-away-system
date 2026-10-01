@@ -200,6 +200,16 @@ function displayOrderNo(o: Order): string {
   return o.orderCode ?? String(o.orderNumber);
 }
 
+// "Ara" düğmesinin tel: bağlantısı. Trendyol müşterinin gerçek numarasını vermez;
+// herkes için aynı çağrı merkezi numarası (0212 365 34 03) gelir ve sesli menü
+// PIN'i (address.pinCode = sipariş no) tuşlatır. Virgül = telefonun ~2 sn beklemesi;
+// bekleme sonrası PIN'i kendisi tuşlar, kurye elle yazmak zorunda kalmaz.
+function callHref(o: Order): string {
+  const phone = toLocalPhone(o.customer.phone);
+  if (o.callPin) return `tel:${phone},,${o.callPin}`;
+  return `tel:${phone}`;
+}
+
 // Tek durağa Google haritası. Alt bardaki "Git" butonu bunu kullanır.
 // PİNLİ: kesin koordinata git AMA üstünde KENDİ etiketimiz (müşteri · adres) görünsün.
 // (Çıplak koordinat verince Google, noktayı en yakın işletmeyle etiketliyor — örn.
@@ -1549,7 +1559,7 @@ export default function KuryePage() {
             {!confirming ? (
               <>
                 <a
-                  href={`tel:${toLocalPhone(current.customer.phone)}`}
+                  href={callHref(current)}
                   aria-label="Müşteriyi ara"
                   className="flex w-16 shrink-0 flex-col items-center justify-center gap-0.5 rounded-2xl bg-blue-600 text-white shadow-sm shadow-blue-600/25 transition active:scale-95"
                 >
