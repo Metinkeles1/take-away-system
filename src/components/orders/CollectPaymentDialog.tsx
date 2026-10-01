@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { cn, formatCurrency } from "@/lib/utils";
+import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import { Banknote, CreditCard, Utensils, Landmark, Check } from "lucide-react";
 import type { Order, PaymentMethod, MealCardBrand, PaymentInfo } from "@/types";
 import { DEFAULT_IBAN_NAME, DEFAULT_IBAN_NUMBER } from "@/lib/constants";
@@ -39,12 +39,16 @@ const BRANDS: { value: MealCardBrand; label: string }[] = [
 
 interface Props {
   order: Order | null;
+  /** Toplu mod: bir müşterinin açık siparişlerinin hepsi (en eski önce). Verilirse
+   *  `order` yok sayılır; tutar en eski borçtan başlayarak dağıtılır. */
+  orders?: Order[] | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCollect: (payment: PaymentInfo, amount: number, note?: string) => Promise<void>;
 }
 
-export function CollectPaymentDialog({ order, open, onOpenChange, onCollect }: Props) {
+export function CollectPaymentDialog({ order, orders, open, onOpenChange, onCollect }: Props) {
+  const bulk = orders && orders.length > 0 ? orders : null;
   const [method, setMethod] = useState<PaymentMethod>("cash");
   const [brand, setBrand] = useState<MealCardBrand>("multinet");
   const [amount, setAmount] = useState("");
@@ -54,21 +58,29 @@ export function CollectPaymentDialog({ order, open, onOpenChange, onCollect }: P
   const [saving, setSaving] = useState(false);
 
   // Kalan alacak = sipariş tutarı − şimdiye dek tahsil edilen.
-  const remaining = order
-    ? Math.max(0, order.total - (order.paidAmount ?? 0))
-    : 0;
-  const hasPartial = (order?.paidAmount ?? 0) > 0;
+  const remainingOf = (o: Order) => Math.max(0, o.total - (o.paidAmount ?? 0));
+  const remaining = bulk
+    ? bulk.reduce((s, o) => s + remainingOf(o), 0)
+    : order
+      ? remainingOf(order)
+      : 0;
+  const paidSoFar = bulk
+    ? bulk.reduce((s, o) => s + (o.paidAmount ?? 0), 0)
+    : (order?.paidAmount ?? 0);
+  const hasPartial = paidSoFar > 0;
+  // Pencerenin hangi hesap(lar) için açıldığı — değişince form sıfırlanır.
+  const targetKey = bulk ? bulk.map((o) => o.id).join(",") : order?.id;
 
   // Dialog açılınca tutarı kalanın tamamına ön-doldur (en sık senaryo: tümünü al).
   useEffect(() => {
-    if (open && order) {
+    if (open && (order || bulk)) {
       setAmount(String(remaining));
       setNote("");
       setPicked(new Set());
     }
     // remaining order'a bağlı; order/open değişince yenilensin
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, order?.id]);
+  }, [open, targetKey]);
 
   const parsed = Number(amount.replace(",", "."));
   const validAmount = Number.isFinite(parsed) && parsed > 0 && parsed <= remaining + 0.001;
@@ -77,7 +89,7 @@ export function CollectPaymentDialog({ order, open, onOpenChange, onCollect }: P
   // Bir sipariş kalemini seç/bırak: nota ekler ve tutarı seçili kalemlerin
   // toplamına çeker (kalanı aşmayacak şekilde). Tam ürün-bazlı muhasebe değil —
   // sadece "ne için ödedi" notunu ve tutarı kolaylaştıran bir yardımcı.
-  const items = order?.items ?? [];
+  const items = bulk ? [] : (order?.items ?? []);
   const toggleItem = (idx: number) => {
     setPicked((prev) => {
       const next = new Set(prev);
@@ -96,7 +108,7 @@ export function CollectPaymentDialog({ order, open, onOpenChange, onCollect }: P
   };
 
   const handleConfirm = async () => {
-    if (!order || !validAmount) return;
+    if ((!order && !bulk) || !validAmount) return;
     setSaving(true);
     try {
       const payment: PaymentInfo = {
@@ -118,11 +130,13 @@ export function CollectPaymentDialog({ order, open, onOpenChange, onCollect }: P
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Tahsilat Al</DialogTitle>
+          <DialogTitle>{bulk ? "Tümünü Tahsil Et" : "Tahsilat Al"}</DialogTitle>
           <DialogDescription>
-            {order
-              ? `#${order.orderNumber} · ${order.customer.name} · ${formatCurrency(order.total)}`
-              : ""}
+            {bulk
+              ? `${bulk[0].customer.name} · ${bulk.length} açık sipariş · ${formatCurrency(remaining)}`
+              : order
+                ? `#${order.orderNumber} · ${order.customer.name} · ${formatCurrency(order.total)}`
+                : ""}
           </DialogDescription>
         </DialogHeader>
 
@@ -136,7 +150,7 @@ export function CollectPaymentDialog({ order, open, onOpenChange, onCollect }: P
               <span className="text-xs text-muted-foreground">
                 {hasPartial && (
                   <span className="text-amber-600">
-                    Ödenen {formatCurrency(order?.paidAmount ?? 0)} ·{" "}
+                    Ödenen {formatCurrency(paidSoFar)} ·{" "}
                   </span>
                 )}
                 Kalan {formatCurrency(remaining)}
@@ -169,9 +183,25 @@ export function CollectPaymentDialog({ order, open, onOpenChange, onCollect }: P
               <p className="text-xs text-amber-600">
                 Kısmi tahsilat — bu ödeme sonrası kalan{" "}
                 {formatCurrency(afterRemaining)} açık hesapta kalır.
+                {bulk && " Ödeme en eski siparişten başlayarak kapatılır."}
               </p>
             ) : null}
           </div>
+
+          {/* Toplu mod: kapanacak siparişler (en eski önce) */}
+          {bulk && (
+            <ul className="max-h-40 divide-y overflow-y-auto rounded-lg border text-sm">
+              {bulk.map((o) => (
+                <li key={o.id} className="flex items-center justify-between gap-2 px-3 py-1.5">
+                  <span>
+                    <span className="font-medium">#{o.orderNumber}</span>
+                    <span className="ml-2 text-xs text-muted-foreground">{formatDate(o.createdAt)}</span>
+                  </span>
+                  <span className="font-semibold tabular-nums">{formatCurrency(remainingOf(o))}</span>
+                </li>
+              ))}
+            </ul>
+          )}
 
           {/* Ürüne göre doldur — kalemlere tıklayınca tutar+not otomatik dolar.
               Kısmi ödemede "ne için aldım" kaydı için pratik kısayol. */}
@@ -277,7 +307,9 @@ export function CollectPaymentDialog({ order, open, onOpenChange, onCollect }: P
               ? "Kaydediliyor..."
               : validAmount && afterRemaining > 0.001
                 ? `${formatCurrency(parsed)} Tahsil Et`
-                : "Tahsil Edildi"}
+                : bulk
+                  ? `${bulk.length} Hesabı Kapat`
+                  : "Tahsil Edildi"}
           </Button>
         </DialogFooter>
       </DialogContent>

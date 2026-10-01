@@ -9,7 +9,7 @@ import {
   type AddressBook,
 } from "@/lib/customers/geoByPhone";
 import { recordCustomerAddress } from "@/lib/customers/recordAddress";
-import { toLocalPhone } from "@/lib/utils";
+import { phoneKey, toLocalPhone } from "@/lib/utils";
 import { normalizeOrderItems } from "@/lib/orders/items";
 import {
   cancelTrendyolPackage,
@@ -550,6 +550,80 @@ export async function collectOpenAccount(
     return { ok: true };
   } catch (error) {
     console.error("[collectOpenAccount]", error);
+    return { ok: false, error: "Tahsilat kaydedilemedi" };
+  }
+}
+
+// Bir müşterinin birden çok açık hesabını tek tahsilatla kapatır. Tutar
+// verilmezse hepsinin kalanı alınır; verilirse EN ESKİ borçtan başlayarak
+// dağıtılır (kısmi kalan son siparişte açık kalır). Her siparişe kendi payı
+// kadar tahsilat kaydı düşer — sipariş bazlı geçmiş/gün sonu bozulmaz.
+export async function collectCustomerOpenAccounts(
+  ids: string[],
+  payment: PaymentInfo,
+  amount?: number,
+  note?: string,
+): Promise<{ ok: boolean; error?: string; closed?: number }> {
+  try {
+    if (ids.length === 0) return { ok: false, error: "Sipariş seçilmedi" };
+    await connectDB();
+
+    const docs = (await OrderModel.find({ id: { $in: ids }, paymentStatus: "open" })
+      .select("id total paidAmount customer.phone createdAt")
+      .sort({ createdAt: 1 })
+      .lean()) as unknown as {
+      id: string;
+      total: number;
+      paidAmount?: number;
+      customer: { phone: string };
+    }[];
+    if (docs.length === 0) return { ok: false, error: "Açık hesap bulunamadı" };
+
+    // Güvenlik: toplu tahsilat yalnız TEK müşterinin hesaplarına uygulanır.
+    const phones = new Set(docs.map((d) => phoneKey(d.customer.phone)));
+    if (phones.size > 1) return { ok: false, error: "Siparişler farklı müşterilere ait" };
+
+    const totalRemaining = docs.reduce(
+      (s, d) => s + Math.max(0, d.total - (d.paidAmount ?? 0)),
+      0,
+    );
+    let left = amount == null ? totalRemaining : Math.min(Math.max(0, amount), totalRemaining);
+    if (left <= 0) return { ok: false, error: "Geçersiz tahsilat tutarı" };
+
+    const now = new Date();
+    let closed = 0;
+    for (const d of docs) {
+      if (left <= 0.001) break;
+      const already = d.paidAmount ?? 0;
+      const remaining = Math.max(0, d.total - already);
+      const pay = Math.min(remaining, left);
+      if (pay <= 0) continue;
+      left -= pay;
+
+      const newPaid = already + pay;
+      const fullyPaid = newPaid >= d.total - 0.001;
+      const record: PaymentRecord = {
+        amount: pay,
+        method: payment.method,
+        mealCardBrand: payment.mealCardBrand,
+        at: now,
+        note: note?.trim() || undefined,
+      };
+      const set: Record<string, unknown> = { paidAmount: newPaid };
+      if (fullyPaid) {
+        set.paymentStatus = "paid";
+        set.paidAt = now;
+        set.payment = payment;
+        closed++;
+      }
+      await OrderModel.updateOne({ id: d.id }, { $push: { payments: record }, $set: set });
+    }
+
+    revalidatePath("/open-accounts");
+    await notifyOrdersChanged("payment-changed");
+    return { ok: true, closed };
+  } catch (error) {
+    console.error("[collectCustomerOpenAccounts]", error);
     return { ok: false, error: "Tahsilat kaydedilemedi" };
   }
 }
