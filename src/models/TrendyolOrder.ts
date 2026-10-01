@@ -32,6 +32,10 @@ const LineSchema = new Schema(
     name: { type: String, default: "" },
     quantity: { type: Number, default: 1 },
     unitSellingPrice: { type: Number, default: 0 },
+    // Müşterinin özelleştirmesi (bkz. lineCustomization). Eski kayıtlarda yok.
+    modifiers: { type: [{ name: String, price: Number, _id: false }], default: undefined },
+    extras: { type: [{ name: String, price: Number, _id: false }], default: undefined },
+    removed: { type: [String], default: undefined },
   },
   { _id: false },
 );
@@ -76,6 +80,7 @@ const TrendyolOrderSchema = new Schema(
 
     // İçerik + tutar
     lines: { type: [LineSchema], default: [] },
+    customerNote: { type: String, default: "" }, // müşterinin sipariş notu
     totalPrice: { type: Number, default: 0 }, // brüt (indirim öncesi)
     sellerDiscount: { type: Number, default: 0 }, // satıcının karşıladığı promosyon+kupon
     netTotal: { type: Number, default: 0 }, // müşterinin ödediği (brüt − satıcı indirimi)

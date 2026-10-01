@@ -152,6 +152,22 @@ export interface TrendyolPackageLineItem {
   lineItemId: number;
   isCancelled: boolean;
 }
+// Müşterinin ürün özelleştirmesi. removedIngredients = "soğansız" gibi çıkarılan
+// malzeme; modifierProducts (porsiyon vb.) iç içe kendi seçim/malzemelerini taşır.
+export interface TrendyolIngredient {
+  id?: number;
+  name: string;
+  price?: number;
+}
+export interface TrendyolModifierProduct {
+  name: string;
+  price: number;
+  productId: number;
+  modifierGroupId?: number;
+  modifierProducts?: TrendyolModifierProduct[];
+  extraIngredients?: TrendyolIngredient[];
+  removedIngredients?: TrendyolIngredient[];
+}
 export interface TrendyolPackageLine {
   productId: number;
   name: string;
@@ -159,7 +175,9 @@ export interface TrendyolPackageLine {
   unitSellingPrice: number;
   description?: string;
   items: TrendyolPackageLineItem[];
-  modifierProducts?: Array<{ name: string; price: number; productId: number }>;
+  modifierProducts?: TrendyolModifierProduct[];
+  extraIngredients?: TrendyolIngredient[];
+  removedIngredients?: TrendyolIngredient[];
 }
 export interface TrendyolPackage {
   id: string;

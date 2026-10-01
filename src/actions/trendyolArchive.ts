@@ -328,7 +328,16 @@ export interface TrendyolOrderDetail {
   addressDescription: string;
   lat: number | null;
   lng: number | null;
-  lines: { name: string; quantity: number; unitPrice: number; total: number }[];
+  lines: {
+    name: string;
+    quantity: number;
+    unitPrice: number;
+    total: number;
+    modifiers: string[]; // porsiyon / seçim
+    extras: string[]; // ekstra malzeme
+    removed: string[]; // çıkarılan malzeme ("soğansız")
+  }[];
+  customerNote: string;
   gross: number; // brüt (indirim öncesi)
   sellerDiscount: number; // senin karşıladığın indirim
   paid: number; // müşterinin ödediği
@@ -404,7 +413,11 @@ export async function getTrendyolOrderDetail(orderNumber: string): Promise<Trend
       quantity: l.quantity ?? 1,
       unitPrice: l.unitSellingPrice ?? 0,
       total: (l.unitSellingPrice ?? 0) * (l.quantity ?? 1),
+      modifiers: (l.modifiers ?? []).map((m) => m.name ?? "").filter(Boolean),
+      extras: (l.extras ?? []).map((e) => e.name ?? "").filter(Boolean),
+      removed: l.removed ?? [],
     })),
+    customerNote: d.customerNote ?? "",
     gross: d.totalPrice ?? 0,
     sellerDiscount: d.sellerDiscount ?? 0,
     paid: d.netTotal ?? d.totalPrice ?? 0,
@@ -436,6 +449,20 @@ const TY_STATUS: Record<string, Order["status"]> = {
 };
 
 const MEAL_BRANDS = new Set(["multinet", "setcard", "pluxee", "edenred", "tokenflex", "metropol"]);
+
+// Sipariş kartındaki ürün notu: "1 Porsiyon · +Kaşar · Soğan yok".
+function lineNote(l: {
+  modifiers?: { name?: string | null }[] | null;
+  extras?: { name?: string | null }[] | null;
+  removed?: string[] | null;
+}): string | undefined {
+  const parts = [
+    ...(l.modifiers ?? []).map((m) => m.name),
+    ...(l.extras ?? []).map((e) => (e.name ? `+${e.name}` : null)),
+    ...(l.removed ?? []).map((r) => `${r} yok`),
+  ].filter(Boolean);
+  return parts.length ? parts.join(" · ") : undefined;
+}
 
 export async function getTrendyolOrdersForList(period: TrendyolListPeriod = "week"): Promise<Order[]> {
   if (!trendyolConfigured()) return [];
@@ -469,6 +496,7 @@ export async function getTrendyolOrdersForList(period: TrendyolListPeriod = "wee
         lat: 1,
         lng: 1,
         lines: 1,
+        customerNote: 1,
         totalPrice: 1,
         netTotal: 1,
         paymentKey: 1,
@@ -507,7 +535,9 @@ export async function getTrendyolOrdersForList(period: TrendyolListPeriod = "wee
           },
           quantity: l.quantity ?? 1,
           totalPrice: (l.unitSellingPrice ?? 0) * (l.quantity ?? 1),
+          note: lineNote(l),
         })),
+        notes: d.customerNote || undefined,
         customer: {
           name: d.customerName || "Trendyol müşterisi",
           phone: d.phone ?? "",

@@ -16,6 +16,7 @@ import {
   type TrendyolPackage,
 } from "@/lib/integrations/trendyol/client";
 import {
+  lineCustomization,
   mealCardInfo,
   paymentKey,
   sellerDiscount,
@@ -197,12 +198,19 @@ function packageToArchive(p: TrendyolPackage, now: number): Record<string, unkno
     city: p.address?.city ?? "",
     district: p.address?.district ?? "",
     neighborhood: p.address?.neighborhood ?? "",
-    lines: (p.lines ?? []).map((l) => ({
-      productId: l.productId,
-      name: l.name,
-      quantity: l.items?.length || 1,
-      unitSellingPrice: l.unitSellingPrice ?? l.price ?? 0,
-    })),
+    lines: (p.lines ?? []).map((l) => {
+      const c = lineCustomization(l);
+      return {
+        productId: l.productId,
+        name: l.name,
+        quantity: l.items?.length || 1,
+        unitSellingPrice: l.unitSellingPrice ?? l.price ?? 0,
+        ...(c.modifiers.length ? { modifiers: c.modifiers } : {}),
+        ...(c.extras.length ? { extras: c.extras } : {}),
+        ...(c.removed.length ? { removed: c.removed } : {}),
+      };
+    }),
+    customerNote: p.customerNote?.trim() ?? "",
     totalPrice: gross,
     sellerDiscount: discount,
     netTotal: Math.max(gross - discount, 0),
@@ -259,6 +267,7 @@ const PII_FIELDS = [
   "lat",
   "lng",
   "customerId",
+  "customerNote", // serbest metin — kişisel bilgi içerebilir
 ];
 
 // Paketleri arşive yazar (upsert). Teslim edilmiş paketlerde, bizim kurye teslim
@@ -467,6 +476,7 @@ export async function anonymizeTrendyolOrders(orderNumbers: string[]): Promise<n
         apartmentNumber: "",
         addressDescription: "",
         addressFull: "",
+        customerNote: "",
         piiPurgedAt: now,
         anonymizedAt: now,
       },

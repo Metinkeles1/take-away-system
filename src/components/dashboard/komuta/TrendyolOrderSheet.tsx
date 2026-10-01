@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Bike, Calendar, MapPin, Phone, Repeat, Timer, Wallet } from "lucide-react";
+import { Bike, Calendar, MapPin, MessageSquareText, Phone, Repeat, Timer, Wallet } from "lucide-react";
 
 import { getTrendyolOrderDetail, type TrendyolOrderDetail } from "@/actions/trendyolArchive";
 import {
@@ -140,14 +140,38 @@ export function TrendyolOrderSheet({
               {/* İçerik */}
               <section>
                 <h3 className="mb-2 text-sm font-semibold">Sipariş içeriği</h3>
+                {d.customerNote && (
+                  <div className="mb-2 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950/40">
+                    <MessageSquareText className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-amber-700 dark:text-amber-300">Müşteri notu</p>
+                      <p className="whitespace-pre-line wrap-break-word">{d.customerNote}</p>
+                    </div>
+                  </div>
+                )}
                 {d.lines.length === 0 ? (
                   <p className="text-sm text-muted-foreground">Ürün bilgisi yok.</p>
                 ) : (
                   <ul className="divide-y rounded-lg border">
                     {d.lines.map((l, i) => (
-                      <li key={i} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+                      <li key={i} className="flex items-start justify-between gap-3 px-3 py-2 text-sm">
                         <span className="min-w-0">
                           <span className="font-medium tabular-nums">{l.quantity}×</span> {l.name}
+                          {(l.modifiers.length > 0 || l.extras.length > 0 || l.removed.length > 0) && (
+                            <span className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 text-xs">
+                              {l.modifiers.map((m, j) => (
+                                <span key={`m${j}`} className="text-muted-foreground">{m}</span>
+                              ))}
+                              {l.extras.map((e, j) => (
+                                <span key={`e${j}`} className="text-emerald-700 dark:text-emerald-400">+ {e}</span>
+                              ))}
+                              {l.removed.map((r, j) => (
+                                <span key={`r${j}`} className="font-medium text-red-600 dark:text-red-400">
+                                  {r} yok
+                                </span>
+                              ))}
+                            </span>
+                          )}
                         </span>
                         <span className="shrink-0 tabular-nums text-muted-foreground">
                           {formatCurrency(l.total)}

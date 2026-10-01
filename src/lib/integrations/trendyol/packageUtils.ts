@@ -1,7 +1,35 @@
 // Trendyol paketinden türetilen ortak alanlar — dashboard raporu ve sipariş
 // arşivi aynı hesabı kullansın diye tek yerde.
 
-import type { TrendyolPackage } from "./client";
+import type { TrendyolModifierProduct, TrendyolPackage, TrendyolPackageLine } from "./client";
+
+export interface LineCustomization {
+  modifiers: { name: string; price: number }[]; // porsiyon / seçim
+  extras: { name: string; price: number }[]; // ekstra malzeme
+  removed: string[]; // çıkarılan malzeme ("soğansız")
+}
+
+// Satırın özelleştirmelerini düzleştirir. Seçimler iç içe gelebilir (seçimin de
+// kendi ekstra/çıkarılan malzemesi olabilir) → hepsi tek listeye toplanır.
+export function lineCustomization(line: TrendyolPackageLine): LineCustomization {
+  const out: LineCustomization = { modifiers: [], extras: [], removed: [] };
+  const take = (src: {
+    modifierProducts?: TrendyolModifierProduct[];
+    extraIngredients?: { name: string; price?: number }[];
+    removedIngredients?: { name: string }[];
+  }) => {
+    for (const e of src.extraIngredients ?? []) {
+      if (e.name) out.extras.push({ name: e.name, price: e.price ?? 0 });
+    }
+    for (const r of src.removedIngredients ?? []) if (r.name) out.removed.push(r.name);
+    for (const m of src.modifierProducts ?? []) {
+      if (m.name) out.modifiers.push({ name: m.name, price: m.price ?? 0 });
+      take(m);
+    }
+  };
+  take(line);
+  return out;
+}
 
 // İptal/tedarik edilemedi → ciroya ve sipariş sayısına girmez.
 export const NON_REVENUE_STATUSES = new Set(["Cancelled", "UnSupplied"]);
