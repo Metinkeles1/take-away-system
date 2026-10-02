@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useId, useMemo, useSyncExternalStore } from "react";
+import { portionLabel } from "@/lib/orders/items";
 import { type CustomerOpenAccounts, type OrderDraft } from "@/types";
 import { formatCurrency, formatPhone } from "@/lib/utils";
 
@@ -339,9 +340,23 @@ const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptProps>(
                   >
                     {item.product.name}
                     {item.portion && (
-                      <span style={{ fontWeight: 400, fontSize: "0.85em" }}>
-                        {" "}
-                        ({item.portion.label})
+                      // Porsiyon ayrı satırda, çerçeveli ve kalın: termal
+                      // baskıda ince/küçük yazı silik çıkıyor, mutfak kaçırıyordu.
+                      <span
+                        style={{
+                          display: "block",
+                          width: "fit-content",
+                          marginTop: "2px",
+                          padding: "0 1.5mm",
+                          border: "1.5px solid #000",
+                          borderRadius: "2px",
+                          fontWeight: 800,
+                          fontSize: FONT_SIZE_NORMAL,
+                          letterSpacing: "0.02em",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {portionLabel(item.portion).toLocaleUpperCase("tr-TR")}
                       </span>
                     )}
                   </span>

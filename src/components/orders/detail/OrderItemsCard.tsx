@@ -5,6 +5,8 @@ import { Separator } from "@/components/ui/separator";
 import { formatCurrency } from "@/lib/utils";
 import type { Order } from "@/types";
 import { memo } from "react";
+import { PortionBadge } from "../PortionBadge";
+import { orderItemKey, orderItemUnitPrice } from "@/lib/orders/items";
 
 interface Props {
   items: Order["items"];
@@ -25,25 +27,17 @@ const OrderItemsCard = memo(function OrderItemsCard({
       <CardContent>
         <div className="space-y-2">
           {items.map((item) => {
-            const key = item.portion
-              ? `${item.product.id}:${item.portion.size}`
-              : item.product.id;
-            const unitPrice = item.portion
-              ? Math.round(item.product.price * item.portion.multiplier)
-              : item.product.price;
+            const key = orderItemKey(item);
+            const unitPrice = orderItemUnitPrice(item);
             return (
               <div
                 key={key}
                 className="flex items-center justify-between rounded-md bg-muted/40 px-3 py-2"
               >
-                <div>
-                  <p className="font-medium text-sm">
+                <div className="min-w-0">
+                  <p className="flex flex-wrap items-center gap-1.5 font-medium text-sm">
                     {item.product.name}
-                    {item.portion && (
-                      <span className="ml-1.5 text-xs text-primary font-medium">
-                        ({item.portion.label})
-                      </span>
-                    )}
+                    {item.portion && <PortionBadge portion={item.portion} />}
                   </p>
                   {item.note && (
                     <p className="text-xs text-muted-foreground">

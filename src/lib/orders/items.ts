@@ -1,9 +1,23 @@
-import { PORTION_OPTIONS, type OrderItem } from "@/types";
+import { PORTION_OPTIONS, type OrderItem, type PortionOption } from "@/types";
 
 // Satırın sepet/liste anahtarı — orderStore ile aynı kural:
 // porsiyonsuz "productId", porsiyonlu "productId:size".
 export function orderItemKey(item: OrderItem): string {
   return item.portion ? `${item.product.id}:${item.portion.size}` : item.product.id;
+}
+
+// Satırın birim fiyatı — porsiyonluysa ürün fiyatı × çarpan (tam TL'ye yuvarlı).
+// Sepet, store ve fiş aynı kuralı kullansın diye tek yerde.
+export function orderItemUnitPrice(item: Pick<OrderItem, "product" | "portion">): number {
+  return item.portion
+    ? Math.round(item.product.price * item.portion.multiplier)
+    : item.product.price;
+}
+
+// Porsiyonun görünen adı. Etiket siparişe kopyalandığı için eski kayıtlarda
+// farklı yazılmış olabilir; boyuttan güncel etiket bulunur.
+export function portionLabel(portion: Pick<PortionOption, "size" | "label">): string {
+  return PORTION_OPTIONS.find((p) => p.size === portion.size)?.label ?? portion.label;
 }
 
 // DB'den okunan sipariş satırlarını düzeltir. Sipariş şemasında `portion`

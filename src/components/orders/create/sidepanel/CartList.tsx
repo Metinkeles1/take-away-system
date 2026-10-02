@@ -6,6 +6,8 @@ import { ShoppingCart, Plus, Minus, Trash2 } from "lucide-react";
 import { type OrderDraft } from "@/types";
 import { useMenuStore } from "@/store/menuStore";
 import { SectionTitle } from "./SectionTitle";
+import { PortionBadge } from "../../PortionBadge";
+import { orderItemKey, orderItemUnitPrice } from "@/lib/orders/items";
 
 interface CartListProps {
   items: OrderDraft["items"];
@@ -41,12 +43,8 @@ export function CartList({ items, onIncrement, onDecrement, onRemove }: CartList
       ) : (
         <ul className="space-y-1.5">
           {items.map((item) => {
-            const key = item.portion
-              ? `${item.product.id}:${item.portion.size}`
-              : item.product.id;
-            const unitPrice = item.portion
-              ? Math.round(item.product.price * item.portion.multiplier)
-              : item.product.price;
+            const key = orderItemKey(item);
+            const unitPrice = orderItemUnitPrice(item);
             return (
               <li
                 key={key}
@@ -72,18 +70,17 @@ export function CartList({ items, onIncrement, onDecrement, onRemove }: CartList
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-medium truncate leading-tight">
                     {item.product.name}
-                    {item.portion && (
-                      <span className="ml-1 text-[10px] text-primary font-normal">
-                        {item.portion.label}
+                  </p>
+                  <div className="mt-0.5 flex items-center gap-1.5 min-w-0">
+                    {item.portion && <PortionBadge portion={item.portion} />}
+                    <p className="text-[11px] text-muted-foreground tabular-nums truncate">
+                      {/* Adet 1 iken birim fiyat = tutar; dar panelde yer kaplamasın */}
+                      {item.quantity > 1 && `${item.quantity} × ${formatCurrency(unitPrice)} `}
+                      <span className="font-semibold text-foreground">
+                        {formatCurrency(item.totalPrice)}
                       </span>
-                    )}
-                  </p>
-                  <p className="text-[11px] text-muted-foreground tabular-nums">
-                    {item.quantity} × {formatCurrency(unitPrice)}{" "}
-                    <span className="font-semibold text-foreground">
-                      {formatCurrency(item.totalPrice)}
-                    </span>
-                  </p>
+                    </p>
+                  </div>
                 </div>
                 <div className="flex items-center gap-0.5 shrink-0">
                   <Button

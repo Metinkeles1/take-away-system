@@ -71,6 +71,7 @@ import {
 } from "@/lib/utils";
 import { LocationPicker, type LatLng } from "@/components/kurye/LocationPicker";
 import { PoolMapSelect } from "@/components/kurye/PoolMapSelect";
+import { PortionBadge } from "@/components/orders/PortionBadge";
 import {
   orderStopsByProximity,
   buildGoogleRouteUrl,
@@ -2614,9 +2615,7 @@ function OrderCard({
                   <p className="text-sm font-semibold text-slate-800">
                     {item.product.name}
                     {item.portion && (
-                      <span className="ml-1 text-xs font-normal text-slate-400">
-                        ({item.portion.label})
-                      </span>
+                      <PortionBadge portion={item.portion} className="ml-1.5 align-middle" />
                     )}
                   </p>
                   {item.note && (
@@ -2729,10 +2728,7 @@ function ReceiptSheet({
                   </span>{" "}
                   {item.product.name}
                   {item.portion && (
-                    <span className="text-xs text-slate-400">
-                      {" "}
-                      ({item.portion.label})
-                    </span>
+                    <PortionBadge portion={item.portion} className="ml-1.5 align-middle" />
                   )}
                 </span>
                 <span className="shrink-0 tabular-nums">

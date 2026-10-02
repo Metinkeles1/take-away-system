@@ -9,6 +9,7 @@ import {
   type SavedCustomer,
   type PortionOption,
 } from "@/types";
+import { orderItemKey, orderItemUnitPrice } from "@/lib/orders/items";
 
 import {
   createOrder,
@@ -152,7 +153,7 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
 
   // ── Porsiyon ile ürün ekle ──────────────────────────────────────────────
   addItemWithPortion: (product, portion) => {
-    const portionPrice = Math.round(product.price * portion.multiplier);
+    const portionPrice = orderItemUnitPrice({ product, portion });
     const itemKey = `${product.id}:${portion.size}`;
     set((state) => {
       const existing = state.draft.items.find(
@@ -199,7 +200,7 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
       draft: {
         ...state.draft,
         items: state.draft.items.filter((i) => {
-          const key = i.portion ? `${i.product.id}:${i.portion.size}` : i.product.id;
+          const key = orderItemKey(i);
           return key !== itemKey;
         }),
       },
@@ -216,11 +217,9 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
       draft: {
         ...state.draft,
         items: state.draft.items.map((i) => {
-          const key = i.portion ? `${i.product.id}:${i.portion.size}` : i.product.id;
+          const key = orderItemKey(i);
           if (key !== itemKey) return i;
-          const unitPrice = i.portion
-            ? Math.round(i.product.price * i.portion.multiplier)
-            : i.product.price;
+          const unitPrice = orderItemUnitPrice(i);
           return { ...i, quantity, totalPrice: quantity * unitPrice };
         }),
       },
@@ -233,7 +232,7 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
       draft: {
         ...state.draft,
         items: state.draft.items.map((i) => {
-          const key = i.portion ? `${i.product.id}:${i.portion.size}` : i.product.id;
+          const key = orderItemKey(i);
           return key === itemKey ? { ...i, note } : i;
         }),
       },
