@@ -382,10 +382,26 @@ const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptProps>(
                   </span>
                 </div>
 
+                {/* Hazır istekler ürünün hemen altında, kalın: mutfak hangi
+                    ürüne ait olduğunu karıştırmasın. */}
+                {item.options && item.options.length > 0 && (
+                  <div
+                    style={{
+                      fontSize: FONT_SIZE_NORMAL,
+                      fontWeight: 800,
+                      marginTop: "2px",
+                      paddingLeft: "2px",
+                      wordBreak: "break-word",
+                    }}
+                  >
+                    {item.options.map((o) => `– ${o.toLocaleUpperCase("tr-TR")}`).join("  ")}
+                  </div>
+                )}
                 {item.note && (
                   <div
                     style={{
-                      fontSize: FONT_SIZE_XSMALL,
+                      fontSize: FONT_SIZE_NORMAL,
+                      fontWeight: 700,
                       marginTop: "2px",
                       paddingLeft: "2px",
                       wordBreak: "break-word",

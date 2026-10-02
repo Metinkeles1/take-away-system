@@ -14,7 +14,6 @@ import {
   type CustomerAddress,
   type PaymentMethod,
   type MealCardBrand,
-  type OrderDraft,
 } from "@/types";
 import { DEFAULT_IBAN_NAME, DEFAULT_IBAN_NUMBER } from "@/lib/constants";
 import ThermalReceipt from "@/components/receipt/ThermalReceipt";
@@ -43,8 +42,6 @@ export default function OrderSidePanel({
   // Per-field selector'lar — bileşen sadece kullandığı alanlara abone.
   const draft = useOrderStore((s) => s.draft);
   const savedCustomers = useOrderStore((s) => s.savedCustomers);
-  const addItem = useOrderStore((s) => s.addItem);
-  const addItemWithPortion = useOrderStore((s) => s.addItemWithPortion);
   const removeItem = useOrderStore((s) => s.removeItem);
   const updateQuantity = useOrderStore((s) => s.updateQuantity);
   const setCustomer = useOrderStore((s) => s.setCustomer);
@@ -97,12 +94,8 @@ export default function OrderSidePanel({
   };
 
   // Sepet aksiyonları
-  const handleCartIncrement = (item: OrderDraft["items"][number]) => {
-    if (item.portion) {
-      addItemWithPortion(item.product, item.portion);
-    } else {
-      addItem(item.product);
-    }
+  const handleCartIncrement = (key: string, currentQty: number) => {
+    updateQuantity(key, currentQty + 1);
   };
 
   const handleCartDecrement = (key: string, currentQty: number) => {

@@ -72,6 +72,7 @@ import {
 import { LocationPicker, type LatLng } from "@/components/kurye/LocationPicker";
 import { PoolMapSelect } from "@/components/kurye/PoolMapSelect";
 import { PortionBadge } from "@/components/orders/PortionBadge";
+import { ItemOptionChips } from "@/components/orders/ItemOptionChips";
 import {
   orderStopsByProximity,
   buildGoogleRouteUrl,
@@ -2618,11 +2619,7 @@ function OrderCard({
                       <PortionBadge portion={item.portion} className="ml-1.5 align-middle" />
                     )}
                   </p>
-                  {item.note && (
-                    <p className="mt-0.5 text-xs font-medium text-amber-700">
-                      ↳ {item.note}
-                    </p>
-                  )}
+                  <ItemOptionChips item={item} className="mt-1" />
                 </div>
                 <span className="shrink-0 text-sm font-semibold text-slate-500">
                   {formatCurrency(item.totalPrice)}

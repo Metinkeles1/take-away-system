@@ -46,8 +46,12 @@ export interface OrderItem {
   product: Product;
   quantity: number;
   portion?: PortionOption; // porsiyon bilgisi (varsa)
-  note?: string;
+  options?: string[]; // hızlı seçimler: "Soğansız", "Acısız"… (ITEM_OPTIONS)
+  note?: string; // satıra özel serbest not
   totalPrice: number;
+  // Sepet satırının kimliği. Aynı ürün+porsiyon birden çok satırda olabilir
+  // (biri soğansız, biri normal). DB'ye yazılmaz; okurken yeniden üretilir.
+  lineId?: string;
 }
 
 // ─── Coğrafi Konum ───────────────────────────────────────────────────────────

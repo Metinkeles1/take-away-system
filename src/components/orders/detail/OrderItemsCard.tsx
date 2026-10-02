@@ -6,6 +6,7 @@ import { formatCurrency } from "@/lib/utils";
 import type { Order } from "@/types";
 import { memo } from "react";
 import { PortionBadge } from "../PortionBadge";
+import { ItemOptionChips } from "../ItemOptionChips";
 import { orderItemKey, orderItemUnitPrice } from "@/lib/orders/items";
 
 interface Props {
@@ -39,11 +40,7 @@ const OrderItemsCard = memo(function OrderItemsCard({
                     {item.product.name}
                     {item.portion && <PortionBadge portion={item.portion} />}
                   </p>
-                  {item.note && (
-                    <p className="text-xs text-muted-foreground">
-                      Not: {item.note}
-                    </p>
-                  )}
+                  <ItemOptionChips item={item} className="mt-1" />
                 </div>
                 <div className="flex items-center gap-4 text-sm">
                   <span className="text-muted-foreground">

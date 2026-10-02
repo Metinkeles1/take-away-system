@@ -1,9 +1,32 @@
 import { PORTION_OPTIONS, type OrderItem, type PortionOption } from "@/types";
 
-// Satırın sepet/liste anahtarı — orderStore ile aynı kural:
-// porsiyonsuz "productId", porsiyonlu "productId:size".
+// Satırın sepet/liste anahtarı. Sepet satırları kendi kimliğini (lineId)
+// taşır — aynı ürün+porsiyon "soğansız" ve normal olarak iki satırda durabilir.
+// lineId'siz eski veride ürün+porsiyon anahtarına düşülür.
 export function orderItemKey(item: OrderItem): string {
+  return item.lineId ?? productPortionKey(item);
+}
+
+function productPortionKey(item: Pick<OrderItem, "product" | "portion">): string {
   return item.portion ? `${item.product.id}:${item.portion.size}` : item.product.id;
+}
+
+// Satırın tüm içeriğini (ürün, porsiyon, seçimler, not) kapsayan imza.
+// Aynı imzalı satırlar birebir aynı istektir; birleştirilebilir.
+function itemSignature(item: OrderItem): string {
+  const options = [...(item.options ?? [])].sort().join(",");
+  return `${productPortionKey(item)}|${options}|${item.note?.trim() ?? ""}`;
+}
+
+let lineSeq = 0;
+export function newLineId(): string {
+  lineSeq += 1;
+  return `l${Date.now().toString(36)}${lineSeq.toString(36)}`;
+}
+
+// Satır seçimsiz ve notsuz mu — ürün kartından eklenen yeni adet buraya eklenir.
+export function isPlainItem(item: OrderItem): boolean {
+  return !(item.options?.length) && !item.note?.trim();
 }
 
 // Satırın birim fiyatı — porsiyonluysa ürün fiyatı × çarpan (tam TL'ye yuvarlı).
@@ -25,9 +48,9 @@ export function portionLabel(portion: Pick<PortionOption, "size" | "label">): st
 // kayıtlarında:
 //  - porsiyon, satır tutarının (birim fiyat × adet) oranından geri çıkarılır
 //    (0.5 / 1.5 — fiyat sipariş anındaki kopya olduğu için oran kesin);
-//  - aynı anahtara düşen satırlar ("1 Porsiyon" + düz ekleme, ikisi de 1×)
-//    birleştirilir. Aksi halde React anahtarı çakışır ve düzenlemede adet
-//    değişikliği iki satıra birden uygulanır.
+//  - birebir aynı satırlar ("1 Porsiyon" + düz ekleme, ikisi de 1×)
+//    birleştirilir. Her satıra imzasından kararlı bir lineId verilir
+//    (lineId DB'de tutulmaz); React anahtarı ve düzenleme bu kimliği kullanır.
 export function normalizeOrderItems(items: OrderItem[]): OrderItem[] {
   const merged = new Map<string, OrderItem>();
   for (const raw of items) {
@@ -39,18 +62,16 @@ export function normalizeOrderItems(items: OrderItem[]): OrderItem[] {
       );
       if (portion) item = { ...item, portion };
     }
-    const key = orderItemKey(item);
+    const key = itemSignature(item);
     const prev = merged.get(key);
     if (!prev) {
-      merged.set(key, item);
+      merged.set(key, { ...item, lineId: key });
       continue;
     }
-    const notes = [prev.note, item.note].filter(Boolean);
     merged.set(key, {
       ...prev,
       quantity: prev.quantity + item.quantity,
       totalPrice: prev.totalPrice + item.totalPrice,
-      note: notes.length > 0 ? [...new Set(notes)].join(" / ") : undefined,
     });
   }
   return [...merged.values()];

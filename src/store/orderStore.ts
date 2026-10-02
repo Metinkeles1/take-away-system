@@ -8,8 +8,14 @@ import {
   type Product,
   type SavedCustomer,
   type PortionOption,
+  type OrderItem,
 } from "@/types";
-import { orderItemKey, orderItemUnitPrice } from "@/lib/orders/items";
+import {
+  orderItemKey,
+  orderItemUnitPrice,
+  isPlainItem,
+  newLineId,
+} from "@/lib/orders/items";
 
 import {
   createOrder,
@@ -56,6 +62,10 @@ interface OrderStore {
   removeItem: (itemKey: string) => void;
   updateQuantity: (itemKey: string, quantity: number) => void;
   updateItemNote: (itemKey: string, note: string) => void;
+  toggleItemOption: (itemKey: string, option: string) => void;
+  // Satırdan 1 adedi ayrı satıra alır (biri soğansız olacaksa); yeni satırın
+  // anahtarını döner. Adet 1 ise null.
+  splitItem: (itemKey: string) => string | null;
   setCustomer: (customer: Partial<CustomerInfo>) => void;
   setUpdateSavedAddress: (value: boolean) => void;
   setPayment: (payment: Partial<PaymentInfo>) => void;
@@ -101,6 +111,43 @@ const initialDraft: OrderDraft = {
   notes: "",
 };
 
+// ─── Sepete ekleme ──────────────────────────────────────────────────────────
+function addLine(
+  set: (fn: (state: OrderStore) => Partial<OrderStore>) => void,
+  product: Product,
+  portion?: PortionOption,
+) {
+  const unitPrice = orderItemUnitPrice({ product, portion });
+  set((state) => {
+    const items = state.draft.items;
+    const idx = items.findIndex(
+      (i) =>
+        i.product.id === product.id &&
+        i.portion?.size === portion?.size &&
+        isPlainItem(i),
+    );
+    if (idx >= 0) {
+      const line = items[idx];
+      const next = [...items];
+      next[idx] = {
+        ...line,
+        quantity: line.quantity + 1,
+        totalPrice: (line.quantity + 1) * unitPrice,
+      };
+      return { draft: { ...state.draft, items: next } };
+    }
+    return {
+      draft: {
+        ...state.draft,
+        items: [
+          ...items,
+          { product, portion, quantity: 1, totalPrice: unitPrice, lineId: newLineId() },
+        ],
+      },
+    };
+  });
+}
+
 // ─── Store ────────────────────────────────────────────────────────────────────
 export const useOrderStore = create<OrderStore>()((set, get) => ({
   draft: initialDraft,
@@ -111,90 +158,14 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
   isLoading: false,
   pendingStatus: {},
 
-  // ── Ürün ekle (porsiyonsuz — fiyat tam olarak kullanılır) ────────────────
-  addItem: (product) => {
-    const itemKey = product.id;
-    set((state) => {
-      const existing = state.draft.items.find(
-        (i) => i.product.id === product.id && !i.portion,
-      );
-      if (existing) {
-        return {
-          draft: {
-            ...state.draft,
-            items: state.draft.items.map((i) =>
-              i.product.id === product.id && !i.portion
-                ? {
-                    ...i,
-                    quantity: i.quantity + 1,
-                    totalPrice: (i.quantity + 1) * i.product.price,
-                  }
-                : i,
-            ),
-          },
-        };
-      }
-      return {
-        draft: {
-          ...state.draft,
-          items: [
-            ...state.draft.items,
-            {
-              product,
-              quantity: 1,
-              totalPrice: product.price,
-            },
-          ],
-        },
-      };
-    });
-    void itemKey;
-  },
-
-  // ── Porsiyon ile ürün ekle ──────────────────────────────────────────────
-  addItemWithPortion: (product, portion) => {
-    const portionPrice = orderItemUnitPrice({ product, portion });
-    const itemKey = `${product.id}:${portion.size}`;
-    set((state) => {
-      const existing = state.draft.items.find(
-        (i) => i.product.id === product.id && i.portion?.size === portion.size,
-      );
-      if (existing) {
-        return {
-          draft: {
-            ...state.draft,
-            items: state.draft.items.map((i) =>
-              i.product.id === product.id && i.portion?.size === portion.size
-                ? {
-                    ...i,
-                    quantity: i.quantity + 1,
-                    totalPrice: (i.quantity + 1) * portionPrice,
-                  }
-                : i,
-            ),
-          },
-        };
-      }
-      return {
-        draft: {
-          ...state.draft,
-          items: [
-            ...state.draft.items,
-            {
-              product,
-              portion,
-              quantity: 1,
-              totalPrice: portionPrice,
-            },
-          ],
-        },
-      };
-    });
-    void itemKey;
-  },
+  // ── Ürün ekle ────────────────────────────────────────────────────────
+  // Aynı ürün+porsiyonun seçimsiz/notsuz satırı varsa adedi artar; "soğansız"
+  // gibi özelleştirilmiş satırlara dokunulmaz, yoksa yeni satır açılır.
+  addItem: (product) => addLine(set, product),
+  addItemWithPortion: (product, portion) => addLine(set, product, portion),
 
   // ── Ürün çıkar ─────────────────────────────────────────────────────────
-  // itemKey: "productId" (porsiyonsuz) | "productId:portionSize" (porsiyonlu)
+  // itemKey: orderItemKey(item) — sepet satırının kimliği (lineId)
   removeItem: (itemKey) => {
     set((state) => ({
       draft: {
@@ -233,10 +204,48 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
         ...state.draft,
         items: state.draft.items.map((i) => {
           const key = orderItemKey(i);
-          return key === itemKey ? { ...i, note } : i;
+          return key === itemKey ? { ...i, note: note || undefined } : i;
         }),
       },
     }));
+  },
+
+  // ── Hızlı seçim aç/kapat ("Soğansız" vb.) ─────────────────────────────
+  toggleItemOption: (itemKey, option) => {
+    set((state) => ({
+      draft: {
+        ...state.draft,
+        items: state.draft.items.map((i) => {
+          if (orderItemKey(i) !== itemKey) return i;
+          const current = i.options ?? [];
+          const options = current.includes(option)
+            ? current.filter((o) => o !== option)
+            : [...current, option];
+          return { ...i, options: options.length > 0 ? options : undefined };
+        }),
+      },
+    }));
+  },
+
+  // ── 1 adedi ayrı satıra al ─────────────────────────────────────────────
+  splitItem: (itemKey) => {
+    const items = get().draft.items;
+    const idx = items.findIndex((i) => orderItemKey(i) === itemKey);
+    const line = items[idx];
+    if (!line || line.quantity < 2) return null;
+    const unitPrice = orderItemUnitPrice(line);
+    const lineId = newLineId();
+    const next: OrderItem[] = [...items];
+    next[idx] = { ...line, quantity: line.quantity - 1, totalPrice: (line.quantity - 1) * unitPrice };
+    next.splice(idx + 1, 0, {
+      product: line.product,
+      portion: line.portion,
+      quantity: 1,
+      totalPrice: unitPrice,
+      lineId,
+    });
+    set((state) => ({ draft: { ...state.draft, items: next } }));
+    return lineId;
   },
 
   // ── Kayıtlı adres güncellensin mi (yeni adres yerine) ─────────────────
@@ -334,7 +343,7 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
     set({
       editingOrderId: order.id,
       draft: {
-        items: order.items,
+        items: order.items.map((i) => (i.lineId ? i : { ...i, lineId: newLineId() })),
         customer: order.customer,
         payment: order.payment,
         notes: order.notes ?? "",

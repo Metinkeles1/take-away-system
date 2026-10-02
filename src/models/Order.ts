@@ -39,6 +39,7 @@ const OrderItemSchema = new Schema(
     product: { type: ProductSchema, required: true },
     quantity: { type: Number, required: true, min: 1 },
     portion: { type: OrderItemPortionSchema, default: undefined },
+    options: { type: [String], default: undefined }, // "Soğansız", "Acısız"…
     note: String,
     totalPrice: { type: Number, required: true },
   },
@@ -165,10 +166,13 @@ OrderSchema.index({ status: 1 });
 
 export type OrderDocument = InferSchemaType<typeof OrderSchema>;
 
-// Dev hot-reload'da eski (porsiyonsuz şemalı) model kalırsa yeni alan yine
-// atılır — şemada items.portion yoksa eski model atılıp yeniden derlenir.
+// Dev hot-reload'da eski şemalı model kalırsa yeni alanlar yine atılır —
+// şemada items.portion / items.options yoksa eski model atılıp yeniden derlenir.
 const cachedOrder = mongoose.models.Order as mongoose.Model<unknown> | undefined;
-if (cachedOrder && !cachedOrder.schema.path("items.portion")) {
+if (
+  cachedOrder &&
+  (!cachedOrder.schema.path("items.portion") || !cachedOrder.schema.path("items.options"))
+) {
   mongoose.deleteModel("Order");
 }
 
