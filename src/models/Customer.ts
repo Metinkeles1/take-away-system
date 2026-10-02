@@ -62,6 +62,7 @@ const cachedAddresses = cached?.schema.path("addresses") as
   | { schema?: Schema }
   | undefined;
 if (
+  process.env.NODE_ENV !== "production" &&
   cached &&
   (!cachedAddresses?.schema?.path("streetKey") ||
     !cached.schema.path("contactExportedAt"))

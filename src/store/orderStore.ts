@@ -30,6 +30,22 @@ import { updateOrderDetails } from "@/actions/orderEdit";
 import { setOrderCourier as dbSetOrderCourier } from "@/actions/courier";
 import { getSavedCustomers } from "@/actions/customers";
 import { buildOrderFromDraft, calcSubtotal } from "@/lib/orders/factory";
+import { toast } from "sonner";
+
+// ─── Sipariş yükleme hatası: uyarı + otomatik yeniden deneme ──────────────────
+// Sunucu geçici olarak hata verirse (ör. deploy anında veritabanı bağlantısı)
+// liste boş kalmasın: mevcut siparişler korunur, kullanıcı tek bir uyarı görür
+// ve yükleme artan aralıklarla arka planda yeniden denenir. Başarılı ilk
+// yüklemede uyarı kapanır ve sayaç sıfırlanır.
+const LOAD_RETRY_DELAYS_MS = [2_000, 5_000, 10_000, 30_000];
+const LOAD_ERROR_TOAST_ID = "orders-load-error";
+let loadRetryTimer: ReturnType<typeof setTimeout> | null = null;
+let loadFailures = 0;
+
+function clearLoadRetry() {
+  if (loadRetryTimer) clearTimeout(loadRetryTimer);
+  loadRetryTimer = null;
+}
 
 // ─── Store State ──────────────────────────────────────────────────────────────
 interface OrderStore {
@@ -434,6 +450,26 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
         });
         return { orders, pendingStatus: nextPending };
       });
+      if (loadFailures > 0) toast.dismiss(LOAD_ERROR_TOAST_ID);
+      loadFailures = 0;
+      clearLoadRetry();
+    } catch (err) {
+      // Hata yukarı fırlatılmaz: çağıranlar (focus, polling, işlem sonrası
+      // yenileme) yakalamıyor; mevcut liste ekranda kalır.
+      console.error("[orders] yükleme başarısız:", err);
+      const delay =
+        LOAD_RETRY_DELAYS_MS[Math.min(loadFailures, LOAD_RETRY_DELAYS_MS.length - 1)];
+      loadFailures += 1;
+      toast.error("Siparişler yüklenemedi", {
+        id: LOAD_ERROR_TOAST_ID,
+        description: "Bağlantı sorunu olabilir, otomatik olarak tekrar deneniyor…",
+        duration: Infinity,
+      });
+      clearLoadRetry();
+      loadRetryTimer = setTimeout(() => {
+        loadRetryTimer = null;
+        void get().loadOrders({ silent: true });
+      }, delay);
     } finally {
       if (!opts?.silent) set({ isLoading: false });
     }

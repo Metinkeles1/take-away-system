@@ -4,7 +4,10 @@ import mongoose from "mongoose";
 // Fix for Node.js v24 on Windows: SRV DNS queries may fail with ECONNREFUSED
 // because Node does not always use the Windows system DNS resolver.
 // See: https://alexbevi.com/blog/2023/11/13/querysrv-errors-when-connecting-to-mongodb-atlas/
-dns.setServers(["1.1.1.1", "8.8.8.8"]);
+// Sadece Windows (yerel geliştirme) — Vercel'in kendi DNS'ine dokunulmaz.
+if (process.platform === "win32") {
+  dns.setServers(["1.1.1.1", "8.8.8.8"]);
+}
 
 const MONGODB_URI = process.env.MONGODB_URI as string;
 
@@ -32,9 +35,20 @@ export async function connectDB(): Promise<typeof mongoose> {
   if (!cache.promise) {
     cache.promise = mongoose.connect(MONGODB_URI, {
       bufferCommands: false,
+      // Sunucusuz ortamda her örnek kendi havuzunu açar; deploy anında eski ve
+      // yeni örnekler birlikte çalışırken Atlas bağlantı sınırı aşılmasın.
+      maxPoolSize: 10,
+      serverSelectionTimeoutMS: 8000,
     });
   }
 
-  cache.conn = await cache.promise;
+  try {
+    cache.conn = await cache.promise;
+  } catch (err) {
+    // Başarısız bağlantı önbellekte kalırsa o örnekteki her istek 500 döner;
+    // sıfırla ki sonraki istek yeniden denesin.
+    cache.promise = null;
+    throw err;
+  }
   return cache.conn;
 }

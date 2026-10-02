@@ -170,6 +170,7 @@ export type OrderDocument = InferSchemaType<typeof OrderSchema>;
 // şemada items.portion / items.options yoksa eski model atılıp yeniden derlenir.
 const cachedOrder = mongoose.models.Order as mongoose.Model<unknown> | undefined;
 if (
+  process.env.NODE_ENV !== "production" &&
   cachedOrder &&
   (!cachedOrder.schema.path("items.portion") || !cachedOrder.schema.path("items.options"))
 ) {
