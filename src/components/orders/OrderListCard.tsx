@@ -15,6 +15,7 @@ import { cn, formatCurrency, formatDate, toLocalPhone } from "@/lib/utils";
 import { RelativeTime } from "@/components/RelativeTime";
 import { CustomerOpenAccountsBadge } from "@/components/orders/CustomerOpenAccountsBadge";
 import { ORDER_STATUS_CONFIG, ORDER_STATUS_ORDER } from "@/lib/orderStatus";
+import { PAYMENT_LABEL } from "@/components/orders/OrderFiltersPanel";
 import {
   Phone,
   MapPin,
@@ -24,7 +25,12 @@ import {
   Store,
   Wallet,
   Bike,
+  CreditCard,
+  Clock,
 } from "lucide-react";
+
+// Teslim süresi hedefi (Komuta performans ile aynı): altı yeşil, üstü kırmızı.
+const DELIVERY_TARGET_MIN = 35;
 
 const SOURCE_BADGE: Record<
   NonNullable<Order["source"]>,
@@ -133,6 +139,24 @@ function OrderListCardImpl({
               <CustomerOpenAccountsBadge
                 accounts={order.customerOpenAccounts}
               />
+            )}
+            <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700">
+              <CreditCard className="h-3 w-3" />
+              {PAYMENT_LABEL[order.payment.method]}
+            </span>
+            {order.status === "delivered" && order.deliveryDurationMin != null && (
+              <span
+                title="Sipariş alındığından teslime kadar geçen süre"
+                className={cn(
+                  "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold",
+                  order.deliveryDurationMin <= DELIVERY_TARGET_MIN
+                    ? "border-emerald-200 bg-emerald-100 text-emerald-800"
+                    : "border-rose-200 bg-rose-100 text-rose-800",
+                )}
+              >
+                <Clock className="h-3 w-3" />
+                {Math.round(order.deliveryDurationMin)} dk
+              </span>
             )}
             {order.courier && (
               <span className="inline-flex items-center gap-1 rounded-full border border-lime-200 bg-lime-100 px-2 py-0.5 text-[11px] font-medium text-lime-800">

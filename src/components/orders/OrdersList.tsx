@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ClipboardList, PlusCircle } from "lucide-react";
 import { type Order, type OrderStatus } from "@/types";
 import { OrderListCard } from "./OrderListCard";
-import { type OrderFilter } from "./OrderStatusFilters";
+import { type OrderFilter } from "./OrderFiltersPanel";
 
 interface OrdersListProps {
   isLoading: boolean;

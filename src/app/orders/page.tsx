@@ -9,22 +9,18 @@ import { PlusCircle, Search, X } from "lucide-react";
 import { type Order, type OrderStatus } from "@/types";
 import { type OrdersPeriod } from "@/actions/orders";
 import {
-  OrderStatusFilters,
+  OrderActiveFilters,
+  OrderFilters,
+  matchesPayment,
+  type ChannelFilter,
   type OrderFilter,
-} from "@/components/orders/OrderStatusFilters";
-import { OrderPeriodFilter } from "@/components/orders/OrderPeriodFilter";
+  type PaymentFilter,
+} from "@/components/orders/OrderFiltersPanel";
 import { OrdersList } from "@/components/orders/OrdersList";
 import { useOrdersSync } from "@/hooks/useOrdersSync";
 import { getTrendyolOrdersForList } from "@/actions/trendyolArchive";
 import { TrendyolOrderSheet } from "@/components/dashboard/komuta/TrendyolOrderSheet";
-import { cn } from "@/lib/utils";
 
-type ChannelFilter = "all" | "own" | "trendyol";
-const CHANNEL_TABS: { key: ChannelFilter; label: string }[] = [
-  { key: "all", label: "Hepsi" },
-  { key: "own", label: "Kendi" },
-  { key: "trendyol", label: "Trendyol" },
-];
 // Trendyol listesi arka planda bu aralıkla tazelenir (arşiv kendi içinde en
 // fazla 1 dk bayat; yeni Trendyol siparişi listeye bu sürede düşer).
 const TY_REFRESH_MS = 60 * 1000;
@@ -97,6 +93,8 @@ export default function OrdersPage() {
     );
   }, [channel, ownOrders, tyOrders]);
   const [filter, setFilter] = useState<OrderFilter>("all");
+  const [payFilter, setPayFilter] = useState<PaymentFilter>("all");
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [bootstrapping, setBootstrapping] = useState(orders.length === 0);
 
@@ -117,26 +115,45 @@ export default function OrdersPage() {
     return acc;
   }, [orders]);
 
+  const payCounts = useMemo<Record<PaymentFilter, number>>(() => {
+    const acc: Record<PaymentFilter, number> = {
+      all: orders.length,
+      cash: 0,
+      card: 0,
+      meal_card: 0,
+      online: 0,
+      iban: 0,
+      open: 0,
+    };
+    orders.forEach((o) => {
+      acc[o.payment.method] += 1;
+      if (o.paymentStatus === "open") acc.open += 1;
+    });
+    return acc;
+  }, [orders]);
+
   // Arama indeksi: normalize edilmiş metinler yalnızca orders değişince kurulur.
   // Her tuş vuruşunda 2000 siparişin string'i yeniden üretilmez (hot path).
   const searchIndex = useMemo(() => orders.map(buildHaystack), [orders]);
 
   const deferredFilter = useDeferredValue(filter);
+  const deferredPay = useDeferredValue(payFilter);
   const deferredSearch = useDeferredValue(search);
   const filteredOrders = useMemo(() => {
     const q = deferredSearch.trim().toLocaleLowerCase("tr");
-    if (deferredFilter === "all" && !q) return orders;
+    if (deferredFilter === "all" && deferredPay === "all" && !q) return orders;
 
     // Tek geçiş: durum filtresi + arama indeksi üzerinden includes.
     const result: Order[] = [];
     for (let i = 0; i < orders.length; i++) {
       const o = orders[i];
       if (deferredFilter !== "all" && o.status !== deferredFilter) continue;
+      if (!matchesPayment(o, deferredPay)) continue;
       if (q && !searchIndex[i].includes(q)) continue;
       result.push(o);
     }
     return result;
-  }, [orders, searchIndex, deferredFilter, deferredSearch]);
+  }, [orders, searchIndex, deferredFilter, deferredPay, deferredSearch]);
 
   // Stabil referanslar — memo'lu alt bileşenler (kart/filtre çubukları) hot
   // path'te (arama yazarken) gereksiz yeniden render olmasın.
@@ -151,7 +168,9 @@ export default function OrdersPage() {
     [loadOrders],
   );
   const handleResetFilter = useCallback(() => {
+    setChannel("all");
     setFilter("all");
+    setPayFilter("all");
     setSearch("");
   }, []);
 
@@ -165,7 +184,7 @@ export default function OrdersPage() {
             {channel === "all" && tyOrders.length > 0 && (
               <> (Kendi {ownOrders.length} · Trendyol {tyOrders.length})</>
             )}
-            {(filter !== "all" || search.trim()) && (
+            {(filter !== "all" || payFilter !== "all" || search.trim()) && (
               <>
                 {" · "}
                 <span className="font-medium">{filteredOrders.length}</span> filtreli
@@ -181,7 +200,7 @@ export default function OrdersPage() {
         </Link>
       </div>
 
-      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center shrink-0">
+      <div className="mb-3 flex items-center gap-2 shrink-0">
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -203,26 +222,22 @@ export default function OrdersPage() {
             </button>
           )}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex rounded-full bg-muted p-0.5 shrink-0">
-            {CHANNEL_TABS.map((tab) => (
-              <button
-                key={tab.key}
-                type="button"
-                onClick={() => setChannel(tab.key)}
-                className={cn(
-                  "rounded-full px-3 py-1 text-xs font-medium transition-all whitespace-nowrap",
-                  channel === tab.key
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-          <OrderPeriodFilter period={ordersPeriod} onChange={handlePeriodChange} />
-        </div>
+        <OrderFilters
+          open={filtersOpen}
+          onOpenChange={setFiltersOpen}
+          period={ordersPeriod}
+          channel={channel}
+          status={filter}
+          payment={payFilter}
+          statusCounts={counts}
+          paymentCounts={payCounts}
+          resultCount={filteredOrders.length}
+          onPeriodChange={handlePeriodChange}
+          onChannelChange={setChannel}
+          onStatusChange={setFilter}
+          onPaymentChange={setPayFilter}
+          onReset={handleResetFilter}
+        />
       </div>
 
       {search.trim() && ordersPeriod !== "all" && (
@@ -239,14 +254,22 @@ export default function OrdersPage() {
         </p>
       )}
 
-      <OrderStatusFilters filter={filter} counts={counts} onChange={setFilter} />
+      <OrderActiveFilters
+        channel={channel}
+        status={filter}
+        payment={payFilter}
+        onChannelChange={setChannel}
+        onStatusChange={setFilter}
+        onPaymentChange={setPayFilter}
+        onReset={handleResetFilter}
+      />
 
       <div className="flex-1 min-h-0 pt-px px-px">
         <OrdersList
           isLoading={isLoading || bootstrapping}
           orders={filteredOrders}
           filter={filter}
-          hasSearch={Boolean(search.trim())}
+          hasSearch={Boolean(search.trim()) || payFilter !== "all"}
           onResetFilter={handleResetFilter}
           onStatusChange={handleStatusChange}
           onOpenTrendyol={setTyOpen}
