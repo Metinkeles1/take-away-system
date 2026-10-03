@@ -1,8 +1,7 @@
 "use client";
 
 import React, { useId, useMemo, useSyncExternalStore } from "react";
-import { portionLabel } from "@/lib/orders/items";
-import { type CustomerOpenAccounts, type OrderDraft } from "@/types";
+import { type CustomerOpenAccounts, type OrderDraft, type PortionOption } from "@/types";
 import { formatCurrency, formatPhone } from "@/lib/utils";
 
 interface ThermalReceiptProps {
@@ -47,6 +46,13 @@ const CONTENT_WIDTH = "64mm"; // yazıcı marjinleri hesaba katılmış güvenli
 const FONT_SIZE_NORMAL = "13px";
 const FONT_SIZE_XSMALL = "11px";
 const FONT_SIZE_LARGE = "16px";
+
+// Fişte porsiyonun kısa hali (tam porsiyon yazılmaz).
+const SHORT_PORTION: Record<PortionOption["size"], string> = {
+  half: "0.5",
+  full: "1",
+  one_and_half: "1.5",
+};
 
 const Row = ({
   left,
@@ -339,24 +345,12 @@ const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptProps>(
                     }}
                   >
                     {item.product.name}
-                    {item.portion && (
-                      // Porsiyon ayrı satırda, çerçeveli ve kalın: termal
-                      // baskıda ince/küçük yazı silik çıkıyor, mutfak kaçırıyordu.
-                      <span
-                        style={{
-                          display: "block",
-                          width: "fit-content",
-                          marginTop: "2px",
-                          padding: "0 1.5mm",
-                          border: "1.5px solid #000",
-                          borderRadius: "2px",
-                          fontWeight: 800,
-                          fontSize: FONT_SIZE_NORMAL,
-                          letterSpacing: "0.02em",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {portionLabel(item.portion).toLocaleUpperCase("tr-TR")}
+                    {/* Tam porsiyon varsayılan, yazılmaz; yarım/1.5 adın
+                        sonuna sayı olarak eklenir ("Adana Kebap 1.5"). */}
+                    {item.portion && item.portion.size !== "full" && (
+                      <span style={{ whiteSpace: "nowrap" }}>
+                        {" "}
+                        {SHORT_PORTION[item.portion.size]}
                       </span>
                     )}
                   </span>
