@@ -11,6 +11,7 @@ import {
 import { recordCustomerAddress } from "@/lib/customers/recordAddress";
 import { phoneKey, toLocalPhone } from "@/lib/utils";
 import { normalizeOrderItems } from "@/lib/orders/items";
+import { istanbulDayStart } from "@/lib/datetime";
 import {
   cancelTrendyolPackage,
   deliverTrendyolPackage,
@@ -80,11 +81,8 @@ const ACTIVE_STATUSES = ["pending", "preparing", "on-the-way"];
 // Seçilen döneme göre "geçmiş" kesme tarihi. "all" → kesme yok (tüm kayıtlar).
 function periodCutoff(period: OrdersPeriod): Date | null {
   if (period === "all") return null;
-  if (period === "today") {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d;
-  }
+  // İstanbul günü: sunucu UTC'de çalışırken setHours(0) gece 00–03 arasını kaçırıyordu.
+  if (period === "today") return istanbulDayStart();
   const days = period === "week" ? 7 : 30;
   return new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 }
@@ -412,14 +410,10 @@ export type OpenAccountsCollectionPeriod = "today" | "week" | "month" | "all";
 function collectionCutoff(period: OpenAccountsCollectionPeriod): Date | null {
   if (period === "all") return null;
 
-  const now = new Date();
-  if (period === "today") {
-    now.setHours(0, 0, 0, 0);
-    return now;
-  }
+  if (period === "today") return istanbulDayStart();
 
   const days = period === "week" ? 7 : 30;
-  return new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 }
 
 export async function getOpenAccounts(

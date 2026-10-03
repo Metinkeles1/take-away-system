@@ -1,5 +1,7 @@
-import { memo, type ReactNode } from "react";
-import { Check, ChevronDown, SlidersHorizontal, X } from "lucide-react";
+import { memo, useState, type ReactNode } from "react";
+import { CalendarDays, Check, ChevronDown, SlidersHorizontal, X } from "lucide-react";
+import { tr } from "react-day-picker/locale";
+import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
 import { type Order, type OrderStatus, type PaymentMethod } from "@/types";
 import { type OrdersPeriod } from "@/actions/orders";
@@ -10,6 +12,47 @@ export type OrderFilter = "all" | OrderStatus;
 export type ChannelFilter = "all" | "own" | "trendyol";
 // "open" = açık hesap (ödeme yönteminden bağımsız, paymentStatus'a bakar).
 export type PaymentFilter = "all" | PaymentMethod | "open";
+
+// Takvimden seçilen gün aralığı (iki uç dahil, yerel gün).
+export interface OrderDateRange {
+  from: Date;
+  to: Date;
+}
+
+const DAY_MS = 86_400_000;
+const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+
+// Aralığın [başlangıç, bitiş) zaman damgaları — süzme döngüsünden önce bir kez.
+export function dateRangeBounds(r: OrderDateRange): [number, number] {
+  return [startOfDay(r.from).getTime(), startOfDay(r.to).getTime() + DAY_MS];
+}
+
+// Seçilen aralığı kapsayan en dar yükleme dönemi (sunucu dönem bazında çeker;
+// tarih süzmesi istemcide yapılır). getOrders'taki kesme tarihleriyle uyumlu.
+export function periodForDate(from: Date): OrdersPeriod {
+  const daysAgo = Math.round(
+    (startOfDay(new Date()).getTime() - startOfDay(from).getTime()) / DAY_MS,
+  );
+  if (daysAgo <= 0) return "today";
+  if (daysAgo <= 6) return "week";
+  if (daysAgo <= 29) return "month";
+  return "all";
+}
+
+const PERIOD_RANK: Record<OrdersPeriod, number> = { today: 0, week: 1, month: 2, all: 3 };
+export const periodCovers = (have: OrdersPeriod, need: OrdersPeriod) =>
+  PERIOD_RANK[have] >= PERIOD_RANK[need];
+
+export function dateRangeLabel(r: OrderDateRange): string {
+  const f = (d: Date, o: Intl.DateTimeFormatOptions) => d.toLocaleDateString("tr-TR", o);
+  if (startOfDay(r.from).getTime() === startOfDay(r.to).getTime())
+    return f(r.from, { day: "numeric", month: "long", weekday: "short" });
+  const sameMonth =
+    r.from.getMonth() === r.to.getMonth() && r.from.getFullYear() === r.to.getFullYear();
+  return sameMonth
+    ? `${r.from.getDate()}–${f(r.to, { day: "numeric", month: "long" })}`
+    : `${f(r.from, { day: "numeric", month: "short" })} – ${f(r.to, { day: "numeric", month: "short" })}`;
+}
 
 export const PAYMENT_LABEL: Record<PaymentMethod, string> = {
   cash: "Nakit",
@@ -61,7 +104,7 @@ function Segmented<T extends string>({
   onChange,
 }: {
   options: { key: T; label: string }[];
-  value: T;
+  value: T | null;
   onChange: (v: T) => void;
 }) {
   return (
@@ -135,6 +178,8 @@ interface OrderFiltersProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   period: OrdersPeriod;
+  dateRange: OrderDateRange | null;
+  onDateRangeChange: (r: OrderDateRange | null) => void;
   channel: ChannelFilter;
   status: OrderFilter;
   payment: PaymentFilter;
@@ -148,8 +193,13 @@ interface OrderFiltersProps {
   onReset: () => void;
 }
 
-export function countActiveFilters(c: ChannelFilter, s: OrderFilter, p: PaymentFilter) {
-  return (c !== "all" ? 1 : 0) + (s !== "all" ? 1 : 0) + (p !== "all" ? 1 : 0);
+export function countActiveFilters(
+  c: ChannelFilter,
+  s: OrderFilter,
+  p: PaymentFilter,
+  d: OrderDateRange | null,
+) {
+  return (c !== "all" ? 1 : 0) + (s !== "all" ? 1 : 0) + (p !== "all" ? 1 : 0) + (d ? 1 : 0);
 }
 
 // "Filtrele" tuşu + açılır filtre menüsü. memo + stabil handler'lar: arama
@@ -158,6 +208,8 @@ function OrderFiltersImpl({
   open,
   onOpenChange,
   period,
+  dateRange,
+  onDateRangeChange,
   channel,
   status,
   payment,
@@ -170,7 +222,9 @@ function OrderFiltersImpl({
   onPaymentChange,
   onReset,
 }: OrderFiltersProps) {
-  const activeCount = countActiveFilters(channel, status, payment);
+  const activeCount = countActiveFilters(channel, status, payment, dateRange);
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const today = startOfDay(new Date());
   // Sıfır sayılı ödeme yöntemleri gizlenir (seçili olan hariç).
   const paymentTabs = PAYMENT_TABS.filter(
     (t) => t.key === "all" || t.key === payment || paymentCounts[t.key] > 0,
@@ -219,7 +273,65 @@ function OrderFiltersImpl({
           <div className="grid gap-3">
             <div>
               <Label>Dönem</Label>
-              <Segmented options={PERIOD_TABS} value={period} onChange={onPeriodChange} />
+              <Segmented
+                options={PERIOD_TABS}
+                value={dateRange ? null : period}
+                onChange={(p) => {
+                  setCalendarOpen(false);
+                  onPeriodChange(p);
+                }}
+              />
+              <div
+                className={cn(
+                  "mt-1.5 flex items-center rounded-lg border text-xs transition-colors",
+                  dateRange ? "border-foreground/30 bg-foreground/5" : "hover:bg-muted",
+                )}
+              >
+                <button
+                  type="button"
+                  onClick={() => setCalendarOpen((v) => !v)}
+                  aria-expanded={calendarOpen}
+                  className="flex flex-1 items-center gap-2 px-2.5 py-1.5 text-left font-medium"
+                >
+                  <CalendarDays className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className={cn("flex-1", !dateRange && "text-muted-foreground")}>
+                    {dateRange ? dateRangeLabel(dateRange) : "Tarih seç (gün veya aralık)"}
+                  </span>
+                  <ChevronDown
+                    className={cn(
+                      "h-3.5 w-3.5 text-muted-foreground transition-transform",
+                      calendarOpen && "rotate-180",
+                    )}
+                  />
+                </button>
+                {dateRange && (
+                  <button
+                    type="button"
+                    onClick={() => onDateRangeChange(null)}
+                    aria-label="Tarihi temizle"
+                    className="border-l px-2 py-1.5 text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+              {calendarOpen && (
+                <div className="mt-1.5 flex justify-center rounded-lg border">
+                  <Calendar
+                    mode="range"
+                    resetOnSelect
+                    locale={tr}
+                    selected={dateRange ?? undefined}
+                    defaultMonth={dateRange?.to ?? today}
+                    endMonth={today}
+                    disabled={{ after: today }}
+                    onSelect={(r) => {
+                      if (!r?.from) return onDateRangeChange(null);
+                      onDateRangeChange({ from: r.from, to: r.to ?? r.from });
+                    }}
+                  />
+                </div>
+              )}
             </div>
             <div>
               <Label>Kanal</Label>
@@ -276,6 +388,8 @@ function OrderFiltersImpl({
 export const OrderFilters = memo(OrderFiltersImpl);
 
 interface OrderActiveFiltersProps {
+  dateRange: OrderDateRange | null;
+  onDateRangeChange: (r: OrderDateRange | null) => void;
   channel: ChannelFilter;
   status: OrderFilter;
   payment: PaymentFilter;
@@ -286,8 +400,10 @@ interface OrderActiveFiltersProps {
 }
 
 // Menü kapalıyken seçili filtreler: tek tıkla kaldırılabilir etiketler.
-// Dönem başlıkta yazdığı için burada gösterilmez.
+// Hazır dönem (Bugün/Hafta…) başlıkta yazdığı için burada gösterilmez.
 function OrderActiveFiltersImpl({
+  dateRange,
+  onDateRangeChange,
   channel,
   status,
   payment,
@@ -297,6 +413,13 @@ function OrderActiveFiltersImpl({
   onReset,
 }: OrderActiveFiltersProps) {
   const active: { key: string; group: string; label: string; clear: () => void }[] = [];
+  if (dateRange)
+    active.push({
+      key: "date",
+      group: "Tarih",
+      label: dateRangeLabel(dateRange),
+      clear: () => onDateRangeChange(null),
+    });
   if (channel !== "all")
     active.push({
       key: "channel",

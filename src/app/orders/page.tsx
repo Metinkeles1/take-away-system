@@ -12,7 +12,12 @@ import {
   OrderActiveFilters,
   OrderFilters,
   matchesPayment,
+  dateRangeLabel,
+  dateRangeBounds,
+  periodCovers,
+  periodForDate,
   type ChannelFilter,
+  type OrderDateRange,
   type OrderFilter,
   type PaymentFilter,
 } from "@/components/orders/OrderFiltersPanel";
@@ -58,6 +63,9 @@ export default function OrdersPage() {
     isLoading,
   } = useOrderStore();
   const [channel, setChannel] = useState<ChannelFilter>("all");
+  // Takvimden seçilen gün/aralık. Seçiliyken hazır dönem yerine geçer; veri
+  // bu aralığı kapsayan dönemle yüklenir, süzme burada yapılır.
+  const [dateRange, setDateRange] = useState<OrderDateRange | null>(null);
   const [tyOpen, setTyOpen] = useState<string | null>(null);
 
   // Trendyol siparişleri (arşiv, salt okunur) — kendi sipariş deposuna
@@ -83,15 +91,23 @@ export default function OrdersPage() {
     [tyFetched, ordersPeriod],
   );
 
-  // Kanal filtresi + yeni→eski birleşik liste.
+  // Kanal filtresi + yeni→eski birleşik liste (+ seçili tarih aralığı).
   const orders = useMemo(() => {
-    if (channel === "own") return ownOrders;
-    if (channel === "trendyol") return tyOrders;
-    if (tyOrders.length === 0) return ownOrders;
-    return [...ownOrders, ...tyOrders].sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-    );
-  }, [channel, ownOrders, tyOrders]);
+    let list: Order[];
+    if (channel === "own") list = ownOrders;
+    else if (channel === "trendyol") list = tyOrders;
+    else if (tyOrders.length === 0) list = ownOrders;
+    else
+      list = [...ownOrders, ...tyOrders].sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      );
+    if (!dateRange) return list;
+    const [start, end] = dateRangeBounds(dateRange);
+    return list.filter((o) => {
+      const t = new Date(o.createdAt).getTime();
+      return t >= start && t < end;
+    });
+  }, [channel, ownOrders, tyOrders, dateRange]);
   const [filter, setFilter] = useState<OrderFilter>("all");
   const [payFilter, setPayFilter] = useState<PaymentFilter>("all");
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -164,10 +180,24 @@ export default function OrdersPage() {
     [updateOrderStatus],
   );
   const handlePeriodChange = useCallback(
-    (p: OrdersPeriod) => void loadOrders({ period: p }),
+    (p: OrdersPeriod) => {
+      setDateRange(null);
+      void loadOrders({ period: p });
+    },
     [loadOrders],
   );
+  // Tarih seçilince, o günü kapsamayan dar bir dönem yüklüyse genişlet.
+  const handleDateRangeChange = useCallback(
+    (r: OrderDateRange | null) => {
+      setDateRange(r);
+      if (!r) return;
+      const need = periodForDate(r.from);
+      if (!periodCovers(ordersPeriod, need)) void loadOrders({ period: need });
+    },
+    [loadOrders, ordersPeriod],
+  );
   const handleResetFilter = useCallback(() => {
+    setDateRange(null);
     setChannel("all");
     setFilter("all");
     setPayFilter("all");
@@ -180,7 +210,8 @@ export default function OrdersPage() {
         <div className="min-w-0">
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Siparişler</h1>
           <p className="mt-0.5 text-xs sm:text-sm text-muted-foreground">
-            {PERIOD_LABEL[ordersPeriod]} · {orders.length} sipariş
+            {dateRange ? dateRangeLabel(dateRange) : PERIOD_LABEL[ordersPeriod]} ·{" "}
+            {orders.length} sipariş
             {channel === "all" && tyOrders.length > 0 && (
               <> (Kendi {ownOrders.length} · Trendyol {tyOrders.length})</>
             )}
@@ -226,6 +257,8 @@ export default function OrdersPage() {
           open={filtersOpen}
           onOpenChange={setFiltersOpen}
           period={ordersPeriod}
+          dateRange={dateRange}
+          onDateRangeChange={handleDateRangeChange}
           channel={channel}
           status={filter}
           payment={payFilter}
@@ -240,7 +273,7 @@ export default function OrdersPage() {
         />
       </div>
 
-      {search.trim() && ordersPeriod !== "all" && (
+      {search.trim() && ordersPeriod !== "all" && !dateRange && (
         <p className="-mt-1 mb-2 text-xs text-muted-foreground shrink-0">
           Arama yalnızca {PERIOD_LABEL[ordersPeriod].toLocaleLowerCase("tr")}{" "}
           içinde.{" "}
@@ -255,6 +288,8 @@ export default function OrdersPage() {
       )}
 
       <OrderActiveFilters
+        dateRange={dateRange}
+        onDateRangeChange={handleDateRangeChange}
         channel={channel}
         status={filter}
         payment={payFilter}

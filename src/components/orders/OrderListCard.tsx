@@ -1,4 +1,4 @@
-import { memo, useTransition, useState } from "react";
+import { memo, useTransition, useState, type ElementType } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -11,7 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { type Order, type OrderStatus } from "@/types";
-import { cn, formatCurrency, formatDate, toLocalPhone } from "@/lib/utils";
+import { cn, formatCurrency, formatDate, phoneKey, toLocalPhone } from "@/lib/utils";
 import { RelativeTime } from "@/components/RelativeTime";
 import { CustomerOpenAccountsBadge } from "@/components/orders/CustomerOpenAccountsBadge";
 import { ORDER_STATUS_CONFIG, ORDER_STATUS_ORDER } from "@/lib/orderStatus";
@@ -27,7 +27,19 @@ import {
   Bike,
   CreditCard,
   Clock,
+  Banknote,
+  Utensils,
+  Smartphone,
+  Landmark,
 } from "lucide-react";
+
+const PAYMENT_ICON: Record<Order["payment"]["method"], ElementType> = {
+  cash: Banknote,
+  card: CreditCard,
+  meal_card: Utensils,
+  online: Smartphone,
+  iban: Landmark,
+};
 
 // Teslim süresi hedefi (Komuta performans ile aynı): altı yeşil, üstü kırmızı.
 const DELIVERY_TARGET_MIN = 35;
@@ -77,11 +89,23 @@ function OrderListCardImpl({
   const isTrendyol = order.source === "trendyol";
   // Arşivden gelen Trendyol siparişi: durum Trendyol'da yönetilir → menü yok.
   const isArchived = order.id.startsWith(TRENDYOL_ARCHIVE_ID_PREFIX);
+  const isActive =
+    order.status === "pending" ||
+    order.status === "preparing" ||
+    order.status === "on-the-way";
+  const PayIcon = PAYMENT_ICON[order.payment.method];
+  // İsimsiz müşteride ad alanına numara yazılmış olabiliyor; aynı numarayı iki
+  // kez göstermemek için o durumda yalnızca (aranabilir) telefon gösterilir.
+  const phone = order.customer.phone;
+  const nameIsPhone =
+    !!phone &&
+    phoneKey(order.customer.name).length === 10 &&
+    phoneKey(order.customer.name) === phoneKey(phone);
 
   return (
     <Card
       className={cn(
-        "transition-all hover:shadow-md hover:border-foreground/20 overflow-hidden relative",
+        "py-0 transition-all hover:shadow-md hover:border-foreground/20 overflow-hidden relative",
         isTrendyol &&
           "bg-linear-to-r from-orange-50/70 via-white to-white border-orange-200/80",
       )}
@@ -111,17 +135,21 @@ function OrderListCardImpl({
       )}
 
       <CardContent className="flex flex-col md:flex-row md:items-stretch gap-3 md:gap-4 p-4 pl-5">
-        {/* Sol: sipariş + müşteri */}
+        {/* Sol: sipariş + müşteri. Üst satırda yalnız kimlik + uyarılar (renkli);
+            ödeme/süre/kurye/saat alttaki tek gri bilgi satırında. */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-            <span className="font-bold text-lg">#{order.orderNumber}</span>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-bold text-lg leading-none tabular-nums">
+              #{order.orderNumber}
+            </span>
             <span
               className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${config.color}`}
             >
               <Icon className="h-3 w-3" />
               {config.label}
             </span>
-            {sourceBadge && (
+            {/* Trendyol köşe şeridiyle zaten belli; diğer pazaryerleri rozetle. */}
+            {sourceBadge && !isTrendyol && (
               <span
                 className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${sourceBadge.className}`}
               >
@@ -140,45 +168,21 @@ function OrderListCardImpl({
                 accounts={order.customerOpenAccounts}
               />
             )}
-            <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700">
-              <CreditCard className="h-3 w-3" />
-              {PAYMENT_LABEL[order.payment.method]}
-            </span>
-            {order.status === "delivered" && order.deliveryDurationMin != null && (
-              <span
-                title="Sipariş alındığından teslime kadar geçen süre"
+          </div>
+
+          <div className="mt-2 flex items-center gap-2 flex-wrap">
+            {!nameIsPhone && <p className="font-medium">{order.customer.name}</p>}
+            {phone && (
+              <a
+                href={`tel:${toLocalPhone(phone)}`}
+                onClick={(e) => e.stopPropagation()}
                 className={cn(
-                  "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold",
-                  order.deliveryDurationMin <= DELIVERY_TARGET_MIN
-                    ? "border-emerald-200 bg-emerald-100 text-emerald-800"
-                    : "border-rose-200 bg-rose-100 text-rose-800",
+                  "inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 hover:underline",
+                  nameIsPhone ? "font-medium" : "text-xs",
                 )}
               >
-                <Clock className="h-3 w-3" />
-                {Math.round(order.deliveryDurationMin)} dk
-              </span>
-            )}
-            {order.courier && (
-              <span className="inline-flex items-center gap-1 rounded-full border border-lime-200 bg-lime-100 px-2 py-0.5 text-[11px] font-medium text-lime-800">
-                <Bike className="h-3 w-3" />
-                {order.courier}
-              </span>
-            )}
-            <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground bg-muted rounded-full px-2 py-0.5">
-              <Timer className="h-3 w-3" />
-              <RelativeTime date={order.createdAt} />
-            </span>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <p className="font-medium">{order.customer.name}</p>
-            {order.customer.phone && (
-              <a
-                href={`tel:${toLocalPhone(order.customer.phone)}`}
-                onClick={(e) => e.stopPropagation()}
-                className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 hover:underline"
-              >
                 <Phone className="h-3 w-3" />
-                {order.customer.phone}
+                {phone}
               </a>
             )}
           </div>
@@ -186,13 +190,49 @@ function OrderListCardImpl({
             <MapPin className="h-3 w-3 shrink-0" />
             {order.customer.address}
           </p>
-          <p className="text-[11px] text-muted-foreground mt-1">
-            {formatDate(order.createdAt)}
-          </p>
+
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-1">
+              <PayIcon className="h-3.5 w-3.5" />
+              {PAYMENT_LABEL[order.payment.method]}
+              {order.payment.method === "meal_card" && order.payment.mealCardBrand && (
+                <span className="capitalize">· {order.payment.mealCardBrand}</span>
+              )}
+            </span>
+            {order.status === "delivered" && order.deliveryDurationMin != null && (
+              <span
+                title="Sipariş alındığından teslime kadar geçen süre"
+                className={cn(
+                  "inline-flex items-center gap-1 font-semibold",
+                  order.deliveryDurationMin <= DELIVERY_TARGET_MIN
+                    ? "text-emerald-600"
+                    : "text-rose-600",
+                )}
+              >
+                <Clock className="h-3.5 w-3.5" />
+                {Math.round(order.deliveryDurationMin)} dk teslim
+              </span>
+            )}
+            {order.courier && (
+              <span className="inline-flex items-center gap-1">
+                <Bike className="h-3.5 w-3.5" />
+                {order.courier}
+              </span>
+            )}
+            <span className="inline-flex items-center gap-1">
+              <Timer className="h-3.5 w-3.5" />
+              {formatDate(order.createdAt)}
+              {isActive && (
+                <span className="font-medium text-foreground">
+                  · <RelativeTime date={order.createdAt} />
+                </span>
+              )}
+            </span>
+          </div>
         </div>
 
         {/* Orta: ürünler — md+ */}
-        <div className="hidden md:flex md:w-64 lg:w-80 flex-col border-l pl-4">
+        <div className="hidden md:flex md:w-44 lg:w-56 shrink-0 flex-col border-l pl-4">
           <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">
             {order.items.length} kalem ·{" "}
             {order.items.reduce((s, i) => s + i.quantity, 0)} adet
@@ -206,7 +246,7 @@ function OrderListCardImpl({
                 <span className="inline-flex items-center justify-center min-w-6 h-5 rounded-md bg-muted text-[11px] font-bold px-1">
                   {item.quantity}x
                 </span>
-                <span className="truncate">{item.product.name}</span>
+                <span className="min-w-0 truncate">{item.product.name}</span>
               </div>
             ))}
             {order.items.length > 4 && (
@@ -236,7 +276,13 @@ function OrderListCardImpl({
         </div>
 
         {/* Sağ: tutar + aksiyon */}
-        <div className="flex md:flex-col items-end justify-between md:justify-center gap-2 md:gap-2 md:border-l md:pl-4 md:min-w-45">
+        <div
+          className={cn(
+            "flex md:flex-col items-end justify-between md:justify-center gap-2 md:gap-2 md:border-l md:pl-4 md:min-w-45",
+            // Köşe şeridi tutarın üstüne binmesin.
+            isTrendyol && "md:pt-5",
+          )}
+        >
           <div className="flex flex-col md:items-end">
             <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
               Toplam
