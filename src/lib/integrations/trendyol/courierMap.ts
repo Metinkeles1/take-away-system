@@ -79,6 +79,71 @@ function mapTrendyolPayment(payment?: TrendyolPackage["payment"]): {
   return { method: "cash" };
 }
 
+// Trendyol address1'i müşterinin haritada PİNLEDİĞİ noktadan üretir; elle
+// yazdığı bina no ayrı alanda gelir (apartmentNumber) ve ikisi farklı olabilir
+// (pin komşu binaya düşmüş: yazılan "Ahi Sk. 10", address1 "Ahi Sk. No:13").
+// Kapıyı yazılan numara bulur → adres satırında o gösterilir, pinin farklı
+// numarada olduğu detayda not edilir. Numara olmayan bina adı ("F2 blok")
+// detaya eklenir. "0" boş sayılır.
+// "12", "381B", "3/5" (bina/daire), "10-14" (bina aralığı).
+const PLAIN_NO = /^\d+[a-zçğıöşü]?(?:[-/]\d+[a-zçğıöşü]?)?$/i;
+// address1'deki kapı no ("No:14", "No:14/A", "No:3/5") — "Daire No: 25" kapı no değildir.
+const MAP_NO = /(?<!daire\s*)\bNo\s*[:.]?\s*(\d+[a-zçğıöşü]?(?:\/(?:\d+[a-zçğıöşü]?|[a-zçğıöşü]))?)/i;
+
+const lead = (s: string) => Number.parseInt(s, 10);
+const hasLetter = (s: string) => /[a-zçğıöşü]/i.test(s);
+
+// Yazılan bina no haritadaki numarayla aynı binayı mı gösteriyor? Numara
+// eşitse ("118" ↔ "118D", "14/A" ↔ "14A") ya da yazılan aralık haritayı
+// kapsıyorsa ("10-14" ↔ 13) evet.
+function sameBuilding(apt: string, mapNo: string): boolean {
+  if (lead(apt) === lead(mapNo)) return true;
+  const range = apt.match(/^(\d+)-(\d+)$/);
+  const n = lead(mapNo);
+  return !!range && n >= Number(range[1]) && n <= Number(range[2]);
+}
+
+export function reconcileBuildingNo(
+  mapLine: string,
+  apartmentNumber?: string,
+): { line: string; buildingNote: string | null } {
+  // "no 5", "No:5", "118 D", "02" → "5", "5", "118D", "2"
+  const apt = (apartmentNumber ?? "")
+    .trim()
+    .replace(/^no\s*[:.]?\s*/i, "")
+    .replace(/^0+(?=\d)/, "")
+    .replace(/^(\d+)\s+([a-zçğıöşü])$/i, "$1$2");
+  if (!apt || /^0+$/.test(apt)) return { line: mapLine, buildingNote: null };
+
+  if (!PLAIN_NO.test(apt)) {
+    // Blok/site adı — adreste zaten geçiyorsa tekrar etme.
+    const lower = (s: string) => s.toLocaleLowerCase("tr");
+    return lower(mapLine).includes(lower(apt))
+      ? { line: mapLine, buildingNote: null }
+      : { line: mapLine, buildingNote: `Bina ${apt}` };
+  }
+
+  const m = mapLine.match(MAP_NO);
+  if (m) {
+    if (sameBuilding(apt, m[1])) {
+      // Yazılan daha belirginse ("1" → "1B") satırda o görünsün.
+      const line =
+        hasLetter(apt) && !hasLetter(m[1]) ? mapLine.replace(MAP_NO, `No:${apt}`) : mapLine;
+      return { line, buildingNote: null };
+    }
+    return {
+      line: mapLine.replace(MAP_NO, `No:${apt}`),
+      buildingNote: `Harita pini: No ${m[1]}`,
+    };
+  }
+  // Haritadaki adreste numara yok — yazılan numara zaten geçmiyorsa ekle.
+  // (PLAIN_NO'dan geçen değerde regex özel karakteri yok.)
+  if (new RegExp(`(^|[^\\d])${apt}([^\\d]|$)`, "i").test(mapLine)) {
+    return { line: mapLine, buildingNote: null };
+  }
+  return { line: mapLine ? `${mapLine} No:${apt}` : "", buildingNote: null };
+}
+
 export function mapTrendyolPackageToOrder(p: TrendyolPackage): Order {
   const a = p.address ?? {};
 
@@ -95,17 +160,19 @@ export function mapTrendyolPackageToOrder(p: TrendyolPackage): Order {
   // Hero adres = address1 (+address2). address1 zaten "mahalle, cadde/sokak no"
   // içeriyor; başına neighborhood eklemek "Mevlana Mah Mevlana, ..." tekrarı
   // yaratıyordu. Boşsa mahalle / tarif fallback.
-  const line = [a.address1, a.address2]
+  const mapLine = [a.address1, a.address2]
     .map((s) => s?.trim())
     .filter(Boolean)
     .join(" ")
     .trim();
+  const { line, buildingNote } = reconcileBuildingNo(mapLine, a.apartmentNumber);
   const address =
     line || a.neighborhood?.trim() || a.addressDescription?.trim() || "Adres bilgisi yok";
 
   // Detay satırı: kat/daire (address1'de genelde yok) + adres tarifi. Tarif
   // address1'i birebir tekrar ediyorsa eklenmez (gürültüyü azalt).
   const building = [
+    buildingNote,
     a.floor ? `Kat ${a.floor}` : null,
     a.doorNumber ? `Daire ${a.doorNumber}` : null,
   ]
