@@ -186,9 +186,13 @@ function OrderListCardImpl({
               </a>
             )}
           </div>
-          <p className="text-sm text-muted-foreground truncate flex items-center gap-1 mt-0.5">
+          {/* Uzun adres tek satırda "…" ile kesilir; üzerine gelince tamamı görünür. */}
+          <p
+            title={order.customer.address}
+            className="text-sm text-muted-foreground flex items-center gap-1 mt-0.5 min-w-0"
+          >
             <MapPin className="h-3 w-3 shrink-0" />
-            {order.customer.address}
+            <span className="truncate">{order.customer.address}</span>
           </p>
 
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
