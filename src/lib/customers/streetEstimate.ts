@@ -16,6 +16,9 @@ export interface StreetRef {
   district?: string;
   lat: number;
   lng: number;
+  // "own": kendi müşteri kaydımızdaki pin (insan onaylı) — "trendyol": Trendyol
+  // siparişinde müşterinin haritada seçtiği pin (daha az güvenilir).
+  source?: "own" | "trendyol";
 }
 
 export type StreetEstimateKind = "building" | "between" | "near" | "street";
@@ -42,6 +45,12 @@ function centroid(pts: { lat: number; lng: number }[]) {
     lat: pts.reduce((s, p) => s + p.lat, 0) / pts.length,
     lng: pts.reduce((s, p) => s + p.lng, 0) / pts.length,
   };
+}
+
+// Aynı numarada kendi pinimiz varsa yalnız onu kullan; yoksa Trendyol pinleri.
+function preferOwn(pts: StreetRef[]): StreetRef[] {
+  const own = pts.filter((p) => p.source !== "trendyol");
+  return own.length > 0 ? own : pts;
 }
 
 function maxSpread(pts: { lat: number; lng: number }[]): number {
@@ -77,7 +86,7 @@ export function estimateFromStreet(
 
   const same = numbered.filter((r) => r.doorNo === n);
   if (same.length > 0) {
-    return { ...centroid(same), kind: "building", label: `Aynı bina (No ${n})` };
+    return { ...centroid(preferOwn(same)), kind: "building", label: `Aynı bina (No ${n})` };
   }
 
   // Türkiye'de çoğu sokakta tek numaralar bir yanda, çiftler öbür yanda —
@@ -91,7 +100,7 @@ export function estimateFromStreet(
   const higherNo = Math.min(
     ...pool.filter((r) => r.doorNo! > n).map((r) => r.doorNo!),
   );
-  const at = (no: number) => centroid(pool.filter((r) => r.doorNo === no));
+  const at = (no: number) => centroid(preferOwn(pool.filter((r) => r.doorNo === no)));
 
   const hasLower = Number.isFinite(lowerNo);
   const hasHigher = Number.isFinite(higherNo);

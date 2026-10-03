@@ -164,3 +164,34 @@ export function streetFields(
     doorNo: p?.doorNo ?? null,
   };
 }
+
+// Trendyol arşiv kaydı için aynı anahtarlar. Trendyol mahalleyi ayrı alanda
+// (neighborhood), bina numarasını apartmentNumber'da verir; address1 çoğu zaman
+// mahalleyi yazmaz → mahalle neighborhood'dan, kapı no yoksa bina no'dan alınır.
+// (doorNumber Trendyol'da DAİRE no'dur, kapı no değil.)
+// address1 sık sık mahalle adını virgülsüz başa yazar ("Mevlana Burç Sk.") —
+// olduğu gibi ayrıştırılırsa sokak "mevlanaburc sokak" çıkar; baştaki mahalle
+// adı atılır (atınca sokak kalmıyorsa — "Mevlana Cd." — atılmaz).
+export function trendyolStreetFields(a: {
+  street?: string;
+  neighborhood?: string;
+  apartmentNumber?: string;
+}): ReturnType<typeof streetFields> {
+  const street = a.street ?? "";
+  const hood = fold(a.neighborhood ?? "")
+    .split(/\s+/)
+    .filter((w) => w && !MAHALLE_WORDS.has(w.replace(/\.$/, "")))
+    .join(" ");
+  let f = streetFields(street, a.apartmentNumber);
+  if (hood) {
+    const words = street.trim().split(/\s+/);
+    const n = hood.split(" ").length;
+    if (fold(words.slice(0, n).join(" ")) === hood && !/,$/.test(words[n - 1] ?? "")) {
+      const rest = streetFields(words.slice(n).join(" "), a.apartmentNumber);
+      if (rest.streetKey) f = rest;
+    }
+  }
+  if (!f.streetKey || f.mahalleKey) return f;
+  const m = parseStreet(`${a.neighborhood ?? ""} mahallesi x sokak`);
+  return { ...f, mahalleKey: m?.mahalle ?? null };
+}

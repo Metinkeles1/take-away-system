@@ -11,6 +11,7 @@ import mongoose from "mongoose";
 import { connectDB } from "@/lib/mongodb";
 import TrendyolOrderModel, { PII_RETENTION_DAYS } from "@/models/TrendyolOrder";
 import SettingModel from "@/models/Setting";
+import { trendyolStreetFields } from "@/lib/customers/streetKey";
 import {
   listTrendyolPackages,
   type TrendyolPackage,
@@ -244,6 +245,14 @@ function packageToArchive(p: TrendyolPackage, now: number): Record<string, unkno
   });
   doc.lat = parseCoord(p.address?.latitude);
   doc.lng = parseCoord(p.address?.longitude);
+  const keys = trendyolStreetFields({
+    street,
+    neighborhood: a.neighborhood,
+    apartmentNumber: a.apartmentNumber,
+  });
+  doc.streetKey = keys.streetKey ?? undefined;
+  doc.mahalleKey = keys.mahalleKey ?? undefined;
+  doc.doorNo = keys.doorNo ?? undefined;
   if (piiExpired) {
     doc.phone = "";
     doc.piiPurgedAt = new Date(now);
@@ -266,6 +275,9 @@ const PII_FIELDS = [
   "addressFull",
   "lat",
   "lng",
+  "streetKey",
+  "mahalleKey",
+  "doorNo",
   "customerId",
   "customerNote", // serbest metin — kişisel bilgi içerebilir
 ];
@@ -480,7 +492,7 @@ export async function anonymizeTrendyolOrders(orderNumbers: string[]): Promise<n
         piiPurgedAt: now,
         anonymizedAt: now,
       },
-      $unset: { lat: "", lng: "", customerId: "" },
+      $unset: { lat: "", lng: "", customerId: "", streetKey: "", mahalleKey: "", doorNo: "" },
     },
   );
   return res.modifiedCount ?? 0;

@@ -77,6 +77,11 @@ const TrendyolOrderSchema = new Schema(
     addressFull: { type: String, default: "" },
     lat: { type: Number },
     lng: { type: Number },
+    // Sokak hafızası anahtarları (bkz. lib/customers/streetKey) — pinli Trendyol
+    // siparişleri, pinsiz adreslerin yaklaşık konum tahminine referans olur.
+    streetKey: { type: String },
+    mahalleKey: { type: String },
+    doorNo: { type: Number },
 
     // İçerik + tutar
     lines: { type: [LineSchema], default: [] },
@@ -119,6 +124,7 @@ const TrendyolOrderSchema = new Schema(
 
 TrendyolOrderSchema.index({ customerId: 1, packageCreationDate: -1 });
 TrendyolOrderSchema.index({ courier: 1, packageCreationDate: -1 });
+TrendyolOrderSchema.index({ streetKey: 1 }, { sparse: true });
 
 export type TrendyolOrderDocument = InferSchemaType<typeof TrendyolOrderSchema>;
 
