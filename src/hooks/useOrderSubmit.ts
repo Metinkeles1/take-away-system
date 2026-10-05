@@ -94,15 +94,16 @@ export function useOrderSubmit(): UseOrderSubmitResult {
         return;
       }
       toast.success("Sipariş güncellendi");
-      const id = result.id!;
-      resetDraft();
-      router.push(`/orders/${id}`);
-      router.refresh();
+      // refresh() çağırma: push'tan hemen sonra gelince yönlendirmeyi ezip
+      // kullanıcıyı düzenleme ekranında bırakıyor. revalidatePath zaten tazeler.
+      // replace: geri tuşu tekrar düzenleme ekranına dönmesin. Draft'ı
+      // OrderEditor unmount'ta temizler.
+      router.replace(`/orders/${result.id!}`);
     } catch {
       toast.error("Güncelleme sırasında bir hata oluştu.");
       setIsSubmitting(false);
     }
-  }, [editingOrderId, isSubmitting, resetDraft, router, saveEdit]);
+  }, [editingOrderId, isSubmitting, router, saveEdit]);
 
   const onCancel = useCallback(() => {
     const id = editingOrderId;
