@@ -168,24 +168,42 @@ const PRIORITY_DOT: Record<PriorityLevel, string> = {
   late: "bg-rose-500",
 };
 
-function PriorityChip({
+// Siparişin kaç dakikadır beklediği. Kartlarda "12 dk önce" küçük yazısı
+// yerine büyük rakamla gösterilir — kurye telefonda ilk bakışta görsün.
+function elapsedMin(createdAt: Date | string): number {
+  return Math.max(0, Math.floor((Date.now() - new Date(createdAt).getTime()) / 60000));
+}
+
+function elapsedLabel(min: number): string {
+  if (min < 60) return `${min} dk`;
+  return `${Math.floor(min / 60)} sa ${min % 60} dk`;
+}
+
+// Süre rozeti — öncelik etiketiyle birleşik: normal gri, yaklaşan sarı,
+// geçmiş kırmızı (+ alev). Dar ekranda ayrı "Öncelikli" etiketine yer yok.
+function ElapsedBadge({
+  createdAt,
   level,
   className,
 }: {
+  createdAt: Date | string;
   level: PriorityLevel;
   className?: string;
 }) {
-  if (level === "none") return null;
   return (
     <span
       className={cn(
-        "inline-flex shrink-0 items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-bold",
-        level === "late" ? "bg-rose-500 text-white" : "bg-amber-100 text-amber-800",
+        "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-lg px-2 py-0.5 text-sm font-bold tabular-nums",
+        {
+          none: "bg-slate-100 text-slate-700",
+          soon: "bg-amber-100 text-amber-800",
+          late: "bg-rose-500 text-white",
+        }[level],
         className,
       )}
     >
-      <Flame className="h-3 w-3" />
-      Öncelikli
+      {level === "none" ? <Clock className="h-3.5 w-3.5" /> : <Flame className="h-3.5 w-3.5" />}
+      {elapsedLabel(elapsedMin(createdAt))}
     </span>
   );
 }
@@ -2187,7 +2205,7 @@ function PoolList({
             </span>
 
             <div className="relative min-w-0 flex-1">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <span className="shrink-0 text-sm font-bold text-slate-900">
                   #{displayOrderNo(o)}
                 </span>
@@ -2219,24 +2237,6 @@ function PoolList({
                     Yakın {group}
                   </span>
                 )}
-                {/* Satır dar → ayrı etiket yerine süre renklenir (sarı/kırmızı + alev). */}
-                <span
-                  className={cn(
-                    "ml-auto inline-flex shrink-0 items-center gap-1 rounded-md text-[10px]",
-                    {
-                      none: "text-slate-400",
-                      soon: "bg-amber-100 px-1.5 py-0.5 font-bold text-amber-800",
-                      late: "bg-rose-500 px-1.5 py-0.5 font-bold text-white",
-                    }[priorityOf(o)],
-                  )}
-                >
-                  {priorityOf(o) === "none" ? (
-                    <Clock className="h-3 w-3" />
-                  ) : (
-                    <Flame className="h-3 w-3" />
-                  )}
-                  {formatRelativeTime(o.createdAt)}
-                </span>
               </div>
               <p className="mt-0.5 truncate text-sm font-medium text-slate-600">
                 {shortAddress(o)}
@@ -2254,6 +2254,8 @@ function PoolList({
                 )}
               </div>
             </div>
+            {/* Süre kendi sütununda: etiketler satırı doldursa da kesilmez */}
+            <ElapsedBadge createdAt={o.createdAt} level={priorityOf(o)} className="relative self-start" />
           </button>
         );
       })}
@@ -2358,15 +2360,13 @@ function OrderCard({
             </span>
           </span>
         )}
-        <PriorityChip level={priority} className="ml-auto" />
-        <span
-          className={cn(
-            "inline-flex shrink-0 items-center gap-1 text-xs text-slate-400",
-            priority === "none" && "ml-auto",
-          )}
-        >
-          <Clock className="h-3.5 w-3.5" /> {formatRelativeTime(o.createdAt)}
-        </span>
+        {/* "Öncelikli" etiketi + süre tek rozette; ayrı ayrıyken dar
+            telefonda süre şeridin dışına itilip kesiliyordu. */}
+        <ElapsedBadge
+          createdAt={o.createdAt}
+          level={priority}
+          className={cn("ml-auto", priority === "none" && "bg-white/10 text-white")}
+        />
       </div>
 
       {/* Adres — kartın kahramanı */}
