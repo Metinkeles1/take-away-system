@@ -1,16 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getPanelSummary, type PanelSummary } from "@/actions/panel";
-import { getCourierCash, type CourierCashState } from "@/actions/courierCash";
+import type { PanelSummary } from "@/actions/panel";
+import type { CourierCashState } from "@/actions/courierCash";
 import { subscribeOrders } from "@/lib/pusher/client";
 import type { Order } from "@/types";
 
 // Panelin veri kaynağı: canlı liste (siparişler + kuryedeki para) ve özet
 // (adetler, saatlik, teslim hızı). İkisi de Pusher olayında tazelenir; olay
-// kaçarsa diye liste 30 sn'de, özet 60 sn'de bir yeniden çekilir.
+// kaçarsa diye liste 30 sn'de, özet 60 sn'de bir yeniden çekilir. Okumaların
+// hepsi GET: server action'lar sırayla çalıştığından birbirini bekletiyordu.
 const BOARD_MS = 30_000;
 const SUMMARY_MS = 60_000;
+
+async function getJson<T>(url: string): Promise<T> {
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error(String(res.status));
+  return res.json() as Promise<T>;
+}
 
 export interface PanelBoard {
   orders: Order[];
@@ -29,11 +36,8 @@ export function usePanelData() {
   // da diğeri güncellenir. "Bağlantı yok" yalnız liste gelmezse gösterilir.
   const loadBoard = useCallback(async () => {
     const [board, cashState] = await Promise.allSettled([
-      fetch("/api/courier/board", { cache: "no-store" }).then((res) => {
-        if (!res.ok) throw new Error(String(res.status));
-        return res.json() as Promise<PanelBoard>;
-      }),
-      getCourierCash(),
+      getJson<PanelBoard>("/api/courier/board"),
+      getJson<CourierCashState>("/api/courier/cash"),
     ]);
     if (board.status === "fulfilled") setBoard(board.value);
     if (cashState.status === "fulfilled") setCash(cashState.value);
@@ -44,7 +48,7 @@ export function usePanelData() {
     if (summaryBusy.current) return;
     summaryBusy.current = true;
     try {
-      const s = await getPanelSummary();
+      const s = await getJson<PanelSummary>("/api/panel/summary");
       setSummary(s);
       setCash(s.cash);
     } catch {

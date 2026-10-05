@@ -1,5 +1,6 @@
 "use server";
 
+import { after } from "next/server";
 import { connectDB } from "@/lib/mongodb";
 import OrderModel from "@/models/Order";
 import TrendyolOrderModel from "@/models/TrendyolOrder";
@@ -35,8 +36,11 @@ const HOUR_MS = 3_600_000;
 const DAY_MS = 24 * HOUR_MS;
 
 export async function getPanelSummary(): Promise<PanelSummary> {
-  // Arşiv tazeliği kendi içinde hız sınırlı; hata okumayı engellemez.
-  await ensureTrendyolArchiveFresh().catch(() => {});
+  // Arşiv tazeliği cevaptan SONRA çalışır: bekletilirse her 10 dk'da bir
+  // Trendyol senkronu (6 saatte bir 20 günlük hakediş) özeti saniyelerce
+  // geciktiriyordu. Özet arşivdeki son veriyi döner; taze hali bir sonraki
+  // yenilemede (≤60 sn) gelir. Kendi içinde hız sınırlı, hata yutulur.
+  after(() => ensureTrendyolArchiveFresh().catch(() => {}));
   await connectDB();
 
   const nowMs = Date.now();
