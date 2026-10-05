@@ -1,7 +1,7 @@
 import { useEffect, useState, memo } from "react";
 import { updateProduct } from "@/actions/products";
-import { uploadProductImage } from "@/actions/productImages";
-import { type Product } from "@/types";
+import { uploadImageFile } from "./uploadImage";
+import { type CategoryOptions, type Product } from "@/types";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -12,18 +12,24 @@ import {
 } from "@/components/ui/dialog";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { ProductFormFields, type ProductFormState } from "./ProductFormFields";
+import {
+  ProductFormFields,
+  keepCategoryOptionIds,
+  type ProductFormState,
+} from "./ProductFormFields";
 
 interface EditProductDialogProps {
   product: Product | null;
   onClose: () => void;
   onSuccess: () => void;
+  categoryOptions: CategoryOptions | null;
 }
 
 export const EditProductDialog = memo(function EditProductDialog({
   product,
   onClose,
   onSuccess,
+  categoryOptions,
 }: EditProductDialogProps) {
   const [formData, setFormData] = useState<ProductFormState>({
     name: "",
@@ -32,6 +38,7 @@ export const EditProductDialog = memo(function EditProductDialog({
     description: "",
     available: true,
     portionable: false,
+    hiddenOptions: [],
     imageUrl: "",
     imageFile: null,
   });
@@ -46,6 +53,7 @@ export const EditProductDialog = memo(function EditProductDialog({
         description: product.description ?? "",
         available: product.available,
         portionable: Boolean(product.portionable),
+        hiddenOptions: product.hiddenOptions ?? [],
         imageUrl: product.image ?? "",
         imageFile: null,
       });
@@ -67,12 +75,7 @@ export const EditProductDialog = memo(function EditProductDialog({
     try {
       let imageUrl: string | undefined = formData.imageUrl || undefined;
       if (formData.imageFile) {
-        const fd = new FormData();
-        fd.append("file", formData.imageFile);
-        fd.append("productId", product.id);
-        fd.append("productName", formData.name.trim());
-        const { url } = await uploadProductImage(fd);
-        imageUrl = url;
+        imageUrl = await uploadImageFile(formData.imageFile, product.id, formData.name.trim());
       }
 
       await updateProduct(product.id, {
@@ -82,6 +85,7 @@ export const EditProductDialog = memo(function EditProductDialog({
         description: formData.description.trim() || undefined,
         available: formData.available,
         portionable: formData.portionable,
+        hiddenOptions: keepCategoryOptionIds(formData, categoryOptions),
         image: imageUrl,
       });
       toast.success("Ürün güncellendi");
@@ -89,7 +93,10 @@ export const EditProductDialog = memo(function EditProductDialog({
       onSuccess();
     } catch (e) {
       console.error(e);
-      toast.error("Ürün güncellenirken hata oluştu");
+      // Resim hatası kendi açıklamasını taşır (çok büyük / yüklenemedi)
+      toast.error("Ürün güncellenirken hata oluştu", {
+        description: e instanceof Error && e.message.startsWith("Resim") ? e.message : undefined,
+      });
     } finally {
       setIsSaving(false);
     }
@@ -104,7 +111,11 @@ export const EditProductDialog = memo(function EditProductDialog({
         <DialogHeader>
           <DialogTitle>Ürün Düzenle</DialogTitle>
         </DialogHeader>
-        <ProductFormFields formData={formData} setFormData={setFormData} />
+        <ProductFormFields
+          formData={formData}
+          setFormData={setFormData}
+          categoryOptions={categoryOptions}
+        />
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             İptal

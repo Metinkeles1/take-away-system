@@ -39,6 +39,32 @@ export interface Product {
   available: boolean;
   image?: string; // Blob URL veya /images/products/{slug}.jpg yolu; yoksa kategori-temalı fallback SVG üretilir
   portionable?: boolean; // Porsiyon (½/1/1½) seçeneği sunulsun mu
+  hiddenOptions?: string[]; // kategori seçeneklerinden bu üründe gizlenenler (seçenek id'leri)
+}
+
+// ─── Ürün Seçenekleri (kategori bazlı) ───────────────────────────────────────
+// Sepette ürüne eklenen hazır istekler: "Soğansız", "Yumurtalı +30₺"…
+// Kategoriye tanımlanır, Menü Yönetimi > Seçenekler ekranından düzenlenir.
+export interface ItemOptionChoice {
+  id: string;
+  label: string;
+  price: number; // birim başına ek ücret (₺); 0 = ücretsiz
+}
+
+export interface ItemOptionGroup {
+  id: string;
+  name: string; // "Acı", "Pişme", "İstekler"
+  mode: "single" | "multi"; // single: gruptan tek seçim (Acılı/Acısız)
+  options: ItemOptionChoice[];
+}
+
+export type CategoryOptions = Record<ProductCategory, ItemOptionGroup[]>;
+
+// Siparişe kopyalanan ücretli seçenek. Fiyat sipariş anındaki değerdir;
+// seçenek fiyatı sonradan değişse de eski siparişin tutarı değişmez.
+export interface OrderItemExtra {
+  label: string;
+  price: number;
 }
 
 // ─── Sipariş Kalemi ───────────────────────────────────────────────────────────
@@ -46,7 +72,8 @@ export interface OrderItem {
   product: Product;
   quantity: number;
   portion?: PortionOption; // porsiyon bilgisi (varsa)
-  options?: string[]; // hızlı seçimler: "Soğansız", "Acısız"… (ITEM_OPTIONS)
+  options?: string[]; // hızlı seçimler: "Soğansız", "Acısız"… (kategori seçenekleri)
+  optionExtras?: OrderItemExtra[]; // seçilenlerden ücretli olanlar — birim fiyata eklenir
   note?: string; // satıra özel serbest not
   totalPrice: number;
   // Sepet satırının kimliği. Aynı ürün+porsiyon birden çok satırda olabilir

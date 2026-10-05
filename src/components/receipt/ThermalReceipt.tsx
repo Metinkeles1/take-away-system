@@ -388,7 +388,12 @@ const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptProps>(
                       wordBreak: "break-word",
                     }}
                   >
-                    {item.options.map((o) => `– ${o.toLocaleUpperCase("tr-TR")}`).join("  ")}
+                    {item.options
+                      .map((o) => {
+                        const extra = item.optionExtras?.find((e) => e.label === o)?.price;
+                        return `– ${o.toLocaleUpperCase("tr-TR")}${extra ? ` (+${extra})` : ""}`;
+                      })
+                      .join("  ")}
                   </div>
                 )}
                 {item.note && (

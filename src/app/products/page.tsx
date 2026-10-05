@@ -7,7 +7,8 @@ import {
   seedProducts,
   backfillProductPortions,
 } from "@/actions/products";
-import { type Product, type ProductCategory } from "@/types";
+import { type CategoryOptions, type Product, type ProductCategory } from "@/types";
+import { getCategoryOptions } from "@/actions/menuOptions";
 import { MENU_CATEGORIES } from "@/data/menu";
 import { toast } from "sonner";
 import { ProductsHeader } from "@/components/products/ProductsHeader";
@@ -16,6 +17,7 @@ import { ProductsList } from "@/components/products/ProductsList";
 import { AddProductDialog } from "@/components/products/AddProductDialog";
 import { EditProductDialog } from "@/components/products/EditProductDialog";
 import { DeleteProductDialog } from "@/components/products/DeleteProductDialog";
+import { CategoryOptionsDialog } from "@/components/products/CategoryOptionsDialog";
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -30,6 +32,14 @@ export default function ProductsPage() {
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [deletingProduct, setDeletingProduct] = useState<Product | null>(null);
+  const [showOptionsDialog, setShowOptionsDialog] = useState(false);
+  const [categoryOptions, setCategoryOptions] = useState<CategoryOptions | null>(null);
+
+  useEffect(() => {
+    getCategoryOptions()
+      .then(setCategoryOptions)
+      .catch(() => toast.error("Ürün seçenekleri yüklenemedi"));
+  }, []);
 
   // İlk yüklemede skeleton göster; sonraki revalidation'larda sessiz refresh.
   const initialLoadDoneRef = useRef(false);
@@ -114,6 +124,7 @@ export default function ProductsPage() {
   const handleCloseEdit = useCallback(() => setEditingProduct(null), []);
   const handleCloseDelete = useCallback(() => setDeletingProduct(null), []);
   const handleOpenAdd = useCallback(() => setShowAddDialog(true), []);
+  const handleOpenOptions = useCallback(() => setShowOptionsDialog(true), []);
 
   // Optimistic toggle: anında UI patch, hata olursa geri al.
   const handleToggle = useCallback(async (product: Product) => {
@@ -171,6 +182,7 @@ export default function ProductsPage() {
         activeProducts={activeProductsCount}
         onExportCSV={handleExportCSV}
         onAddProduct={handleOpenAdd}
+        onEditOptions={handleOpenOptions}
       />
 
       <ProductsFilters
@@ -199,11 +211,19 @@ export default function ProductsPage() {
         open={showAddDialog}
         onOpenChange={setShowAddDialog}
         onSuccess={handleSilentReload}
+        categoryOptions={categoryOptions}
       />
       <EditProductDialog
         product={editingProduct}
         onClose={handleCloseEdit}
         onSuccess={handleSilentReload}
+        categoryOptions={categoryOptions}
+      />
+      <CategoryOptionsDialog
+        open={showOptionsDialog}
+        onOpenChange={setShowOptionsDialog}
+        options={categoryOptions}
+        onSaved={setCategoryOptions}
       />
       <DeleteProductDialog
         product={deletingProduct}

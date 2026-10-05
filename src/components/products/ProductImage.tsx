@@ -19,7 +19,8 @@ interface ProductImageProps {
 
 const isDataUri = (s: string) => s.startsWith("data:");
 // Vercel Blob URL'leri zaten sharp ile optimize edilmiş WebP — Next/Image'ın
-// tekrar küçültüp encode etmesine izin verirsek kalite ikinci kez bozulur.
+// tekrar küçültüp encode etmesine izin verirsek kalite ikinci kez bozulur
+// (denendi, gözle görülür bulanıklık yaptı). Orijinal servis edilir.
 const isVercelBlob = (s: string) => s.includes(".blob.vercel-storage.com");
 
 /**
@@ -54,6 +55,7 @@ export function ProductImage({
         fill
         sizes={sizes}
         priority={priority}
+        quality={85}
         unoptimized={isDataUri(currentSrc) || isVercelBlob(currentSrc)}
         onError={() => {
           if (!isErrored) setErroredSrc(src);

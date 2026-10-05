@@ -9,6 +9,8 @@ import {
   type SavedCustomer,
   type PortionOption,
   type OrderItem,
+  type ItemOptionChoice,
+  type ItemOptionGroup,
 } from "@/types";
 import {
   orderItemKey,
@@ -16,6 +18,7 @@ import {
   isPlainItem,
   newLineId,
 } from "@/lib/orders/items";
+import { toggleOption } from "@/lib/orders/itemOptions";
 
 import {
   createOrder,
@@ -78,7 +81,9 @@ interface OrderStore {
   removeItem: (itemKey: string) => void;
   updateQuantity: (itemKey: string, quantity: number) => void;
   updateItemNote: (itemKey: string, note: string) => void;
-  toggleItemOption: (itemKey: string, option: string) => void;
+  // Seçeneği aç/kapat; tek seçimli grupta kardeşini kaldırır, ücretliyse
+  // satır tutarını günceller.
+  toggleItemOption: (itemKey: string, option: ItemOptionChoice, group: ItemOptionGroup) => void;
   // Satırdan 1 adedi ayrı satıra alır (biri soğansız olacaksa); yeni satırın
   // anahtarını döner. Adet 1 ise null.
   splitItem: (itemKey: string) => string | null;
@@ -227,17 +232,14 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
   },
 
   // ── Hızlı seçim aç/kapat ("Soğansız" vb.) ─────────────────────────────
-  toggleItemOption: (itemKey, option) => {
+  toggleItemOption: (itemKey, option, group) => {
     set((state) => ({
       draft: {
         ...state.draft,
         items: state.draft.items.map((i) => {
           if (orderItemKey(i) !== itemKey) return i;
-          const current = i.options ?? [];
-          const options = current.includes(option)
-            ? current.filter((o) => o !== option)
-            : [...current, option];
-          return { ...i, options: options.length > 0 ? options : undefined };
+          const next = { ...i, ...toggleOption(i, option, group) };
+          return { ...next, totalPrice: next.quantity * orderItemUnitPrice(next) };
         }),
       },
     }));
@@ -253,11 +255,12 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
     const lineId = newLineId();
     const next: OrderItem[] = [...items];
     next[idx] = { ...line, quantity: line.quantity - 1, totalPrice: (line.quantity - 1) * unitPrice };
+    // Ayrılan satır seçimsiz başlar — ek ücretsiz taban fiyatla
     next.splice(idx + 1, 0, {
       product: line.product,
       portion: line.portion,
       quantity: 1,
-      totalPrice: unitPrice,
+      totalPrice: orderItemUnitPrice({ product: line.product, portion: line.portion }),
       lineId,
     });
     set((state) => ({ draft: { ...state.draft, items: next } }));

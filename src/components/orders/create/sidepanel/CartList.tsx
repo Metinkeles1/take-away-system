@@ -12,7 +12,7 @@ import { SectionTitle } from "./SectionTitle";
 import { PortionBadge } from "../../PortionBadge";
 import { ItemOptionChips } from "../../ItemOptionChips";
 import { orderItemKey, orderItemUnitPrice } from "@/lib/orders/items";
-import { itemOptionsFor } from "@/lib/orders/itemOptions";
+import { optionGroupsFor } from "@/lib/orders/itemOptions";
 
 interface CartListProps {
   items: OrderDraft["items"];
@@ -172,8 +172,27 @@ function ItemRequestPanel({
   const toggleItemOption = useOrderStore((s) => s.toggleItemOption);
   const updateItemNote = useOrderStore((s) => s.updateItemNote);
   const splitItem = useOrderStore((s) => s.splitItem);
-  const options = itemOptionsFor(item.product.category);
+  const categoryOptions = useMenuStore((s) => s.categoryOptions);
+  // Gizli seçenekler güncel üründen okunur (sipariş kaydındaki kopyada yok)
+  const liveProduct = useMenuStore((s) => s.items.find((m) => m.id === item.product.id));
   const selected = item.options ?? [];
+  const groups = [...optionGroupsFor(categoryOptions, liveProduct ?? item.product)];
+  // Listeden kalkmış ama satırda seçili duran (eski sipariş) seçenek de
+  // görünsün ki kaldırılabilsin.
+  const known = new Set(groups.flatMap((g) => g.options.map((o) => o.label)));
+  const orphans = selected.filter((l) => !known.has(l));
+  if (orphans.length > 0) {
+    groups.push({
+      id: "orphans",
+      name: "Diğer",
+      mode: "multi",
+      options: orphans.map((label) => ({
+        id: `orphan-${label}`,
+        label,
+        price: item.optionExtras?.find((e) => e.label === label)?.price ?? 0,
+      })),
+    });
+  }
 
   return (
     <div className="space-y-2 px-1.5 pb-2">
@@ -190,27 +209,39 @@ function ItemRequestPanel({
           1 tanesini ayır — sadece birine istek ekle
         </button>
       )}
-      {options.length > 0 && (
+      {/* Gruplar arka arkaya akar; tek seçimli grubun çipleri birbirine
+          yapışık durur ki "biri seçilince diğeri kalkar" belli olsun. */}
+      {groups.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
-          {options.map((o) => {
-            const on = selected.includes(o);
-            return (
-              <button
-                key={o}
-                type="button"
-                aria-pressed={on}
-                onClick={() => toggleItemOption(itemKey, o)}
-                className={cn(
-                  "rounded-full px-2.5 py-1 text-xs font-medium ring-1 transition-colors cursor-pointer active:scale-95",
-                  on
-                    ? "bg-destructive text-white ring-destructive"
-                    : "bg-card text-foreground/80 ring-foreground/15 hover:ring-destructive/40",
-                )}
-              >
-                {o}
-              </button>
-            );
-          })}
+          {groups.map((g) =>
+            g.options.map((o, idx) => {
+              const on = selected.includes(o.label);
+              const single = g.mode === "single";
+              return (
+                <button
+                  key={o.id}
+                  type="button"
+                  aria-pressed={on}
+                  title={single ? `${g.name}: tek seçim` : undefined}
+                  onClick={() => toggleItemOption(itemKey, o, g)}
+                  className={cn(
+                    "rounded-full px-2.5 py-1 text-xs font-medium ring-1 transition-colors cursor-pointer active:scale-95",
+                    single && idx > 0 && "-ml-1",
+                    on
+                      ? "bg-destructive text-white ring-destructive"
+                      : "bg-card text-foreground/80 ring-foreground/15 hover:ring-destructive/40",
+                  )}
+                >
+                  {o.label}
+                  {o.price > 0 && (
+                    <span className={cn("ml-1 tabular-nums", on ? "text-white/85" : "text-emerald-600")}>
+                      +{o.price}₺
+                    </span>
+                  )}
+                </button>
+              );
+            }),
+          )}
         </div>
       )}
       <Input

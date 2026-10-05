@@ -21,6 +21,7 @@ function docToProduct(doc: Record<string, unknown>): Product {
     available: doc.available as boolean,
     image: doc.image as string | undefined,
     portionable: (doc.portionable as boolean | undefined) ?? false,
+    hiddenOptions: (doc.hiddenOptions as string[] | undefined) ?? undefined,
   };
 }
 
@@ -78,6 +79,7 @@ export async function createProduct(
     available: product.available,
     image: product.image,
     portionable: product.portionable ?? false,
+    hiddenOptions: product.hiddenOptions?.length ? product.hiddenOptions : undefined,
   });
   return id;
 }

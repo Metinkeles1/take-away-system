@@ -29,12 +29,20 @@ export function isPlainItem(item: OrderItem): boolean {
   return !(item.options?.length) && !item.note?.trim();
 }
 
-// Satırın birim fiyatı — porsiyonluysa ürün fiyatı × çarpan (tam TL'ye yuvarlı).
+// Satırın birim fiyatı — porsiyonluysa ürün fiyatı × çarpan (tam TL'ye yuvarlı),
+// üstüne ücretli seçenekler (yumurtalı +30₺). Ek ücret porsiyonla çarpılmaz.
 // Sepet, store ve fiş aynı kuralı kullansın diye tek yerde.
-export function orderItemUnitPrice(item: Pick<OrderItem, "product" | "portion">): number {
-  return item.portion
+export function orderItemUnitPrice(
+  item: Pick<OrderItem, "product" | "portion" | "optionExtras">,
+): number {
+  const base = item.portion
     ? Math.round(item.product.price * item.portion.multiplier)
     : item.product.price;
+  return base + optionExtrasTotal(item);
+}
+
+export function optionExtrasTotal(item: Pick<OrderItem, "optionExtras">): number {
+  return (item.optionExtras ?? []).reduce((sum, e) => sum + e.price, 0);
 }
 
 // Porsiyonun görünen adı. Etiket siparişe kopyalandığı için eski kayıtlarda
@@ -56,7 +64,8 @@ export function normalizeOrderItems(items: OrderItem[]): OrderItem[] {
   for (const raw of items) {
     let item = raw;
     if (!item.portion && item.quantity > 0 && item.product.price > 0) {
-      const ratio = item.totalPrice / (item.quantity * item.product.price);
+      const baseUnit = item.totalPrice / item.quantity - optionExtrasTotal(item);
+      const ratio = baseUnit / item.product.price;
       const portion = PORTION_OPTIONS.find(
         (p) => p.multiplier !== 1 && Math.abs(p.multiplier - ratio) < 0.01,
       );

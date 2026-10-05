@@ -1,11 +1,12 @@
 import { Button } from "@/components/ui/button";
-import { Download, Plus } from "lucide-react";
+import { Download, Plus, SlidersHorizontal } from "lucide-react";
 
 interface ProductsHeaderProps {
   totalProducts: number;
   activeProducts: number;
   onExportCSV: () => void;
   onAddProduct: () => void;
+  onEditOptions: () => void;
 }
 
 export function ProductsHeader({
@@ -13,6 +14,7 @@ export function ProductsHeader({
   activeProducts,
   onExportCSV,
   onAddProduct,
+  onEditOptions,
 }: ProductsHeaderProps) {
   return (
     <div className="mb-3 flex items-start justify-between gap-3 shrink-0">
@@ -33,6 +35,16 @@ export function ProductsHeader({
         >
           <Download className="sm:mr-2 h-4 w-4" />
           <span className="hidden sm:inline">CSV</span>
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="sm:h-9 sm:px-4"
+          onClick={onEditOptions}
+          title="Soğansız, yumurtalı +30₺ gibi ürün seçenekleri"
+        >
+          <SlidersHorizontal className="sm:mr-2 h-4 w-4" />
+          <span className="hidden sm:inline">Seçenekler</span>
         </Button>
         <Button size="sm" className="sm:h-9 sm:px-4" onClick={onAddProduct}>
           <Plus className="mr-1.5 sm:mr-2 h-4 w-4" />
