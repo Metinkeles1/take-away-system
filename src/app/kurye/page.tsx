@@ -51,6 +51,7 @@ import { getActiveCouriers, type Courier } from "@/actions/couriers";
 import { type ShopLocation, type ShopIban } from "@/actions/settings";
 import { setOrderPaymentMethod } from "@/actions/orders";
 import { subscribeOrders } from "@/lib/pusher/client";
+import { useTrendyolAutoSync } from "@/hooks/useTrendyolAutoSync";
 import { orderPriority, type PriorityLevel } from "@/lib/operations";
 import { CourierCashBanner } from "@/components/cash/CourierCashBanner";
 import {
@@ -500,9 +501,10 @@ export default function KuryePage() {
   const [planMapOpen, setPlanMapOpen] = useState(false);
   // Başlıktaki "Rota" girişiyle açılan alt sheet (tüm rota / haritadan planla).
   const [routeSheetOpen, setRouteSheetOpen] = useState(false);
-  // Trendyol siparişleri — kurye "çek"e basınca tek seferlik gelir (polling yok).
-  // DB'ye yazılmaz, sadece bu oturumda teslimat listesine + rotaya katılır.
+  // Trendyol siparişleri — paylaşımlı depodan (TrendyolCourierPackage) load() ile
+  // gelir. Depoyu "çek" butonu veya otomatik çekme (useTrendyolAutoSync) doldurur.
   const [trendyolOrders, setTrendyolOrders] = useState<Order[]>([]);
+  useTrendyolAutoSync();
   const [trendyolLoading, setTrendyolLoading] = useState(false);
   const [trendyolFetched, setTrendyolFetched] = useState(false);
   const [trendyolError, setTrendyolError] = useState<string | null>(null);

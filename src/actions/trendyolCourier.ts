@@ -9,6 +9,7 @@ import {
 import { mapTrendyolPackageToOrder } from "@/lib/integrations/trendyol/courierMap";
 import { connectDB } from "@/lib/mongodb";
 import TrendyolCourierPackageModel from "@/models/TrendyolCourierPackage";
+import SettingModel from "@/models/Setting";
 import {
   assignTrendyolCourier,
   clearTrendyolCourier,
@@ -91,6 +92,21 @@ export async function syncTrendyolCourierPackages(): Promise<{
       .map((o) => o.externalRef)
       .filter((id): id is string => Boolean(id));
 
+    // Liste gerçekten değişti mi (paket eklendi/düştü ya da statü değişti)?
+    // Otomatik çekme sık çalıştığı için Pusher'ı sadece değişiklikte yayarız —
+    // aksi halde her turda tüm ekranlar boşuna yeniden yüklenirdi.
+    const signature = (rows: { id?: string; status?: string }[]) =>
+      rows
+        .map((r) => `${r.id}:${r.status}`)
+        .sort()
+        .join("|");
+    const before = await TrendyolCourierPackageModel.find()
+      .select({ packageId: 1, "order.status": 1 })
+      .lean<{ packageId: string; order?: { status?: string } }[]>();
+    const changed =
+      signature(before.map((d) => ({ id: d.packageId, status: d.order?.status }))) !==
+      signature(orders.map((o) => ({ id: o.externalRef, status: o.status })));
+
     if (orders.length > 0) {
       await TrendyolCourierPackageModel.bulkWrite(
         orders.map((o) => ({
@@ -131,7 +147,8 @@ export async function syncTrendyolCourierPackages(): Promise<{
       console.warn("[trendyol courier → archive]", archiveErr);
     }
 
-    await notifyOrdersChanged("trendyol-courier-sync");
+    await markSynced(now);
+    if (changed) await notifyOrdersChanged("trendyol-courier-sync");
     return { ok: true, orders, configured: true };
   } catch (err) {
     return {
@@ -142,6 +159,57 @@ export async function syncTrendyolCourierPackages(): Promise<{
         err instanceof Error ? err.message : "Trendyol siparişleri alınamadı",
     };
   }
+}
+
+// ─── Otomatik çekme ──────────────────────────────────────────────────────────
+// Açık ekranlar (panel + kuryeler) dakikada bir /api/trendyol/auto-sync'e sorar;
+// Trendyol'a gerçekten gitmek en fazla AUTO_SYNC_MS'de bir olur — kaç ekran açık
+// olursa olsun. Son çekme anı Setting'te tutulur; elle "çek" de bunu günceller.
+const AUTO_SYNC_KEY = "trendyolCourierSyncedAt";
+const AUTO_SYNC_MS = 2 * 60_000;
+// İstemci zamanlayıcısının kayması yüzünden bir turu kaçırmasın diye pay.
+const AUTO_SYNC_SLACK_MS = 10_000;
+
+async function markSynced(at: Date): Promise<void> {
+  await SettingModel.updateOne(
+    { key: AUTO_SYNC_KEY },
+    { $set: { value: at } },
+    { upsert: true },
+  );
+}
+
+// Çekme sırası bizde mi? Atomik: aynı anda soran iki ekrandan yalnızca biri
+// kazanır. Kayıt tazeyse filtre eşleşmez → upsert aynı key'i eklemeye çalışır →
+// unique hatası = "başkası az önce çekti".
+async function claimAutoSyncSlot(): Promise<boolean> {
+  const now = new Date();
+  const cutoff = new Date(now.getTime() - AUTO_SYNC_MS + AUTO_SYNC_SLACK_MS);
+  try {
+    const doc = await SettingModel.findOneAndUpdate(
+      {
+        key: AUTO_SYNC_KEY,
+        $or: [{ value: { $lt: cutoff } }, { value: { $exists: false } }],
+      },
+      { $set: { value: now } },
+      { upsert: true, new: true },
+    );
+    return Boolean(doc);
+  } catch (err) {
+    if ((err as { code?: number }).code === 11000) return false;
+    throw err;
+  }
+}
+
+// Sırası geldiyse Trendyol'dan çeker; gelmediyse hiçbir şey yapmaz (ucuz).
+export async function autoSyncTrendyolCourierPackages(): Promise<{
+  ran: boolean;
+  ok: boolean;
+}> {
+  if (!trendyolConfigured()) return { ran: false, ok: true };
+  await connectDB();
+  if (!(await claimAutoSyncSlot())) return { ran: false, ok: true };
+  const res = await syncTrendyolCourierPackages();
+  return { ran: true, ok: res.ok };
 }
 
 // Trendyol siparişini teslim işaretler (manual-delivered). Kurye kartındaki

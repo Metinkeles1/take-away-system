@@ -3,11 +3,13 @@
 import { toast } from "sonner";
 import { syncTrendyolCourierPackages } from "@/actions/trendyolCourier";
 import { usePanelData } from "@/components/panel/usePanelData";
+import { useTrendyolAutoSync } from "@/hooks/useTrendyolAutoSync";
 import { PanelView } from "@/components/panel/PanelView";
 
 // Ana panel — canlı veriyle PanelView.
 export default function PanelPage() {
   const { board, summary, cash, live, loadBoard, loadSummary } = usePanelData();
+  useTrendyolAutoSync();
 
   // Bir işlemden sonra listeyi hemen, parayı/özeti de tazele.
   const changed = () => {
