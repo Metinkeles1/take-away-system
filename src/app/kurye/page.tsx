@@ -62,6 +62,7 @@ import {
 } from "@/types";
 import {
   formatCurrency,
+  formatCurrencyShort,
   formatRelativeTime,
   haversineMeters,
   formatDistance,
@@ -1964,9 +1965,14 @@ export default function KuryePage() {
   );
 }
 
-// Havuz listesinde kısa adres (kart başlığını şişirmeden).
-function shortAddress(o: Order): string {
-  return [o.customer.address, o.customer.district].filter(Boolean).join(", ");
+// Tutar — kuruş yoksa ",00" yazılmaz (dar ekranda yer kaplamasın).
+function money(n: number): string {
+  return Number.isInteger(n) ? formatCurrencyShort(n) : formatCurrency(n);
+}
+
+// Havuz kartının ikinci adres satırı: daire/kat + semt.
+function addressExtra(o: Order): string {
+  return [o.customer.addressDetail, o.customer.district].filter(Boolean).join(" · ");
 }
 
 // Bu mesafenin (m) altındaki pinli siparişler "yakın" sayılır → aynı gruba düşer.
@@ -2103,25 +2109,27 @@ function PoolList({
   return (
     <div className="space-y-2 px-3 py-3">
       {/* Harita her zaman açılabilir — boş paket yoksa bile hangi paketin ne
-          tarafta olduğu görülsün; boş paket varsa rotana uyanları üstlen. */}
-      <button
-        onClick={onOpenMap}
-        className="flex w-full items-center justify-center gap-2 rounded-2xl bg-indigo-600 py-3 text-sm font-bold text-white shadow-sm shadow-indigo-600/25 transition active:scale-[0.98]"
-      >
-        <MapPin className="h-4 w-4" />
-        {freeCount > 0 ? "Haritada Seç" : "Haritada Gör"}
-      </button>
-
-      {/* Yoğun gün / tek kurye: tek dokunuşla tüm boş paketleri üstlen. */}
-      {freeCount > 1 && (
+          tarafta olduğu görülsün; boş paket varsa rotana uyanları üstlen.
+          "Hepsini Al" (yoğun gün / tek kurye) yanına gelir: iki tam genişlik
+          buton telefonda listeden önce ekranın dörtte birini yiyordu. */}
+      <div className="flex gap-2">
         <button
-          onClick={onClaimAll}
-          className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 py-3 text-sm font-bold text-white shadow-sm transition active:scale-[0.98]"
+          onClick={onOpenMap}
+          className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-2xl bg-indigo-600 py-2.5 text-sm font-bold text-white shadow-sm shadow-indigo-600/25 transition active:scale-[0.98]"
         >
-          <ListChecks className="h-4 w-4" />
-          Hepsini Al ({freeCount})
+          <MapPin className="h-4 w-4 shrink-0" />
+          <span className="truncate">{freeCount > 0 ? "Haritada Seç" : "Haritada Gör"}</span>
         </button>
-      )}
+        {freeCount > 1 && (
+          <button
+            onClick={onClaimAll}
+            className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-2xl bg-slate-900 py-2.5 text-sm font-bold text-white shadow-sm transition active:scale-[0.98]"
+          >
+            <ListChecks className="h-4 w-4 shrink-0" />
+            <span className="truncate">Hepsini Al ({freeCount})</span>
+          </button>
+        )}
+      </div>
 
       {/* Yakın-grup ipucu — aynı renk rozetli paketler birbirine yakın. */}
       {hasClusters && (
@@ -2238,21 +2246,26 @@ function PoolList({
                   </span>
                 )}
               </div>
-              <p className="mt-0.5 truncate text-sm font-medium text-slate-600">
-                {shortAddress(o)}
+              {/* Adres iki satıra kadar tam: tek satırda kesilince kapı no ve
+                  semt kayboluyordu. Daire/kat + semt ayrı, sönük satırda. */}
+              <p className="mt-1 line-clamp-2 text-sm leading-snug font-semibold text-slate-800">
+                {o.customer.address}
               </p>
-              <div className="mt-0.5 flex items-center gap-2 text-[11px] text-slate-400">
-                <span>{itemCount} ürün · {formatCurrency(o.total)}</span>
-                {claimedByOther && (
-                  <span className="inline-flex items-center gap-1 font-semibold text-slate-500">
-                    <UserRound className="h-3 w-3" />
-                    {o.courier}
-                    {canTakeOver && (
-                      <span className="font-normal text-slate-400">· almak için basılı tut</span>
-                    )}
+              {addressExtra(o) && (
+                <p className="truncate text-xs text-slate-500">{addressExtra(o)}</p>
+              )}
+              <p className="mt-1 text-xs text-slate-500 tabular-nums">
+                {itemCount} ürün · <span className="font-semibold text-slate-700">{money(o.total)}</span>
+              </p>
+              {claimedByOther && (
+                <p className="mt-1 flex items-start gap-1 text-xs text-slate-500">
+                  <Lock className="mt-0.5 h-3 w-3 shrink-0" />
+                  <span className="min-w-0">
+                    <span className="font-semibold text-slate-700">{o.courier}</span> aldı
+                    {canTakeOver && " · almak için basılı tut"}
                   </span>
-                )}
-              </div>
+                </p>
+              )}
             </div>
             {/* Süre kendi sütununda: etiketler satırı doldursa da kesilmez */}
             <ElapsedBadge createdAt={o.createdAt} level={priorityOf(o)} className="relative self-start" />
@@ -2291,7 +2304,12 @@ function OrderCard({
   estimate?: ApproxHit;
   onSetPayment: (method: PaymentMethod) => void;
 }) {
-  const [itemsOpen, setItemsOpen] = useState(false);
+  // Kısa siparişte ürünler açık gelir — kurye poşeti kapıda kontrol eder;
+  // uzun listede kart şişmesin diye kapalı.
+  const [itemsOpen, setItemsOpen] = useState(o.items.length <= 3);
+  // Ödeme yöntemi düğmeleri yalnız "Değiştir" ile açılır (5 büyük düğme
+  // telefonda kartın üçte birini kaplıyordu).
+  const [payOpen, setPayOpen] = useState(false);
   // Birleşik tahsilat fişi (bottom-sheet) — açık hesap varsa "Fişi gör" ile açılır.
   const [receiptOpen, setReceiptOpen] = useState(false);
   const debt = o.customerOpenAccounts;
@@ -2330,8 +2348,8 @@ function OrderCard({
           # ve saat sabit (shrink-0); uzayabilen tek öğe ödeme rozeti, o da
           küçülüp truncate olur → yemek kartı markası uzun olsa bile satır
           taşmaz, kart yatay bozulmaz. */}
-      <div className="flex items-center gap-2.5 bg-slate-900 px-5 py-3 text-white">
-        <span className="flex shrink-0 items-center gap-2 text-lg font-bold">
+      <div className="flex items-center gap-2 bg-slate-900 px-4 py-3 text-white sm:gap-2.5 sm:px-5">
+        <span className="flex shrink-0 items-center gap-2 text-base font-bold sm:text-lg">
           <span
             className={cn(
               "h-5 w-1 rounded-full",
@@ -2340,10 +2358,14 @@ function OrderCard({
           />
           #{displayOrderNo(o)}
         </span>
+        {/* Trendyol: yalnız ikon — numara uzun, yazılı etiket dar ekranda
+            süre rozetini dışarı itiyordu. Turuncu şerit de kanalı belli eder. */}
         {isTrendyol && (
-          <span className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-orange-500/20 px-2 py-0.5 text-xs font-bold text-orange-300">
+          <span
+            title="Trendyol"
+            className="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-orange-500/20 text-orange-300"
+          >
             <Store className="h-3.5 w-3.5" />
-            Trendyol
           </span>
         )}
         {pay && (
@@ -2370,7 +2392,7 @@ function OrderCard({
       </div>
 
       {/* Adres — kartın kahramanı */}
-      <div className="px-5 pt-5">
+      <div className="px-4 pt-4 sm:px-5 sm:pt-5">
         <div className="flex items-start gap-3">
           <div className="relative grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-rose-50 ring-1 ring-rose-100">
             <MapPin className="h-6 w-6 text-rose-500" />
@@ -2400,7 +2422,7 @@ function OrderCard({
             )}
           </div>
           <div className="min-w-0 flex-1 pt-0.5">
-            <p className="text-xl leading-tight font-extrabold tracking-tight text-slate-900">
+            <p className="text-lg leading-tight font-extrabold tracking-tight text-slate-900 wrap-break-word sm:text-xl">
               {o.customer.address}
             </p>
             {detail && (
@@ -2462,9 +2484,18 @@ function OrderCard({
         </div>
       </div>
 
+      {/* Sipariş notu — adresin hemen altında: "zili çalmayın" gibi notlar
+          kapıya varmadan görülmeli (eskiden kartın en dibindeydi). */}
+      {o.notes && (
+        <div className="mx-4 mt-3 flex items-start gap-2 rounded-2xl bg-amber-50 px-3.5 py-2.5 text-sm font-semibold text-amber-900 ring-1 ring-amber-200 sm:mx-5">
+          <span className="shrink-0">📝</span>
+          <span className="min-w-0 wrap-break-word">{o.notes}</span>
+        </div>
+      )}
+
       {/* Müşteri + tahsilat. Açık hesap varsa tutar = bu sipariş + eski borç
           (kapıda toplanacak toplam) ve altında fişi açan tek satır görünür. */}
-      <div className="mt-4 border-t border-slate-100 px-5 py-4">
+      <div className="mt-4 border-t border-slate-100 px-4 py-4 sm:px-5">
         <div className="flex items-end justify-between gap-3">
           <div className="min-w-0">
             <p className="text-[11px] font-semibold tracking-wide text-slate-400 uppercase">
@@ -2479,7 +2510,7 @@ function OrderCard({
               {debt ? "Toplam tahsilat" : "Tahsilat"}
             </p>
             <p className="text-2xl leading-none font-extrabold tracking-tight text-slate-900 tabular-nums">
-              {formatCurrency(grandTotal)}
+              {money(grandTotal)}
             </p>
           </div>
         </div>
@@ -2505,10 +2536,7 @@ function OrderCard({
 
       {/* Ödeme yöntemi — kurye kapıda gerçek yöntemi seçer; anında kaydedilir.
           Seçili yöntem koyu, diğerleri açık; üstteki başlık rozeti de güncellenir. */}
-      <div className="border-t border-slate-100 px-5 py-4">
-        <p className="mb-2 text-[11px] font-semibold tracking-wide text-slate-400 uppercase">
-          Ödeme Yöntemi
-        </p>
+      <div className="border-t border-slate-100 px-4 py-3 sm:px-5">
         {isTrendyol ? (
           // Trendyol'da ödeme yöntemi sabittir (kurye değiştiremez). Online ödenmiş
           // siparişlerde tahsilat yok; kapıda ödemede yöntem rozette görünür.
@@ -2540,27 +2568,52 @@ function OrderCard({
           </div>
         ) : (
         <>
-        <div className="flex flex-wrap gap-1.5">
+        {/* Seçili yöntem tek satır; düğmeler "Değiştir" ile açılır. */}
+        <div className="flex items-center gap-2">
+          <span className="hidden text-[11px] font-semibold tracking-wide text-slate-400 uppercase min-[400px]:inline">
+            Ödeme
+          </span>
+          {pay && (
+            <span className={cn("inline-flex min-w-0 items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-sm font-bold", pay.tone)}>
+              <pay.icon className="h-4 w-4 shrink-0" />
+              <span className="truncate">{pay.label}</span>
+            </span>
+          )}
+          <button
+            onClick={() => setPayOpen((v) => !v)}
+            aria-expanded={payOpen}
+            className="ml-auto inline-flex shrink-0 items-center gap-0.5 rounded-xl px-2.5 py-1.5 text-sm font-semibold text-slate-600 ring-1 ring-slate-200 transition active:scale-95"
+          >
+            {payOpen ? "Kapat" : "Değiştir"}
+            <ChevronDown className={cn("h-4 w-4 transition-transform", payOpen && "rotate-180")} />
+          </button>
+        </div>
+        {payOpen && (
+        <div className="mt-2.5 grid grid-cols-2 gap-1.5 min-[400px]:grid-cols-3">
           {PAYMENT_METHODS.map((m) => {
             const meta = PAYMENT_LABEL[m];
             const active = o.payment.method === m;
             return (
               <button
                 key={m}
-                onClick={() => onSetPayment(m)}
+                onClick={() => {
+                  onSetPayment(m);
+                  setPayOpen(false);
+                }}
                 className={cn(
-                  "inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-bold ring-1 transition active:scale-95",
+                  "inline-flex items-center justify-center gap-1.5 rounded-xl px-2 py-2.5 text-sm font-bold ring-1 transition active:scale-95",
                   active
                     ? "bg-slate-900 text-white ring-slate-900"
                     : "bg-white text-slate-600 ring-slate-200",
                 )}
               >
-                <meta.icon className="h-4 w-4" />
-                {meta.label}
+                <meta.icon className="h-4 w-4 shrink-0" />
+                <span className="truncate">{meta.label}</span>
               </button>
             );
           })}
         </div>
+        )}
         {/* Seçili yemek kartı markası + değiştir — modalı yeniden açar. */}
         {o.payment.method === "meal_card" && (
           <button
@@ -2586,7 +2639,7 @@ function OrderCard({
         <button
           onClick={() => setItemsOpen((v) => !v)}
           aria-expanded={itemsOpen}
-          className="flex w-full items-center gap-2 px-5 py-3 text-left transition active:bg-slate-100"
+          className="flex w-full items-center gap-2 px-4 py-3 text-left transition active:bg-slate-100 sm:px-5"
         >
           <ShoppingBag className="h-4 w-4 text-slate-400" />
           <span className="text-sm font-bold text-slate-700">
@@ -2603,7 +2656,7 @@ function OrderCard({
           />
         </button>
         {itemsOpen && (
-          <ul className="space-y-1.5 px-5 pb-3">
+          <ul className="space-y-1.5 px-4 pb-3 sm:px-5">
             {o.items.map((item, i) => (
               <li
                 key={`${o.id}-${i}`}
@@ -2621,8 +2674,8 @@ function OrderCard({
                   </p>
                   <ItemOptionChips item={item} className="mt-1" />
                 </div>
-                <span className="shrink-0 text-sm font-semibold text-slate-500">
-                  {formatCurrency(item.totalPrice)}
+                <span className="shrink-0 text-sm font-semibold text-slate-500 tabular-nums">
+                  {money(item.totalPrice)}
                 </span>
               </li>
             ))}
@@ -2630,13 +2683,6 @@ function OrderCard({
         )}
       </div>
 
-      {/* Sipariş notu */}
-      {o.notes && (
-        <div className="flex items-start gap-2 border-t border-amber-100 bg-amber-50 px-5 py-3 text-sm font-medium text-amber-900">
-          <span className="shrink-0">📝</span>
-          <span>{o.notes}</span>
-        </div>
-      )}
     </article>
 
     {/* Birleşik tahsilat fişi — bu sipariş + eski açık hesaplar tek dökümde.
