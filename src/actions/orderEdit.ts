@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect, RedirectType } from "next/navigation";
 import { connectDB } from "@/lib/mongodb";
 import OrderModel from "@/models/Order";
 import { notifyOrdersChanged } from "@/lib/pusher/server";
@@ -24,7 +25,7 @@ interface UpdateOrderDetailsInput {
 export async function updateOrderDetails(
   id: string,
   input: UpdateOrderDetailsInput,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: false; error: string }> {
   try {
     await connectDB();
 
@@ -88,12 +89,16 @@ export async function updateOrderDetails(
     revalidatePath(`/orders/${id}`);
     // Düzenleme de gerçek zamanlı yayılsın (diğer sekme/cihazlar anlık görsün).
     await notifyOrdersChanged("order-edited");
-
-    return { ok: true };
   } catch (error) {
     console.error("[updateOrderDetails]", error);
     return { ok: false, error: "Sipariş güncellenemedi" };
   }
+
+  // Detaya yönlendirmeyi sunucu yapar: revalidatePath'li action dönünce
+  // Next mevcut sayfayı (düzenleme) yeniden yükler ve istemcideki
+  // router.replace bunun altında kalıp ekranı düzenlemede bırakıyordu.
+  // try dışında: redirect() hata fırlatarak çalışır, catch yutmasın.
+  redirect(`/orders/${id}`, RedirectType.replace);
 }
 
 function buildPayment(p?: Partial<PaymentInfo>): PaymentInfo | null {

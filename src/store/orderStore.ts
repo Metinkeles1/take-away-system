@@ -29,6 +29,7 @@ import {
   getOrders,
   type OrdersPeriod,
 } from "@/actions/orders";
+import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { updateOrderDetails } from "@/actions/orderEdit";
 import { setOrderCourier as dbSetOrderCourier } from "@/actions/courier";
 import { getSavedCustomers } from "@/actions/customers";
@@ -384,15 +385,20 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
       return { ok: false, error: "Telefon, adres ve en az bir ürün gerekli" };
     }
 
-    const result = await updateOrderDetails(editingOrderId, {
-      items: draft.items,
-      customer: draft.customer as CustomerInfo,
-      notes: draft.notes,
-      payment: draft.payment,
-      updateSavedAddress: draft.updateSavedAddress,
-    });
-
-    if (!result.ok) return { ok: false, error: result.error };
+    // Başarılıysa action detay sayfasına redirect eder; istemcide bu, promise'in
+    // redirect hatasıyla reddedilmesi demek (yönlendirmeyi Next kendisi yapar).
+    try {
+      const result = await updateOrderDetails(editingOrderId, {
+        items: draft.items,
+        customer: draft.customer as CustomerInfo,
+        notes: draft.notes,
+        payment: draft.payment,
+        updateSavedAddress: draft.updateSavedAddress,
+      });
+      return { ok: false, error: result.error };
+    } catch (e) {
+      if (!isRedirectError(e)) throw e;
+    }
 
     // Optimistic: lokal listede de güncelle
     const subtotal = calcSubtotal(draft.items);
