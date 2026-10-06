@@ -25,6 +25,7 @@ import {
   EPSILON,
   formatDayTR,
   istanbulToday,
+  ownNet,
   scopeFromKey,
   shiftDay,
   trendyolNet,
@@ -36,8 +37,8 @@ import { cn, formatCurrency } from "@/lib/utils";
 function buildShareText(r: EndOfDayReport): string {
   const ty = trendyolNet(r.trendyol);
   const tyShow = ty.available && (r.trendyol?.orderCount ?? 0) > 0;
-  const own = r.localPaymentBreakdown.reduce((s, x) => s + x.amount, 0);
-  const grand = ty.total + own + r.corporateTotal;
+  const own = ownNet(r);
+  const grand = ty.total + own.net;
   const lines: string[] = [
     `📊 Gün Sonu · ${formatDayTR(r.date)}`,
     "",
@@ -46,9 +47,10 @@ function buildShareText(r: EndOfDayReport): string {
   if (r.cancelledCount > 0) lines.push(`İptal: ${r.cancelledCount}`);
   lines.push("");
   if (tyShow) lines.push(`🛵 Trendyol net: ${formatCurrency(ty.total)}`);
-  if (own > EPSILON) lines.push(`💵 Kendi ödemeler: ${formatCurrency(own)}`);
-  if (r.corporateTotal > EPSILON) lines.push(`🏢 Kurumsal: ${formatCurrency(r.corporateTotal)}`);
+  if (own.net > EPSILON) lines.push(`💵 Kendi ödemeler (net): ${formatCurrency(own.net)}`);
+  if (own.mealCut > EPSILON) lines.push(`   ↳ yemek kartı kesintisi: −${formatCurrency(own.mealCut)}`);
   lines.push(`✅ Net toplam: ${formatCurrency(grand)}`);
+  if (r.corporateTotal > EPSILON) lines.push(`🏢 Kurumsal (açık hesap, nete dahil değil): ${formatCurrency(r.corporateTotal)}`);
   if (r.openAmount > EPSILON) lines.push(`⚠️ Açık hesap: ${formatCurrency(r.openAmount)} (${r.openCount} sipariş)`);
   return lines.join("\n");
 }

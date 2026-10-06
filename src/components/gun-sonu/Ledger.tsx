@@ -5,9 +5,20 @@ import { Ban, Bike, Building2, ChevronDown, Clock, Hand, Landmark, Receipt } fro
 
 import type { EndOfDayComparison, EndOfDayOrder, EndOfDayReport } from "@/actions/endOfDay";
 import { Skeleton } from "@/components/ui/skeleton";
+import { MEAL_CARD_PROVIDER_CUT } from "@/lib/commission";
 import { cn, formatCurrency } from "@/lib/utils";
 
-import { EPSILON, METHOD_META, METHOD_ORDER, isLate, scopeFromKey, trendyolNet, type LedgerScope, type OrderFilter } from "./meta";
+import {
+  EPSILON,
+  METHOD_META,
+  METHOD_ORDER,
+  isLate,
+  ownNet,
+  scopeFromKey,
+  trendyolNet,
+  type LedgerScope,
+  type OrderFilter,
+} from "./meta";
 
 interface SubLine {
   label: string;
@@ -45,6 +56,7 @@ interface Props {
 export function Ledger({ report, orders, comparison, targetMin, courierPending, isLoading, filter, onFilter }: Props) {
   const rows = useMemo(() => (report ? buildRows(report, orders) : []), [report, orders]);
   const net = rows.reduce((s, r) => s + r.amount, 0);
+  const corp = report ? buildCorporateRow(report) : null;
   // Şerit yalnız defterden bir satır seçiliyken diğerlerini soldurur (kanal/kurye seçimi değil).
   const fadeOthers = rows.some((r) => r.key === filter.scope?.key);
   const selected = filter.scope?.key;
@@ -73,6 +85,59 @@ export function Ledger({ report, orders, comparison, targetMin, courierPending, 
     comparison && comparison.totalRevenue > 0
       ? Math.round(((report.totalRevenue - comparison.totalRevenue) / comparison.totalRevenue) * 100)
       : null;
+
+  const renderRow = (r: Row) => {
+    const open =
+      expanded === r.key ||
+      (selected != null && (selected === r.key || r.subs.some((s) => s.scope?.key === selected)));
+    const Icon = r.icon;
+    return (
+      <div key={r.key} className={cn("rounded-lg", open && "bg-muted/50")}>
+        <button
+          type="button"
+          onClick={() => (r.scope ? select(r.scope) : setExpanded((e) => (e === r.key ? null : r.key)))}
+          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-muted/60"
+        >
+          <span className="size-2.5 shrink-0 rounded-sm" style={{ background: r.color }} />
+          <Icon className="size-3.5 shrink-0 text-muted-foreground" />
+          <span className="min-w-0 flex-1 truncate font-medium">{r.label}</span>
+          {r.count != null && (
+            <span className="text-[11px] tabular-nums text-muted-foreground">{r.count}</span>
+          )}
+          <span className="w-24 text-right font-semibold tabular-nums">{formatCurrency(r.amount)}</span>
+          <ChevronDown
+            className={cn(
+              "size-3.5 shrink-0 text-muted-foreground/60 transition-transform",
+              open && "rotate-180",
+              r.subs.length === 0 && !r.subNote && "invisible",
+            )}
+          />
+        </button>
+        {open && (r.subs.length > 0 || r.subNote) && (
+          <div className="flex flex-col pb-1.5 pl-10 pr-8">
+            {r.subs.map((s) => (
+              <button
+                key={s.label}
+                type="button"
+                disabled={!s.scope}
+                onClick={() => s.scope && select(s.scope)}
+                className={cn(
+                  "flex items-center gap-2 rounded px-2 py-1 text-left text-xs",
+                  s.scope && "hover:bg-background/70",
+                  selected != null && s.scope?.key === selected && "bg-background font-medium ring-1 ring-border",
+                )}
+              >
+                <span className="min-w-0 flex-1 truncate">{s.label}</span>
+                <span className="tabular-nums text-muted-foreground">{s.count}</span>
+                <span className="w-20 text-right tabular-nums">{formatCurrency(s.amount)}</span>
+              </button>
+            ))}
+            {r.subNote && <p className="px-2 pt-1 text-[11px] text-muted-foreground">{r.subNote}</p>}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="flex flex-col">
@@ -119,59 +184,18 @@ export function Ledger({ report, orders, comparison, targetMin, courierPending, 
         {rows.length === 0 && (
           <p className="py-10 text-center text-sm text-muted-foreground">Bu gün tahsilat yok</p>
         )}
-        {rows.map((r) => {
-          const open =
-            expanded === r.key ||
-            (selected != null && (selected === r.key || r.subs.some((s) => s.scope?.key === selected)));
-          const Icon = r.icon;
-          return (
-            <div key={r.key} className={cn("rounded-lg", open && "bg-muted/50")}>
-              <button
-                type="button"
-                onClick={() => (r.scope ? select(r.scope) : setExpanded((e) => (e === r.key ? null : r.key)))}
-                className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-muted/60"
-              >
-                <span className="size-2.5 shrink-0 rounded-sm" style={{ background: r.color }} />
-                <Icon className="size-3.5 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 flex-1 truncate font-medium">{r.label}</span>
-                {r.count != null && (
-                  <span className="text-[11px] tabular-nums text-muted-foreground">{r.count}</span>
-                )}
-                <span className="w-24 text-right font-semibold tabular-nums">{formatCurrency(r.amount)}</span>
-                <ChevronDown
-                  className={cn(
-                    "size-3.5 shrink-0 text-muted-foreground/60 transition-transform",
-                    open && "rotate-180",
-                    r.subs.length === 0 && "invisible",
-                  )}
-                />
-              </button>
-              {open && r.subs.length > 0 && (
-                <div className="flex flex-col pb-1.5 pl-10 pr-8">
-                  {r.subs.map((s) => (
-                    <button
-                      key={s.label}
-                      type="button"
-                      disabled={!s.scope}
-                      onClick={() => s.scope && select(s.scope)}
-                      className={cn(
-                        "flex items-center gap-2 rounded px-2 py-1 text-left text-xs",
-                        s.scope && "hover:bg-background/70",
-                        selected != null && s.scope?.key === selected && "bg-background font-medium ring-1 ring-border",
-                      )}
-                    >
-                      <span className="min-w-0 flex-1 truncate">{s.label}</span>
-                      <span className="tabular-nums text-muted-foreground">{s.count}</span>
-                      <span className="w-20 text-right tabular-nums">{formatCurrency(s.amount)}</span>
-                    </button>
-                  ))}
-                  {r.subNote && <p className="px-2 pt-1 text-[11px] text-muted-foreground">{r.subNote}</p>}
-                </div>
-              )}
-            </div>
-          );
-        })}
+        {rows.map(renderRow)}
       </div>
+
+      {/* Kurumsal — açık hesap, nete dahil değil */}
+      {corp && (
+        <div className="mx-2 mt-2 flex flex-col border-t pt-2">
+          <span className="px-3 pb-1 text-[11px] font-medium text-muted-foreground">
+            Açık hesaba yazılan · nete dahil değil
+          </span>
+          {renderRow(corp)}
+        </div>
+      )}
 
       {/* Kapanmadan önce bakılacaklar */}
       <div className="mx-5 mt-3 mb-5 flex flex-col gap-1 border-t pt-3">
@@ -306,30 +330,39 @@ function buildRows(report: EndOfDayReport, orders: EndOfDayOrder[]): Row[] {
       }
       subs.push(...[...brands.values()].sort((a, b) => b.amount - a.amount));
     }
+    const isMeal = r.key === "meal_card";
+    const cut = isMeal ? ownNet(report).mealCut : 0;
     rows.push({
       key: `own-${r.key}`,
       label: `Kendi · ${m.short}`,
       count: r.count,
-      amount: r.amount,
+      amount: r.amount - cut,
       color: m.color,
       icon: m.icon,
       scope: scopeFromKey(`own-${r.key}`),
       subs,
+      subNote: isMeal
+        ? `Brüt ${formatCurrency(r.amount)} − %${Math.round(MEAL_CARD_PROVIDER_CUT * 100)} kart kesintisi ${formatCurrency(cut)}. Kasa sayımında brüt girilir.`
+        : undefined,
     });
   }
 
-  if (report.corporateTotal > EPSILON)
-    rows.push({
-      key: "corp",
-      label: "Kurumsal",
-      count: report.corporateVoucherCount,
-      amount: report.corporateTotal,
-      color: "#64748b",
-      icon: Building2,
-      subs: report.corporateBreakdown.map((c) => ({ label: c.name, count: c.count, amount: c.amount })),
-      subNote:
-        report.corporateOpen > EPSILON ? `${formatCurrency(report.corporateOpen)} henüz tahsil edilmedi.` : undefined,
-    });
-
   return rows;
+}
+
+// Kurumsal fişler açık hesaptır: o gün kasaya girmez → "eline geçen net"e
+// katılmaz, defterin altında ayrı satır olarak gösterilir.
+function buildCorporateRow(report: EndOfDayReport): Row | null {
+  if (report.corporateTotal <= EPSILON) return null;
+  return {
+    key: "corp",
+    label: "Kurumsal",
+    count: report.corporateVoucherCount,
+    amount: report.corporateTotal,
+    color: "#64748b",
+    icon: Building2,
+    subs: report.corporateBreakdown.map((c) => ({ label: c.name, count: c.count, amount: c.amount })),
+    subNote:
+      report.corporateOpen > EPSILON ? `${formatCurrency(report.corporateOpen)} henüz tahsil edilmedi.` : undefined,
+  };
 }

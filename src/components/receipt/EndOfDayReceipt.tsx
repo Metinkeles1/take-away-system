@@ -2,6 +2,7 @@
 
 import React, { memo, useId, useMemo, useSyncExternalStore } from "react";
 import { type EndOfDayReport } from "@/actions/endOfDay";
+import { MEAL_CARD_PROVIDER_CUT } from "@/lib/commission";
 import { formatCurrency } from "@/lib/utils";
 
 interface EndOfDayReceiptProps {
@@ -127,6 +128,8 @@ const EndOfDayReceipt = React.forwardRef<HTMLDivElement, EndOfDayReceiptProps>(
       { label: "Yemek Kartı (Ticket)", value: ticketCounted },
     ].filter((r) => r.value != null) as { label: string; value: number }[];
     const kasaTotal = kasaRows.reduce((s, r) => s + r.value, 0);
+    // Yemek kartı sağlayıcısı (Multinet, Pluxee…) %10 keser; POS brüt gösterir.
+    const ticketCut = (ticketCounted ?? 0) * MEAL_CARD_PROVIDER_CUT;
 
     // Trendyol hakedişi — kredi kartı (net) ile ticket ayrı satır.
     const ty = report.trendyol;
@@ -138,9 +141,10 @@ const EndOfDayReceipt = React.forwardRef<HTMLDivElement, EndOfDayReceiptProps>(
       : 0;
     // Trendyol kapıda tahsilat (komisyon + sağlayıcı kesintisi sonrası net) — kasana girer.
     const tyOnDelNet = tyAvailable ? tyEarnings?.onDelivery?.bankNet ?? 0 : 0;
-    // Genel toplam = kasa + Trendyol online (bankaya) + Trendyol kapıda + kurumsal.
-    const grandTotal = kasaTotal + tyBankNet + tyOnDelNet + report.corporateTotal;
-    const showGrandTotal = kasaRows.length > 0 || tyAvailable || report.corporateTotal > 0;
+    // Genel toplam = kasa (yemek kartı kesintisi sonrası) + Trendyol online
+    // (bankaya) + Trendyol kapıda. Kurumsal açık hesaptır → ayrı bölümde, toplama girmez.
+    const grandTotal = kasaTotal - ticketCut + tyBankNet + tyOnDelNet;
+    const showGrandTotal = kasaRows.length > 0 || tyAvailable;
 
     return (
       <>
@@ -221,7 +225,7 @@ const EndOfDayReceipt = React.forwardRef<HTMLDivElement, EndOfDayReceiptProps>(
             <div style={{ borderTop: "2px solid #000", marginTop: "4px", paddingTop: "4px" }}>
               <Row
                 left="TOPLAM CİRO"
-                right={formatCurrency(report.totalRevenue + report.corporateTotal)}
+                right={formatCurrency(report.totalRevenue)}
                 bold
                 large
               />
@@ -239,6 +243,15 @@ const EndOfDayReceipt = React.forwardRef<HTMLDivElement, EndOfDayReceiptProps>(
                 <div style={{ borderTop: "1px solid #000", marginTop: "3px", paddingTop: "3px" }}>
                   <Row left="Kasa Toplam" right={formatCurrency(kasaTotal)} bold />
                 </div>
+                {ticketCut > 0 && (
+                  <>
+                    <Row
+                      left={`Yemek K. Kesintisi (%${Math.round(MEAL_CARD_PROVIDER_CUT * 100)})`}
+                      right={`-${formatCurrency(ticketCut)}`}
+                    />
+                    <Row left="Kasa Net" right={formatCurrency(kasaTotal - ticketCut)} bold />
+                  </>
+                )}
                 <Divider dashed />
               </>
             )}

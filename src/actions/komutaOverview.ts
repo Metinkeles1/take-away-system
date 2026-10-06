@@ -168,8 +168,13 @@ function refDateFor(period: DashboardPeriod, dayOffset: number): number {
   return Date.now() - dayOffset * unitDays * 24 * 60 * 60 * 1000;
 }
 
+// Gün Sonu "Eline geçen net" ile aynı tanım (bkz. gun-sonu/meta.trendyolNet):
+// bankaya yatacak online net + kapıda/kodla elden alınan net. Kapıda para da
+// cebe girer; yalnız online'ı saymak Komuta'yı Gün Sonu'ndan düşük gösteriyordu.
 function tyNet(ty: TrendyolDashboardStats): number {
-  return ty.earnings?.totalBankNet ?? ty.finance?.netRevenue ?? 0;
+  const e = ty.earnings;
+  if (!e) return ty.finance?.netRevenue ?? 0;
+  return e.totalBankNet + (e.onDelivery?.bankNet ?? 0);
 }
 
 function tyMetric(ty: TrendyolDashboardStats): OverviewMetric {

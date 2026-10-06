@@ -1,6 +1,7 @@
 import { ArrowRightLeft, Banknote, Coins, CreditCard, Globe, Ticket, type LucideIcon } from "lucide-react";
 
-import type { EndOfDayOrder, EndOfDayTrendyol } from "@/actions/endOfDay";
+import type { EndOfDayOrder, EndOfDayReport, EndOfDayTrendyol } from "@/actions/endOfDay";
+import { MEAL_CARD_PROVIDER_CUT } from "@/lib/commission";
 
 // Gün Sonu'nun ortak dili: ödeme yöntemi rengi/etiketi, filtre modeli, küçük
 // biçim yardımcıları. Para Defteri, filtre çipi ve liste aynı renkleri kullanır.
@@ -137,6 +138,20 @@ export function trendyolNet(ty: EndOfDayTrendyol | null) {
   const bankNet = e?.totalBankNet ?? ty.netRevenue ?? 0;
   const onsiteNet = e?.onDelivery?.bankNet ?? 0;
   return { available: true, bankNet, onsiteNet, total: bankNet + onsiteNet };
+}
+
+// Kendi siparişlerin net'i — Komuta'nın "Net (cebe giren)" tanımıyla aynı:
+// yemek kartı sağlayıcısı (Multinet, Pluxee…) her ödemeden %10 keser. Kasa sayımı
+// brüt üzerinden yapılır (POS brüt gösterir); kesinti yalnız net'te düşülür.
+export function ownNet(r: EndOfDayReport) {
+  let gross = 0;
+  let mealGross = 0;
+  for (const x of r.localPaymentBreakdown) {
+    gross += x.amount;
+    if (x.key === "meal_card") mealGross += x.amount;
+  }
+  const mealCut = mealGross * MEAL_CARD_PROVIDER_CUT;
+  return { gross, mealGross, mealCut, net: gross - mealCut };
 }
 
 export const fmtMin = (m: number | null) => (m == null ? "—" : `${Math.round(m)} dk`);
