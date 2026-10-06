@@ -217,6 +217,7 @@ function packageToArchive(p: TrendyolPackage, now: number): Record<string, unkno
     netTotal: Math.max(gross - discount, 0),
     paymentKey: paymentKey(p),
     mealCardBrand: card?.brand,
+    mealCardSource: card?.source,
     packageCreationDate: created,
     packageModificationDate: p.packageModificationDate
       ? new Date(p.packageModificationDate)

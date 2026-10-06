@@ -6,6 +6,15 @@ import VoucherModel from "@/models/Voucher";
 import EndOfDaySnapshotModel from "@/models/EndOfDaySnapshot";
 import { type OrderSource } from "@/types";
 import { istanbulDayStart, istanbulDateISO } from "@/lib/datetime";
+import TrendyolOrderModel from "@/models/TrendyolOrder";
+import {
+  ensureTrendyolArchiveFresh,
+  LIVE_MAX_AGE_MS,
+  syncTrendyolPackagesRange,
+  trendyolConfigured,
+} from "@/lib/trendyol/archive";
+import { archivedNet, normalizeMealCardBrand } from "@/lib/integrations/trendyol/packageUtils";
+import { getDeliveryTargetMin } from "@/actions/settings";
 import {
   getTrendyolDashboardStats,
   type TrendyolCategoryEarning,
@@ -493,6 +502,268 @@ export async function getEndOfDayReport(dateStr?: string): Promise<EndOfDayRepor
     corporateVoucherCount: vouchers.length,
     trendyol: trendyolSummary,
   };
+}
+
+// ─── Günün sipariş listesi (kendi + Trendyol) ───────────────────────────────────
+// Gün sonu sayfasının "Siparişler" ve "Kuryeler" sekmeleri + grafikler bunu okur.
+// Trendyol satırları kalıcı arşivden (TrendyolOrder) gelir: kurye, yemek kartı
+// markası, teslim süresi ve sipariş bazlı hakediş orada. Parasal TOPLAMLAR yine
+// rapordan (API) okunur — bu liste detay/kırılım içindir. Snapshot'a girmez:
+// kapatılmış günde de canlı okunur (arşiv kalıcı olduğu için tutarlıdır).
+export type DayOrderStatus = "active" | "delivered" | "cancelled";
+
+// Sipariş satırı (ürün kazancı için). gross/net siparişin tutarından satırın
+// payına göre dağıtılır: Trendyol'da komisyon ve satıcı indirimi de ürünlere
+// aynı oranda yansır → "bu ürün Trendyol'da bana net ne bıraktı".
+export interface EndOfDayOrderItem {
+  name: string;
+  qty: number;
+  gross: number;
+  net: number;
+}
+
+export interface EndOfDayOrder {
+  key: string; // kanal + no — liste anahtarı
+  id: string | null; // kendi sipariş id'si (/orders/:id); Trendyol'da null
+  orderNumber: string;
+  channel: "own" | "trendyol";
+  customer: string;
+  createdAt: number; // ms
+  time: string; // HH:MM (Istanbul)
+  total: number; // brüt (müşterinin ödediği)
+  net: number | null; // Trendyol hakedişi; kendi siparişte null
+  netEstimated: boolean; // settlement yok → tahmini hakediş
+  method: PaymentKey | "other";
+  mealCardBrand: string | null;
+  // Trendyol: para kapıda mı alındı (nakit/kart veya kodla yemek kartı).
+  // false → online (bankaya). Kendi siparişte false.
+  onDoor: boolean;
+  courier: string | null;
+  durationMin: number | null; // sipariş → teslim toplam süre
+  status: DayOrderStatus;
+  open: boolean; // açık hesap (tahsil edilmemiş)
+  itemCount: number;
+  items: EndOfDayOrderItem[];
+  district: string | null;
+}
+
+export interface EndOfDayOrders {
+  orders: EndOfDayOrder[];
+  deliveryTargetMin: number; // geç teslim eşiği (Ayarlar)
+}
+
+const OWN_STATUS: Record<string, DayOrderStatus> = {
+  delivered: "delivered",
+  cancelled: "cancelled",
+};
+const TY_STATUS: Record<string, DayOrderStatus> = {
+  Delivered: "delivered",
+  Cancelled: "cancelled",
+  UnSupplied: "cancelled",
+};
+const TY_METHOD: Record<string, PaymentKey> = {
+  online: "online",
+  card: "card",
+  cash: "cash",
+  meal_card: "meal_card",
+};
+
+// Trendyol API'si ~1 ay geriye gider; daha eskisi yeniden çekilemez.
+const TY_REFETCH_MAX_AGE_MS = 28 * DAY_MS;
+// Teslim/iptal ertesi güne sarkabilir → değişiklik penceresini biraz uzat.
+const TY_REFETCH_TAIL_MS = 12 * 60 * 60 * 1000;
+
+type TyRow = {
+  orderNumber: string;
+  customerName?: string;
+  neighborhood?: string;
+  district?: string;
+  lines?: { name?: string; quantity?: number; unitSellingPrice?: number }[];
+  totalPrice?: number;
+  netTotal?: number;
+  netRevenue?: number | null;
+  paymentKey?: string;
+  mealCardBrand?: string;
+  mealCardSource?: string;
+  packageStatus?: string;
+  packageCreationDate?: Date;
+  courier?: string;
+  deliveryDurationMin?: number;
+};
+
+function tyDayOrders(start: Date, end: Date): Promise<TyRow[]> {
+  return TrendyolOrderModel.find({ packageCreationDate: { $gte: start, $lt: end } })
+    .select({
+      orderNumber: 1,
+      customerName: 1,
+      neighborhood: 1,
+      district: 1,
+      "lines.name": 1,
+      "lines.quantity": 1,
+      "lines.unitSellingPrice": 1,
+      totalPrice: 1,
+      netTotal: 1,
+      netRevenue: 1,
+      paymentKey: 1,
+      mealCardBrand: 1,
+      mealCardSource: 1,
+      packageStatus: 1,
+      packageCreationDate: 1,
+      courier: 1,
+      deliveryDurationMin: 1,
+    })
+    .lean<TyRow[]>();
+}
+
+// Satır tutarlarını siparişin brüt/net'ine oranla dağıt.
+function spreadItems(
+  lines: { name: string; qty: number; amount: number }[],
+  gross: number,
+  net: number,
+): EndOfDayOrderItem[] {
+  const sum = lines.reduce((s, l) => s + l.amount, 0);
+  return lines.map((l) => {
+    const share = sum > 0 ? l.amount / sum : 1 / lines.length;
+    return { name: l.name, qty: l.qty, gross: gross * share, net: net * share };
+  });
+}
+
+export async function getEndOfDayOrders(dateStr?: string): Promise<EndOfDayOrders> {
+  const { start, end, iso } = resolveDayRange(dateStr);
+  // Bugün → arşivi en fazla 1 dk bayat tut (yeni sipariş kaçmasın). Trendyol
+  // hatası listeyi düşürmesin: arşivde ne varsa onunla devam.
+  if (iso === istanbulDateISO()) {
+    await ensureTrendyolArchiveFresh({ maxAgeMs: LIVE_MAX_AGE_MS }).catch(() => {});
+  }
+  await connectDB();
+
+  type OwnRow = {
+    id: string;
+    orderNumber: number;
+    items?: { quantity?: number; totalPrice?: number; product?: { name?: string } }[];
+    customer?: { name?: string; district?: string };
+    payment?: { method?: PaymentKey; mealCardBrand?: string };
+    status: string;
+    total?: number;
+    paymentStatus?: string;
+    courier?: string;
+    deliveryDurationMin?: number;
+    createdAt: Date;
+  };
+
+  const [own, tyFirst, deliveryTargetMin] = await Promise.all([
+    OrderModel.find({ createdAt: { $gte: start, $lt: end } })
+      .select({
+        id: 1,
+        orderNumber: 1,
+        "items.quantity": 1,
+        "items.totalPrice": 1,
+        "items.product.name": 1,
+        "customer.name": 1,
+        "customer.district": 1,
+        "payment.method": 1,
+        "payment.mealCardBrand": 1,
+        status: 1,
+        total: 1,
+        paymentStatus: 1,
+        courier: 1,
+        deliveryDurationMin: 1,
+        createdAt: 1,
+      })
+      .lean<OwnRow[]>(),
+    tyDayOrders(start, end),
+    getDeliveryTargetMin(),
+  ]);
+
+  // Yemek kartının kaynağı (online / kapıda kod) arşive sonradan eklendi. O günün
+  // kayıtlarında eksikse günü Trendyol'dan bir kez yeniden çek → alan dolar,
+  // sonraki açılışlarda bu adım atlanır. Kurye/teslim alanlarına dokunmaz.
+  let ty = tyFirst;
+  const missingSource = ty.some((o) => o.paymentKey === "meal_card" && !o.mealCardSource);
+  if (missingSource && trendyolConfigured() && Date.now() - start.getTime() < TY_REFETCH_MAX_AGE_MS) {
+    try {
+      await syncTrendyolPackagesRange(start.getTime(), Math.min(Date.now(), end.getTime() + TY_REFETCH_TAIL_MS));
+      ty = await tyDayOrders(start, end);
+    } catch {
+      // API hatası: eldeki kayıtlarla devam (kodla ödemeler online görünür)
+    }
+  }
+
+  const orders: EndOfDayOrder[] = [
+    ...own.map((o): EndOfDayOrder => {
+      const ms = new Date(o.createdAt).getTime();
+      const method = o.payment?.method;
+      const total = o.total ?? 0;
+      const lines = (o.items ?? []).map((i) => ({
+        name: i.product?.name ?? "—",
+        qty: i.quantity ?? 1,
+        amount: i.totalPrice ?? 0,
+      }));
+      return {
+        key: `own:${o.id}`,
+        id: o.id,
+        orderNumber: String(o.orderNumber),
+        channel: "own",
+        customer: o.customer?.name || "—",
+        createdAt: ms,
+        time: istanbulHHMM(new Date(ms)),
+        total,
+        net: null,
+        netEstimated: false,
+        method: method && PAYMENT_KEYS.includes(method) ? method : "other",
+        // Elle yazılan marka ("metropol") Trendyol'unkiyle ("Metropol") aynı kovaya düşsün.
+        mealCardBrand:
+          method === "meal_card" && o.payment?.mealCardBrand
+            ? normalizeMealCardBrand(o.payment.mealCardBrand) ?? o.payment.mealCardBrand
+            : null,
+        onDoor: false,
+        courier: o.courier || null,
+        durationMin: o.deliveryDurationMin ?? null,
+        status: OWN_STATUS[o.status] ?? "active",
+        open: o.paymentStatus === "open",
+        itemCount: lines.reduce((s, l) => s + l.qty, 0),
+        // Kendi siparişte komisyon yok: net = brüt.
+        items: o.status === "cancelled" ? [] : spreadItems(lines, total, total),
+        district: o.customer?.district || null,
+      };
+    }),
+    ...ty.map((o): EndOfDayOrder => {
+      const ms = o.packageCreationDate ? new Date(o.packageCreationDate).getTime() : start.getTime();
+      const status = TY_STATUS[o.packageStatus ?? ""] ?? "active";
+      const { net, estimated } = archivedNet(o);
+      const method = TY_METHOD[o.paymentKey ?? ""] ?? "online";
+      const total = o.totalPrice ?? 0;
+      const lines = (o.lines ?? []).map((l) => ({
+        name: l.name || "—",
+        qty: l.quantity ?? 1,
+        amount: (l.unitSellingPrice ?? 0) * (l.quantity ?? 1),
+      }));
+      return {
+        key: `ty:${o.orderNumber}`,
+        id: null,
+        orderNumber: o.orderNumber,
+        channel: "trendyol",
+        customer: o.customerName || "Trendyol müşterisi",
+        createdAt: ms,
+        time: istanbulHHMM(new Date(ms)),
+        total,
+        net: status === "cancelled" ? 0 : net,
+        netEstimated: estimated,
+        method,
+        mealCardBrand: method === "meal_card" ? o.mealCardBrand || "Diğer" : null,
+        onDoor: method === "cash" || method === "card" || o.mealCardSource === "on_delivery",
+        courier: o.courier || null,
+        durationMin: o.deliveryDurationMin ?? null,
+        status,
+        open: false,
+        itemCount: lines.reduce((s, l) => s + l.qty, 0),
+        items: status === "cancelled" ? [] : spreadItems(lines, total, net),
+        district: o.neighborhood || o.district || null,
+      };
+    }),
+  ].sort((a, b) => b.createdAt - a.createdAt);
+
+  return { orders, deliveryTargetMin };
 }
 
 // ─── Snapshot (dondurulmuş gün sonu) ───────────────────────────────────────────

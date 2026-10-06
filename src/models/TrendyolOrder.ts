@@ -91,6 +91,9 @@ const TrendyolOrderSchema = new Schema(
     netTotal: { type: Number, default: 0 }, // müşterinin ödediği (brüt − satıcı indirimi)
     paymentKey: { type: String }, // online | card | cash | meal_card
     mealCardBrand: { type: String },
+    // Yemek kartı nasıl ödendi: online (uygulamada) / on_delivery (kapıda kodla).
+    // Kodla ödenen kapıda tahsilat sayılır (Gün Sonu "Trendyol · kapıda").
+    mealCardSource: { type: String, enum: ["online", "on_delivery"] },
 
     // Zaman
     packageCreationDate: { type: Date, index: true },
