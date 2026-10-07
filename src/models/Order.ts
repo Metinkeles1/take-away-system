@@ -87,6 +87,16 @@ const PaymentInfoSchema = new Schema(
   { _id: false },
 );
 
+// Sepet indirimi: seçim (yüzde/tutar) + kayıt anındaki ₺ karşılığı.
+const DiscountSchema = new Schema(
+  {
+    type: { type: String, enum: ["percent", "amount"], required: true },
+    value: { type: Number, required: true },
+    amount: { type: Number, required: true },
+  },
+  { _id: false },
+);
+
 // Açık hesaba yapılan tek bir kısmi tahsilat. Açık hesap parça parça ödenebilir.
 const PaymentRecordSchema = new Schema(
   {
@@ -120,6 +130,7 @@ const OrderSchema = new Schema(
     },
     notes: String,
     subtotal: { type: Number, required: true },
+    discount: { type: DiscountSchema, default: undefined },
     deliveryFee: { type: Number, required: true },
     total: { type: Number, required: true },
     source: {
@@ -172,7 +183,7 @@ OrderSchema.index({ status: 1 });
 export type OrderDocument = InferSchemaType<typeof OrderSchema>;
 
 // Dev hot-reload'da eski şemalı model kalırsa yeni alanlar yine atılır —
-// şemada items.portion / items.options / items.optionExtras yoksa eski model
+// şemada items.portion / items.options / items.optionExtras / discount yoksa eski model
 // atılıp yeniden derlenir.
 const cachedOrder = mongoose.models.Order as mongoose.Model<unknown> | undefined;
 if (
@@ -180,7 +191,8 @@ if (
   cachedOrder &&
   (!cachedOrder.schema.path("items.portion") ||
     !cachedOrder.schema.path("items.options") ||
-    !cachedOrder.schema.path("items.optionExtras"))
+    !cachedOrder.schema.path("items.optionExtras") ||
+    !cachedOrder.schema.path("discount"))
 ) {
   mongoose.deleteModel("Order");
 }

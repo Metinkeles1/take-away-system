@@ -62,6 +62,7 @@ export async function getCourierOrders(): Promise<Order[]> {
       status: doc.status as Order["status"],
       notes: doc.notes ?? undefined,
       subtotal: doc.subtotal,
+      discount: (doc.discount as Order["discount"]) ?? undefined,
       deliveryFee: doc.deliveryFee,
       total: doc.total,
       source: (doc.source as Order["source"]) ?? "manual",

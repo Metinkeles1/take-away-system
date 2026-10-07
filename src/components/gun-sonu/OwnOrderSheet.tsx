@@ -86,7 +86,12 @@ export function OwnOrderSheet({ id, onClose }: { id: string | null; onClose: () 
                   {fmtMin(order.deliveryDurationMin ?? null)}
                 </Fact>
               </div>
-              <OrderItemsCard items={order.items} subtotal={order.subtotal} total={order.total} />
+              <OrderItemsCard
+                items={order.items}
+                subtotal={order.subtotal}
+                discount={order.discount}
+                total={order.total}
+              />
               <CustomerInfoCard customer={order.customer} />
             </>
           )}

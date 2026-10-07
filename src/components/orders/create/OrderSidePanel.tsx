@@ -5,6 +5,7 @@ import {
   useOrderStore,
   selectSubtotal,
   selectTotal,
+  selectDiscountAmount,
   selectCanComplete,
 } from "@/store/orderStore";
 import { Separator } from "@/components/ui/separator";
@@ -23,6 +24,7 @@ import { CustomerWinbackHint } from "./sidepanel/CustomerWinbackHint";
 import { CartList } from "./sidepanel/CartList";
 import { PaymentPicker } from "./sidepanel/PaymentPicker";
 import { NotesSection } from "./sidepanel/NotesSection";
+import { DiscountSection } from "./sidepanel/DiscountSection";
 import { CheckoutFooter } from "./sidepanel/CheckoutFooter";
 import { useOrderSubmit } from "@/hooks/useOrderSubmit";
 import { useCustomerOpenAccounts } from "@/hooks/useCustomerOpenAccounts";
@@ -48,10 +50,12 @@ export default function OrderSidePanel({
   const setUpdateSavedAddress = useOrderStore((s) => s.setUpdateSavedAddress);
   const setPayment = useOrderStore((s) => s.setPayment);
   const setNotes = useOrderStore((s) => s.setNotes);
+  const setDiscount = useOrderStore((s) => s.setDiscount);
   const loadSavedCustomers = useOrderStore((s) => s.loadSavedCustomers);
 
   const subtotal = useOrderStore(selectSubtotal);
   const total = useOrderStore(selectTotal);
+  const discountAmount = useOrderStore(selectDiscountAmount);
   const canComplete = useOrderStore(selectCanComplete);
   const isEditMode = mode === "edit";
 
@@ -141,6 +145,12 @@ export default function OrderSidePanel({
             onRemove={removeItem}
           />
 
+          <DiscountSection
+            discount={draft.discount}
+            amount={discountAmount}
+            onChange={setDiscount}
+          />
+
           <Separator />
 
           <PaymentPicker
@@ -156,6 +166,7 @@ export default function OrderSidePanel({
 
       <CheckoutFooter
         subtotal={subtotal}
+        discountAmount={discountAmount}
         total={total}
         canComplete={canComplete}
         isSubmitting={isSubmitting}

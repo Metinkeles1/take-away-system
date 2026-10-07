@@ -6,13 +6,21 @@ import { connectDB } from "@/lib/mongodb";
 import OrderModel from "@/models/Order";
 import { notifyOrdersChanged } from "@/lib/pusher/server";
 import { toLocalPhone } from "@/lib/utils";
-import { type CustomerInfo, type OrderItem, type PaymentInfo } from "@/types";
+import {
+  type CustomerInfo,
+  type DiscountInput,
+  type OrderItem,
+  type PaymentInfo,
+} from "@/types";
+import { resolveDiscount } from "@/lib/orders/discount";
 import { recordCustomerAddress } from "@/lib/customers/recordAddress";
 
 interface UpdateOrderDetailsInput {
   items: OrderItem[];
   customer: CustomerInfo;
   notes?: string;
+  // Sepet indirimi; boşsa sipariş indirimsiz kaydedilir (eskisi kaldırılır).
+  discount?: DiscountInput | null;
   // Düzenleme ekranında ödeme yöntemi değiştirildiyse yeni ödeme bilgisi.
   payment?: Partial<PaymentInfo>;
   // Seçilen kayıtlı adres (customer.addressId) yeni adres yerine güncellensin.
@@ -48,8 +56,10 @@ export async function updateOrderDetails(
     }
 
     const subtotal = input.items.reduce((sum, i) => sum + i.totalPrice, 0);
+    // İndirim sunucuda yeniden hesaplanır: yüzde, yeni ara toplama uygulanır.
+    const discount = resolveDiscount(subtotal, input.discount);
     const deliveryFee = existing.deliveryFee ?? 0;
-    const total = subtotal + deliveryFee;
+    const total = subtotal - (discount?.amount ?? 0) + deliveryFee;
 
     // Telefonu tek standarda çek (0 + 10 hane).
     const customer: CustomerInfo = {
@@ -81,6 +91,7 @@ export async function updateOrderDetails(
         notes: input.notes ?? "",
         subtotal,
         total,
+        ...(discount ? { discount } : { $unset: { discount: 1 } }),
         ...(payment ? { payment } : {}),
       },
     );

@@ -61,6 +61,7 @@ const OrderDetailsContent = memo(function OrderDetailsContent({
       <OrderItemsCard
         items={order.items}
         subtotal={order.subtotal}
+        discount={order.discount}
         total={order.total}
       />
 

@@ -14,5 +14,6 @@ export function orderToReceiptDraft(order: Order): OrderDraft {
         order.payment.method === "iban" ? DEFAULT_IBAN_NUMBER : undefined,
     },
     notes: order.notes,
+    discount: order.discount,
   };
 }

@@ -3,6 +3,7 @@
 import React, { useId, useMemo, useSyncExternalStore } from "react";
 import { type CustomerOpenAccounts, type OrderDraft, type PortionOption } from "@/types";
 import { formatCurrency, formatPhone } from "@/lib/utils";
+import { calcDiscountAmount, discountLabel } from "@/lib/orders/discount";
 
 interface ThermalReceiptProps {
   draft: OrderDraft;
@@ -128,6 +129,7 @@ const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptProps>(
   ({ draft, total, subtotal, orderNumber, createdAt, openAccounts }, ref) => {
     const hasDebt = !!openAccounts && openAccounts.orders.length > 0;
     const grandTotal = total + (openAccounts?.total ?? 0);
+    const discountAmount = calcDiscountAmount(subtotal, draft.discount);
     const uniqueId = useId();
     const receiptId = `thermal-receipt-${uniqueId.replace(/:/g, "")}`;
 
@@ -415,6 +417,12 @@ const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptProps>(
             <Divider />
 
             <Row left="Ara Toplam" right={formatCurrency(subtotal)} />
+            {discountAmount > 0 && (
+              <Row
+                left={discountLabel(draft.discount)}
+                right={`-${formatCurrency(discountAmount)}`}
+              />
+            )}
 
             <div
               style={{ borderTop: "2px solid #000", marginTop: "4px", paddingTop: "4px" }}

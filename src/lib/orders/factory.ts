@@ -5,6 +5,7 @@ import {
   type PaymentInfo,
 } from "@/types";
 import { DEFAULT_IBAN_NAME, DEFAULT_IBAN_NUMBER } from "@/lib/constants";
+import { resolveDiscount } from "@/lib/orders/discount";
 
 export function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -45,8 +46,9 @@ export function normalizePayment(
 // Draft → kaydedilmeye hazır Order. Validation çağıran tarafa ait (selectCanComplete).
 export function buildOrderFromDraft(draft: OrderDraft): Order {
   const subtotal = calcSubtotal(draft.items);
+  const discount = resolveDiscount(subtotal, draft.discount);
   const deliveryFee = calcDeliveryFee();
-  const total = subtotal + deliveryFee;
+  const total = subtotal - (discount?.amount ?? 0) + deliveryFee;
 
   return {
     id: generateId(),
@@ -57,6 +59,7 @@ export function buildOrderFromDraft(draft: OrderDraft): Order {
     status: "pending",
     notes: draft.notes,
     subtotal,
+    discount,
     deliveryFee,
     total,
     source: "manual",

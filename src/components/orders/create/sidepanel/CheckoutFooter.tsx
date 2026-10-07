@@ -4,6 +4,7 @@ import { Check, Printer, Loader2, Save } from "lucide-react";
 
 interface CheckoutFooterProps {
   subtotal: number;
+  discountAmount?: number;
   total: number;
   canComplete: boolean;
   isSubmitting: boolean;
@@ -16,6 +17,7 @@ interface CheckoutFooterProps {
 
 export function CheckoutFooter({
   subtotal,
+  discountAmount = 0,
   total,
   canComplete,
   isSubmitting,
@@ -37,6 +39,11 @@ export function CheckoutFooter({
         {subtotal !== total && (
           <p className="text-[11px] text-muted-foreground tabular-nums text-right">
             Ara toplam: {formatCurrency(subtotal)}
+            {discountAmount > 0 && (
+              <span className="text-emerald-600 dark:text-emerald-400">
+                {" "}· İndirim −{formatCurrency(discountAmount)}
+              </span>
+            )}
           </p>
         )}
 

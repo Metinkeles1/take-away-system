@@ -11,6 +11,7 @@ import {
   type OrderItem,
   type ItemOptionChoice,
   type ItemOptionGroup,
+  type DiscountInput,
 } from "@/types";
 import {
   orderItemKey,
@@ -34,6 +35,7 @@ import { updateOrderDetails } from "@/actions/orderEdit";
 import { setOrderCourier as dbSetOrderCourier } from "@/actions/courier";
 import { getSavedCustomers } from "@/actions/customers";
 import { buildOrderFromDraft, calcSubtotal } from "@/lib/orders/factory";
+import { calcDiscountAmount, resolveDiscount } from "@/lib/orders/discount";
 import { toast } from "sonner";
 
 // ─── Sipariş yükleme hatası: uyarı + otomatik yeniden deneme ──────────────────
@@ -92,6 +94,8 @@ interface OrderStore {
   setUpdateSavedAddress: (value: boolean) => void;
   setPayment: (payment: Partial<PaymentInfo>) => void;
   setNotes: (notes: string) => void;
+  // Sepet indirimi (yüzde/tutar); null indirimi kaldırır.
+  setDiscount: (discount: DiscountInput | null) => void;
 
   // ── Hesaplamalar (geriye dönük uyumluluk — bileşenlerde selectSubtotal/selectTotal kullanın) ──
   getSubtotal: () => number;
@@ -298,6 +302,13 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
     set((state) => ({ draft: { ...state.draft, notes } }));
   },
 
+  // ── İndirim set et ─────────────────────────────────────────────────────
+  setDiscount: (discount) => {
+    set((state) => ({
+      draft: { ...state.draft, discount: discount ?? undefined },
+    }));
+  },
+
   // ── Hesaplamalar ───────────────────────────────────────────────────────
   getSubtotal: () => {
     return get().draft.items.reduce((sum, i) => sum + i.totalPrice, 0);
@@ -308,7 +319,8 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
   },
 
   getTotal: () => {
-    return get().getSubtotal() + get().getDeliveryFee();
+    const subtotal = get().getSubtotal();
+    return subtotal - calcDiscountAmount(subtotal, get().draft.discount) + get().getDeliveryFee();
   },
 
   // ── Siparişi tamamla ───────────────────────────────────────────────────
@@ -367,6 +379,9 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
         customer: order.customer,
         payment: order.payment,
         notes: order.notes ?? "",
+        discount: order.discount
+          ? { type: order.discount.type, value: order.discount.value }
+          : undefined,
       },
     });
   },
@@ -392,6 +407,7 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
         items: draft.items,
         customer: draft.customer as CustomerInfo,
         notes: draft.notes,
+        discount: draft.discount ?? null,
         payment: draft.payment,
         updateSavedAddress: draft.updateSavedAddress,
       });
@@ -402,6 +418,7 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
 
     // Optimistic: lokal listede de güncelle
     const subtotal = calcSubtotal(draft.items);
+    const discount = resolveDiscount(subtotal, draft.discount);
     set((state) => ({
       orders: state.orders.map((o) =>
         o.id === editingOrderId
@@ -414,7 +431,8 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
                 ? { payment: { ...o.payment, ...draft.payment } as PaymentInfo }
                 : {}),
               subtotal,
-              total: subtotal + (o.deliveryFee ?? 0),
+              discount,
+              total: subtotal - (discount?.amount ?? 0) + (o.deliveryFee ?? 0),
               updatedAt: new Date(),
             }
           : o,
@@ -598,7 +616,10 @@ type DraftState = { draft: OrderDraft; editingOrderId: string | null };
 export const selectSubtotal = (s: DraftState) =>
   s.draft.items.reduce((sum, i) => sum + i.totalPrice, 0);
 
-export const selectTotal = (s: DraftState) => selectSubtotal(s);
+export const selectDiscountAmount = (s: DraftState) =>
+  calcDiscountAmount(selectSubtotal(s), s.draft.discount);
+
+export const selectTotal = (s: DraftState) => selectSubtotal(s) - selectDiscountAmount(s);
 
 export const selectTotalItems = (s: DraftState) =>
   s.draft.items.reduce((sum, i) => sum + i.quantity, 0);

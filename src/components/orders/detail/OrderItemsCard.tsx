@@ -8,16 +8,19 @@ import { memo } from "react";
 import { PortionBadge } from "../PortionBadge";
 import { ItemOptionChips } from "../ItemOptionChips";
 import { orderItemKey, orderItemUnitPrice } from "@/lib/orders/items";
+import { discountLabel } from "@/lib/orders/discount";
 
 interface Props {
   items: Order["items"];
   subtotal: number;
+  discount?: Order["discount"];
   total: number;
 }
 
 const OrderItemsCard = memo(function OrderItemsCard({
   items,
   subtotal,
+  discount,
   total,
 }: Props) {
   return (
@@ -60,6 +63,12 @@ const OrderItemsCard = memo(function OrderItemsCard({
             <span>Ara Toplam</span>
             <span>{formatCurrency(subtotal)}</span>
           </div>
+          {discount && discount.amount > 0 && (
+            <div className="flex justify-between text-emerald-600 dark:text-emerald-400">
+              <span>{discountLabel(discount)}</span>
+              <span>−{formatCurrency(discount.amount)}</span>
+            </div>
+          )}
           <Separator />
           <div className="flex justify-between text-base font-bold">
             <span>Toplam</span>

@@ -178,6 +178,22 @@ export interface CustomerOpenAccounts {
   orders: OpenAccountRef[];
 }
 
+// ─── Sepet İndirimi ──────────────────────────────────────────────────────────
+// "percent": ara toplamın yüzdesi (%10). "amount": sabit tutar (50 ₺).
+export type DiscountType = "percent" | "amount";
+
+// Taslakta sadece seçim tutulur; tutar ara toplamdan anlık hesaplanır.
+export interface DiscountInput {
+  type: DiscountType;
+  value: number;
+}
+
+// Siparişe kaydedilen indirim: seçim + o anki ₺ karşılığı (amount).
+// total = subtotal − amount + deliveryFee.
+export interface OrderDiscount extends DiscountInput {
+  amount: number;
+}
+
 // ─── Sipariş ─────────────────────────────────────────────────────────────────
 export interface Order {
   id: string;
@@ -188,6 +204,7 @@ export interface Order {
   status: OrderStatus;
   notes?: string;
   subtotal: number;
+  discount?: OrderDiscount; // sepet indirimi (yoksa indirimsiz)
   deliveryFee: number;
   total: number;
   createdAt: Date;
@@ -224,6 +241,7 @@ export interface OrderDraft {
   customer: Partial<CustomerInfo>;
   payment: Partial<PaymentInfo>;
   notes?: string;
+  discount?: DiscountInput;
   // Seçilen kayıtlı adres (customer.addressId) değiştirildiyse: true → o adres
   // güncellenir; false/boş → değişen hâli yeni adres olarak eklenir.
   updateSavedAddress?: boolean;
