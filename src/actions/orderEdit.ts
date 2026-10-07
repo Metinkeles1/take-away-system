@@ -13,6 +13,7 @@ import {
   type PaymentInfo,
 } from "@/types";
 import { resolveDiscount } from "@/lib/orders/discount";
+import { normalizeSplit } from "@/lib/orders/paymentSplit";
 import { recordCustomerAddress } from "@/lib/customers/recordAddress";
 
 interface UpdateOrderDetailsInput {
@@ -81,7 +82,7 @@ export async function updateOrderDetails(
 
     // Ödeme: yöntem seçiliyse yaz. Yönteme ait olmayan alanları temizle ki
     // eski değerler takılı kalmasın (örn. nakitten karta geçince para üstü).
-    const payment = buildPayment(input.payment);
+    const payment = buildPayment(input.payment, total);
 
     await OrderModel.findOneAndUpdate(
       { id },
@@ -112,10 +113,16 @@ export async function updateOrderDetails(
   redirect(`/orders/${id}`, RedirectType.replace);
 }
 
-function buildPayment(p?: Partial<PaymentInfo>): PaymentInfo | null {
+function buildPayment(p: Partial<PaymentInfo> | undefined, total: number): PaymentInfo | null {
   if (!p?.method) return null;
   const out: PaymentInfo = { method: p.method };
   if (p.prepaid) out.prepaid = p.prepaid;
+  // Bölünmüş ödeme yeni toplamla hâlâ tutuyorsa korunur; ürün değişip toplam
+  // kaydıysa geçersizdir ve düşer (sipariş ana yöntemle tek parça kalır).
+  if (p.split && p.split.length > 1) {
+    const res = normalizeSplit(p.split, total);
+    if (res.ok) out.split = res.parts;
+  }
   if (p.method === "cash") {
     if (p.cashGiven != null) out.cashGiven = p.cashGiven;
     if (p.change != null) out.change = p.change;

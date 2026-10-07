@@ -21,14 +21,14 @@ export const MEAL_CARD_PROVIDER_CUT = 0.1;
 
 // Tek bir siparişin tahmini netini döndürür.
 //   source: sipariş kanalı (yoksa "manual" varsayılır — eski kayıtlar)
-//   isMealCard: ödeme yöntemi yemek kartı mı (ek kesinti uygulanır)
+//   mealCardAmount: toplamın yemek kartıyla ödenen kısmı (ek kesinti buna
+//   uygulanır). Tamamı yemek kartıysa = total; bölünmüş ödemede o parça.
 export function estimateOrderNet(
   total: number,
   source: OrderSource | undefined,
-  isMealCard = false,
+  mealCardAmount = 0,
 ): number {
   const rate = COMMISSION_RATES[source ?? "manual"] ?? 0;
-  let net = total * (1 - rate);
-  if (isMealCard) net *= 1 - MEAL_CARD_PROVIDER_CUT;
-  return net;
+  const meal = Math.min(Math.max(mealCardAmount, 0), total);
+  return total * (1 - rate) - meal * (1 - rate) * MEAL_CARD_PROVIDER_CUT;
 }

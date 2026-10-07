@@ -29,7 +29,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { cn } from "@/lib/utils";
+import { cn, formatCurrency } from "@/lib/utils";
 import { toast } from "sonner";
 import type {
   Order,
@@ -253,8 +253,13 @@ const OrderControlsCard = memo(function OrderControlsCard({
                   className="flex h-9 w-full items-center justify-between gap-1.5 rounded-lg border border-input bg-transparent px-3 text-sm outline-none transition-colors hover:bg-muted/40 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 data-[state=open]:border-ring"
                 >
                   <span className="truncate font-medium">
-                    {PAYMENT_LABEL[order.payment.method] ?? order.payment.method}
-                    {order.payment.method === "meal_card" &&
+                    {order.payment.split && order.payment.split.length > 1
+                      ? order.payment.split
+                          .map((p) => `${PAYMENT_LABEL[p.method] ?? p.method} ${formatCurrency(p.amount)}`)
+                          .join(" + ")
+                      : PAYMENT_LABEL[order.payment.method] ?? order.payment.method}
+                    {!order.payment.split?.length &&
+                      order.payment.method === "meal_card" &&
                       order.payment.mealCardBrand && (
                         <span className="text-muted-foreground">
                           {" · "}

@@ -83,6 +83,24 @@ const PaymentInfoSchema = new Schema(
     cashGiven: Number,
     change: Number,
     mealCardBrand: String, // sadece yemek kartı markası kaydedilir
+    // Bölünmüş ödeme (300 nakit + 100 kart). Boşsa tamamı `method` ile ödenmiş.
+    split: {
+      type: [
+        new Schema(
+          {
+            method: {
+              type: String,
+              enum: ["cash", "card", "online", "meal_card", "iban"],
+              required: true,
+            },
+            amount: { type: Number, required: true },
+            mealCardBrand: String,
+          },
+          { _id: false },
+        ),
+      ],
+      default: undefined,
+    },
   },
   { _id: false },
 );
@@ -192,7 +210,8 @@ if (
   (!cachedOrder.schema.path("items.portion") ||
     !cachedOrder.schema.path("items.options") ||
     !cachedOrder.schema.path("items.optionExtras") ||
-    !cachedOrder.schema.path("discount"))
+    !cachedOrder.schema.path("discount") ||
+    !cachedOrder.schema.path("payment.split"))
 ) {
   mongoose.deleteModel("Order");
 }

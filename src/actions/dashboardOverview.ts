@@ -7,7 +7,13 @@
 import { connectDB } from "@/lib/mongodb";
 import OrderModel from "@/models/Order";
 import { getAddressBook, geoForCustomer } from "@/lib/customers/geoByPhone";
-import { type OrderSource } from "@/types";
+import { type OrderSource, type PaymentInfo } from "@/types";
+import {
+  isSplitPayment,
+  mealCardShare,
+  paymentMethodFilter,
+  paymentParts,
+} from "@/lib/orders/paymentSplit";
 import { istanbulDayStart } from "@/lib/datetime";
 import { estimateOrderNet } from "@/lib/commission";
 import { type RegionPin } from "@/actions/trendyolRegions";
@@ -77,7 +83,7 @@ export interface DashboardOverview {
 
 // Bir sipariş kümesini OverviewMetric'e indirger (iptal hariç + net).
 function reduceMetric(
-  orders: { status: string; total: number; source?: OrderSource; method?: PaymentKey }[],
+  orders: { status: string; total: number; source?: OrderSource; mealShare: number }[],
 ): OverviewMetric {
   let revenue = 0;
   let net = 0;
@@ -90,7 +96,7 @@ function reduceMetric(
     }
     orderCount++;
     revenue += o.total;
-    net += estimateOrderNet(o.total, o.source, o.method === "meal_card");
+    net += estimateOrderNet(o.total, o.source, o.mealShare);
   }
   return {
     revenue,
@@ -124,6 +130,7 @@ export async function getDashboardOverview(
         source: 1,
         createdAt: 1,
         "payment.method": 1,
+        "payment.split": 1,
         "items.quantity": 1,
         "items.totalPrice": 1,
         "items.product.name": 1,
@@ -133,7 +140,7 @@ export async function getDashboardOverview(
       ...sourceFilter,
       createdAt: { $gte: new Date(w.prevStart), $lt: new Date(w.prevEnd) },
     })
-      .select({ status: 1, total: 1, source: 1, "payment.method": 1 })
+      .select({ status: 1, total: 1, source: 1, "payment.method": 1, "payment.split": 1 })
       .lean(),
   ]);
 
@@ -143,13 +150,13 @@ export async function getDashboardOverview(
       status: string;
       total: number;
       source?: OrderSource;
-      payment?: { method?: PaymentKey };
+      payment?: PaymentInfo;
     };
     return {
       status: r.status,
       total: r.total,
       source: r.source,
-      method: r.payment?.method,
+      mealShare: mealCardShare(r.payment, r.total),
     };
   };
 
@@ -184,7 +191,7 @@ export async function getDashboardOverview(
       total: number;
       source?: OrderSource;
       createdAt: Date | string;
-      payment?: { method?: PaymentKey };
+      payment?: PaymentInfo;
       items?: { quantity: number; totalPrice: number; product?: { name?: string } }[];
     };
     if (o.status === "cancelled") continue;
@@ -195,8 +202,11 @@ export async function getDashboardOverview(
     ch.orderCount++;
     channelMap.set(src, ch);
 
-    const method = o.payment?.method;
-    if (method) paymentMap.set(method, (paymentMap.get(method) ?? 0) + o.total);
+    // Bölünmüş ödeme her yönteme kendi payı kadar yazılır.
+    for (const part of paymentParts(o.payment, o.total)) {
+      const m = part.method as PaymentKey;
+      paymentMap.set(m, (paymentMap.get(m) ?? 0) + part.amount);
+    }
 
     for (const it of o.items ?? []) {
       const name = it.product?.name ?? "—";
@@ -304,7 +314,7 @@ export async function getPeriodOrders(
   const orders = await OrderModel.find({
     ...buildSourceFilter(source),
     createdAt: { $gte: new Date(w.start), $lt: new Date(w.end) },
-    ...(method ? { "payment.method": method } : {}),
+    ...(method ? paymentMethodFilter(method) : {}),
   })
     .select({
       id: 1,
@@ -316,6 +326,7 @@ export async function getPeriodOrders(
       "customer.name": 1,
       "customer.district": 1,
       "payment.method": 1,
+      "payment.split": 1,
       "payment.mealCardBrand": 1,
     })
     .sort({ createdAt: -1 })
@@ -331,7 +342,7 @@ export async function getPeriodOrders(
       source?: OrderSource;
       createdAt: Date | string;
       customer?: { name?: string; district?: string };
-      payment?: { method?: PaymentKey; mealCardBrand?: string };
+      payment?: PaymentInfo;
     };
     const ms =
       o.createdAt instanceof Date ? o.createdAt.getTime() : new Date(o.createdAt).getTime();
@@ -341,8 +352,11 @@ export async function getPeriodOrders(
     ).padStart(2, "0")}`;
 
     const method = o.payment?.method;
-    const paymentLabel =
-      method === "meal_card"
+    const paymentLabel = isSplitPayment(o.payment)
+      ? paymentParts(o.payment, o.total)
+          .map((p) => METHOD_LABELS[p.method as PaymentKey] ?? p.method)
+          .join(" + ")
+      : method === "meal_card"
         ? `Yemek K. · ${MEAL_BRAND_LABELS[(o.payment?.mealCardBrand ?? "").toLowerCase()] ?? "Diğer"}`
         : method
           ? METHOD_LABELS[method]
@@ -356,7 +370,7 @@ export async function getPeriodOrders(
       time,
       createdAt: ms,
       total: o.total,
-      net: estimateOrderNet(o.total, o.source, method === "meal_card"),
+      net: estimateOrderNet(o.total, o.source, mealCardShare(o.payment as PaymentInfo | undefined, o.total)),
       paymentLabel,
       status: o.status,
     };

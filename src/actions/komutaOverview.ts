@@ -27,7 +27,12 @@ import {
   type TrendyolDashboardStats,
   type TrendyolPeriodOrder,
 } from "./trendyolDashboard";
-import { type OrderSource } from "@/types";
+import { type OrderSource, type PaymentInfo } from "@/types";
+import {
+  isSplitPayment,
+  paymentMethodFilter,
+  paymentParts,
+} from "@/lib/orders/paymentSplit";
 import { periodWindows, type DashboardPeriod } from "@/lib/dashboardPeriods";
 import TrendyolOrderModel from "@/models/TrendyolOrder";
 import { ensureTrendyolArchiveFresh, LIVE_MAX_AGE_MS } from "@/lib/trendyol/archive";
@@ -298,16 +303,20 @@ async function ownMealCardBrands(
         : { source: channel };
   const rows = await OrderModel.find({
     ...filter,
-    "payment.method": "meal_card",
+    ...paymentMethodFilter("meal_card"),
     status: { $ne: "cancelled" },
     createdAt: { $gte: new Date(w.start), $lt: new Date(w.end) },
   })
-    .select({ total: 1, "payment.mealCardBrand": 1 })
+    .select({ total: 1, "payment.method": 1, "payment.mealCardBrand": 1, "payment.split": 1 })
     .lean();
   for (const raw of rows) {
-    const r = raw as unknown as { total: number; payment?: { mealCardBrand?: string } };
-    const brand = (r.payment?.mealCardBrand ?? "other").toLowerCase() || "other";
-    map.set(brand, (map.get(brand) ?? 0) + r.total);
+    const r = raw as unknown as { total: number; payment?: PaymentInfo };
+    // Bölünmüş ödemede yalnız yemek kartı parçası sayılır.
+    for (const part of paymentParts(r.payment, r.total)) {
+      if (part.method !== "meal_card") continue;
+      const brand = (part.mealCardBrand ?? r.payment?.mealCardBrand ?? "other").toLowerCase() || "other";
+      map.set(brand, (map.get(brand) ?? 0) + part.amount);
+    }
   }
   return map;
 }
@@ -621,7 +630,7 @@ async function ownFilteredOrders(
   const query: Record<string, unknown> = {
     ...ownSourceFilter(channel),
     ...(f.productName ? { "items.product.name": f.productName } : {}),
-    ...(f.method ? { "payment.method": f.method } : {}),
+    ...(f.method ? paymentMethodFilter(f.method) : {}),
     ...(f.phone ? { "customer.phone": { $regex: escapeRegex(f.phone) + "$" } } : {}),
     status: { $ne: "cancelled" },
     createdAt: { $gte: new Date(w.start), $lt: new Date(w.end) },
@@ -640,6 +649,7 @@ async function ownFilteredOrders(
       "customer.district": 1,
       "customer.address": 1,
       "payment.method": 1,
+      "payment.split": 1,
     })
     .sort({ createdAt: -1 })
     .limit(f.district ? 5000 : 300)
@@ -651,7 +661,7 @@ async function ownFilteredOrders(
     total: number;
     createdAt: Date | string;
     customer?: { name?: string; district?: string; address?: string };
-    payment?: { method?: PaymentKey };
+    payment?: PaymentInfo;
   };
   const wanted = f.district ? normalizeRegion(f.district) ?? REGION_UNKNOWN : null;
   const matched = (rows as unknown as OwnRow[])
@@ -670,7 +680,13 @@ async function ownFilteredOrders(
       createdAt: ms,
       total: o.total,
       net: 0,
-      paymentLabel: method ? PAYMENT_LABELS[method] ?? "—" : "—",
+      paymentLabel: isSplitPayment(o.payment)
+        ? paymentParts(o.payment, o.total)
+            .map((p) => PAYMENT_LABELS[p.method as PaymentKey] ?? p.method)
+            .join(" + ")
+        : method
+          ? PAYMENT_LABELS[method as PaymentKey] ?? "—"
+          : "—",
       district: ownRegionName(o),
       status: o.status,
     };

@@ -5,7 +5,8 @@ import OrderModel from "@/models/Order";
 import CustomerModel from "@/models/Customer";
 import { getAddressBook, geoForCustomer } from "@/lib/customers/geoByPhone";
 import ProductModel from "@/models/Product";
-import { type OrderSource } from "@/types";
+import { type OrderSource, type PaymentInfo } from "@/types";
+import { mealCardShare, paymentParts } from "@/lib/orders/paymentSplit";
 import {
   istanbulDateISO,
   istanbulDayStart,
@@ -173,6 +174,7 @@ export async function getDashboardStats(
         "customer.address": 1,
         "customer.district": 1,
         "payment.method": 1,
+        "payment.split": 1,
         "items.quantity": 1,
         "items.totalPrice": 1,
         "items.product.name": 1,
@@ -270,10 +272,15 @@ export async function getDashboardStats(
 
     const isToday = dateMs >= todayStartMs;
 
-    const method = o.payment?.method as PaymentKey | undefined;
-    if (method && method in paymentBreakdownAll) {
-      paymentBreakdownAll[method] += o.total;
+    // Bölünmüş ödeme (300 nakit + 100 kart) her yönteme kendi payı kadar yazılır.
+    const parts = paymentParts(o.payment as PaymentInfo | undefined, o.total);
+    for (const part of parts) {
+      const m = part.method as PaymentKey;
+      if (m in paymentBreakdownAll) paymentBreakdownAll[m] += part.amount;
     }
+    const mealShare = parts
+      .filter((part) => part.method === "meal_card")
+      .reduce((s, part) => s + part.amount, 0);
 
     // Ürün / kategori / menü tercihleri — items üzerinden tek tarama
     for (const item of o.items) {
@@ -357,9 +364,10 @@ export async function getDashboardStats(
       todayOrderCount++;
       todayRevenue += o.total;
       const orderSource = (o as unknown as { source?: OrderSource }).source;
-      todayNet += estimateOrderNet(o.total, orderSource, method === "meal_card");
-      if (method && method in paymentBreakdown) {
-        paymentBreakdown[method] += o.total;
+      todayNet += estimateOrderNet(o.total, orderSource, mealShare);
+      for (const part of parts) {
+        const m = part.method as PaymentKey;
+        if (m in paymentBreakdown) paymentBreakdown[m] += part.amount;
       }
     }
 
@@ -610,6 +618,7 @@ export async function getDaySales(
       total: 1,
       source: 1,
       "payment.method": 1,
+      "payment.split": 1,
       "items.quantity": 1,
       "items.totalPrice": 1,
       "items.product.name": 1,
@@ -633,12 +642,14 @@ export async function getDaySales(
     orderCount++;
     revenue += o.total;
 
-    const method = o.payment?.method as PaymentKey | undefined;
-    if (method && method in payments) payments[method] += o.total;
+    for (const part of paymentParts(o.payment as PaymentInfo | undefined, o.total)) {
+      const m = part.method as PaymentKey;
+      if (m in payments) payments[m] += part.amount;
+    }
     net += estimateOrderNet(
       o.total,
       (o as unknown as { source?: OrderSource }).source,
-      method === "meal_card",
+      mealCardShare(o.payment as PaymentInfo | undefined, o.total),
     );
 
     for (const item of o.items) {
@@ -752,6 +763,7 @@ export async function getOrderRegions(
       "customer.district": 1,
       "customer.geo": 1,
       "payment.method": 1,
+      "payment.split": 1,
     })
     .sort({ createdAt: -1 })
     .lean();
@@ -801,8 +813,10 @@ export async function getOrderRegions(
     totalOrders++;
     totalRevenue += o.total;
 
-    const method = o.payment?.method as PaymentKey | undefined;
-    if (method && method in payments) payments[method] += o.total;
+    for (const part of paymentParts(o.payment as PaymentInfo | undefined, o.total)) {
+      const m = part.method as PaymentKey;
+      if (m in payments) payments[m] += part.amount;
+    }
 
     const districtRaw = (
       (o.customer as unknown as { district?: string }).district ?? ""

@@ -91,6 +91,7 @@ export default function OrderSidePanel({
   const handleMethodChange = (method: PaymentMethod) => {
     setPayment({
       method,
+      split: undefined, // tek yöntem seçildi → bölünmüş ödeme kalkar
       mealCardBrand: method === "meal_card" ? selectedBrand : undefined,
       ibanName: method === "iban" ? DEFAULT_IBAN_NAME : undefined,
       ibanNumber: method === "iban" ? DEFAULT_IBAN_NUMBER : undefined,

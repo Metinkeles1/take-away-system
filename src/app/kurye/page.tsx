@@ -29,6 +29,7 @@ import {
   Eye,
   Store,
   Flame,
+  Split,
 } from "lucide-react";
 import {
   getCourierBoard,
@@ -49,7 +50,8 @@ import {
 } from "@/actions/trendyolCourier";
 import { getActiveCouriers, type Courier } from "@/actions/couriers";
 import { type ShopLocation, type ShopIban } from "@/actions/settings";
-import { setOrderPaymentMethod } from "@/actions/orders";
+import { setOrderPaymentMethod, setOrderPaymentSplit } from "@/actions/orders";
+import { SplitPaymentSheet } from "@/components/kurye/SplitPaymentSheet";
 import { subscribeOrders } from "@/lib/pusher/client";
 import { useTrendyolAutoSync } from "@/hooks/useTrendyolAutoSync";
 import { orderPriority, type PriorityLevel } from "@/lib/operations";
@@ -58,6 +60,7 @@ import {
   type Order,
   type GeoPoint,
   type PaymentMethod,
+  type PaymentPart,
   type MealCardBrand,
   type CustomerOpenAccounts,
 } from "@/types";
@@ -250,6 +253,13 @@ function singleStopMapsUrl(o: Order): string {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullAddress(o))}`;
 }
 
+// Bölünmüş ödeme etiketi: "Nakit 300 ₺ + Kart 100 ₺"
+function splitLabel(parts: PaymentPart[]): string {
+  return parts
+    .map((p) => `${PAYMENT_LABEL[p.method]?.label ?? p.method} ${formatCurrency(p.amount)}`)
+    .join(" + ");
+}
+
 // "Teslim edildi" bildirimi — sade: adres — ödeme tipi — Teslim edildi.
 // Numara YOK: WhatsApp'ın sohbet seçme ekranı açılır, kurye grubu seçip gönderir.
 // (WhatsApp deep-link ile belirli bir gruba doğrudan mesaj atmaya izin vermez.)
@@ -265,7 +275,9 @@ function buildWhatsAppUrl(
   const { openAccount = false, settledDebt = null } = opts;
   const payLabel = openAccount
     ? "AÇIK HESAP (ödeme alınamadı)"
-    : (PAYMENT_LABEL[o.payment.method]?.label ?? "Ödeme");
+    : o.payment.split && o.payment.split.length > 1
+      ? splitLabel(o.payment.split)
+      : (PAYMENT_LABEL[o.payment.method]?.label ?? "Ödeme");
   // Trendyol siparişi ise grupta net ayrılsın diye başına etiket koy.
   const tag = o.source === "trendyol" ? "🛍️ Trendyol · " : "";
   let text = `${tag}${fullAddress(o)} — ${payLabel} — Teslim edildi`;
@@ -485,6 +497,8 @@ export default function KuryePage() {
   const [payErrors, setPayErrors] = useState<Record<string, string>>({});
   // Yemek kartı marka seçme modalı: hangi siparişin markası seçiliyor.
   const [brandOrder, setBrandOrder] = useState<Order | null>(null);
+  // Bölünmüş ödeme penceresi açık olan sipariş ("300 nakit + 100 kart").
+  const [splitOrder, setSplitOrder] = useState<Order | null>(null);
   // IBAN ödeme modalı: hangi sipariş için IBAN göster/gönder seçiliyor.
   const [ibanOrder, setIbanOrder] = useState<Order | null>(null);
   // IBAN modal görünümü: "menu" = göster/gönder seçimi, "show" = IBAN ekranda.
@@ -959,7 +973,7 @@ export default function KuryePage() {
     const patch = (p: { method: PaymentMethod; mealCardBrand?: MealCardBrand }) =>
       setOrders((list) =>
         list.map((x) =>
-          x.id === o.id ? { ...x, payment: { ...x.payment, ...p } } : x,
+          x.id === o.id ? { ...x, payment: { ...x.payment, ...p, split: undefined } } : x,
         ),
       );
     patch(next);
@@ -1019,6 +1033,32 @@ export default function KuryePage() {
     a.click();
     a.remove();
     setIbanOrder(null);
+  };
+
+  // Bölünmüş ödemeyi kaydet (null → kaldır). Sunucu doğrular; başarılıysa kart
+  // yerinde güncellenir ve pencere kapanır, hata mesajı pencerede gösterilir.
+  const handleSaveSplit = async (parts: PaymentPart[] | null): Promise<string | null> => {
+    const o = splitOrder;
+    if (!o) return null;
+    const res = await setOrderPaymentSplit(o.id, parts);
+    if (!res.ok) return res.error ?? "Ödeme bölünemedi";
+    setOrders((list) =>
+      list.map((x) =>
+        x.id === o.id
+          ? {
+              ...x,
+              payment: {
+                ...x.payment,
+                ...(res.method ? { method: res.method } : {}),
+                split: res.parts,
+              },
+            }
+          : x,
+      ),
+    );
+    clearPayError(o.id);
+    setSplitOrder(null);
+    return null;
   };
 
   // Modalden marka seçilince: meal_card + marka olarak kaydet.
@@ -1545,6 +1585,7 @@ export default function KuryePage() {
                 onPickOnMap={() => openMapManual(current)}
                 estimate={unpinnedGeo[current.id]}
                 onSetPayment={(m) => void handleSetPayment(current, m)}
+                onSplitPayment={() => setSplitOrder(current)}
                 priority={priorityOf(current)}
               />
             </div>
@@ -1864,6 +1905,14 @@ export default function KuryePage() {
             </div>
           </div>
         </div>
+      )}
+
+      {splitOrder && (
+        <SplitPaymentSheet
+          order={splitOrder}
+          onClose={() => setSplitOrder(null)}
+          onSave={handleSaveSplit}
+        />
       )}
 
       {/* IBAN ödeme modalı — kurye kapıda "IBAN" seçince açılır.
@@ -2289,6 +2338,7 @@ function OrderCard({
   estimate,
   payError,
   onSetPayment,
+  onSplitPayment,
   priority,
 }: {
   o: Order;
@@ -2305,6 +2355,7 @@ function OrderCard({
   // noktada açılır, kurye onaylayınca gerçek pin olur.
   estimate?: ApproxHit;
   onSetPayment: (method: PaymentMethod) => void;
+  onSplitPayment: () => void;
 }) {
   // Kısa siparişte ürünler açık gelir — kurye poşeti kapıda kontrol eder;
   // uzun listede kart şişmesin diye kapalı.
@@ -2575,11 +2626,22 @@ function OrderCard({
           <span className="hidden text-[11px] font-semibold tracking-wide text-slate-400 uppercase min-[400px]:inline">
             Ödeme
           </span>
-          {pay && (
-            <span className={cn("inline-flex min-w-0 items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-sm font-bold", pay.tone)}>
-              <pay.icon className="h-4 w-4 shrink-0" />
-              <span className="truncate">{pay.label}</span>
-            </span>
+          {o.payment.split && o.payment.split.length > 1 ? (
+            // Bölünmüş ödeme — dokununca bölme penceresi açılır (düzelt/kaldır).
+            <button
+              onClick={onSplitPayment}
+              className="inline-flex min-w-0 items-center gap-1.5 rounded-xl bg-slate-100 px-2.5 py-1.5 text-sm font-bold text-slate-800 transition active:scale-95"
+            >
+              <Split className="h-4 w-4 shrink-0" />
+              <span className="truncate">{splitLabel(o.payment.split)}</span>
+            </button>
+          ) : (
+            pay && (
+              <span className={cn("inline-flex min-w-0 items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-sm font-bold", pay.tone)}>
+                <pay.icon className="h-4 w-4 shrink-0" />
+                <span className="truncate">{pay.label}</span>
+              </span>
+            )
           )}
           <button
             onClick={() => setPayOpen((v) => !v)}
@@ -2594,7 +2656,7 @@ function OrderCard({
         <div className="mt-2.5 grid grid-cols-2 gap-1.5 min-[400px]:grid-cols-3">
           {PAYMENT_METHODS.map((m) => {
             const meta = PAYMENT_LABEL[m];
-            const active = o.payment.method === m;
+            const active = !o.payment.split?.length && o.payment.method === m;
             return (
               <button
                 key={m}
@@ -2614,6 +2676,22 @@ function OrderCard({
               </button>
             );
           })}
+          {/* Bölünmüş ödeme: "300 nakit + 100 kart" */}
+          <button
+            onClick={() => {
+              onSplitPayment();
+              setPayOpen(false);
+            }}
+            className={cn(
+              "inline-flex items-center justify-center gap-1.5 rounded-xl px-2 py-2.5 text-sm font-bold ring-1 transition active:scale-95",
+              o.payment.split?.length
+                ? "bg-slate-900 text-white ring-slate-900"
+                : "bg-white text-slate-600 ring-slate-200",
+            )}
+          >
+            <Split className="h-4 w-4 shrink-0" />
+            <span className="truncate">Böl</span>
+          </button>
         </div>
         )}
         {/* Seçili yemek kartı markası + değiştir — modalı yeniden açar. */}

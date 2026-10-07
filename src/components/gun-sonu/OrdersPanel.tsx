@@ -17,6 +17,7 @@ import {
   fmtMin,
   isLate,
   matchesFilter,
+  scopedAmount,
   scopeFromKey,
   type OrderFilter,
 } from "./meta";
@@ -65,7 +66,8 @@ export function OrdersPanel({ orders, isLoading, targetMin, filter, onFilterChan
   }, [orders]);
 
   const list = useMemo(() => orders.filter((o) => matchesFilter(o, filter, targetMin)), [orders, filter, targetMin]);
-  const gross = list.reduce((s, o) => s + o.total, 0);
+  // Yöntem filtresinde bölünmüş siparişin yalnız ilgili parçası toplanır.
+  const gross = list.reduce((s, o) => s + scopedAmount(o, filter.scope), 0);
   const tyNet = list.reduce((s, o) => s + (o.net ?? 0), 0);
 
   // Kanal düğmesi = defterdeki kapsamın kanal-only hâli ("ch-own"/"ch-trendyol").
@@ -224,10 +226,19 @@ function PaymentCell({ o }: { o: EndOfDayOrder }) {
   return (
     <span className="flex items-center gap-1.5">
       <span className="size-2 shrink-0 rounded-full" style={{ background: m.color }} />
-      <span className="truncate">
-        {o.channel === "trendyol" && o.method === "online" ? "Online kart" : m.short}
-        {o.mealCardBrand && <span className="text-muted-foreground"> · {o.mealCardBrand}</span>}
-      </span>
+      {o.split ? (
+        // Bölünmüş ödeme: "Nakit 300 + Kart 100"
+        <span className="truncate" title="Bölünmüş ödeme">
+          {o.split
+            .map((p) => `${(METHOD_META[p.method] ?? METHOD_META.other).short} ${formatCurrency(p.amount)}`)
+            .join(" + ")}
+        </span>
+      ) : (
+        <span className="truncate">
+          {o.channel === "trendyol" && o.method === "online" ? "Online kart" : m.short}
+          {o.mealCardBrand && <span className="text-muted-foreground"> · {o.mealCardBrand}</span>}
+        </span>
+      )}
       {o.open && (
         <span className="rounded bg-amber-500/15 px-1 py-px text-[10px] font-medium text-amber-600 dark:text-amber-400">
           Açık

@@ -1,6 +1,11 @@
 import { ArrowRightLeft, Banknote, Coins, CreditCard, Globe, Ticket, type LucideIcon } from "lucide-react";
 
-import type { EndOfDayOrder, EndOfDayReport, EndOfDayTrendyol } from "@/actions/endOfDay";
+import type {
+  EndOfDayOrder,
+  EndOfDayReport,
+  EndOfDaySplitPart,
+  EndOfDayTrendyol,
+} from "@/actions/endOfDay";
 import { MEAL_CARD_PROVIDER_CUT } from "@/lib/commission";
 
 // Gün Sonu'nun ortak dili: ödeme yöntemi rengi/etiketi, filtre modeli, küçük
@@ -67,11 +72,31 @@ export interface OrderFilter {
 
 export const NO_COURIER = "__none__";
 
+// Siparişin yöntem parçaları: bölünmüşse parçalar, değilse tamamı tek yöntem.
+export function orderParts(o: EndOfDayOrder): EndOfDaySplitPart[] {
+  return o.split ?? [{ method: o.method, amount: o.total, mealCardBrand: o.mealCardBrand }];
+}
+
+// Kapsamdaki parçalar (yöntem + marka). Kapsamda yöntem yoksa tüm parçalar.
+function scopedParts(o: EndOfDayOrder, sc: LedgerScope | undefined): EndOfDaySplitPart[] {
+  return orderParts(o).filter(
+    (p) =>
+      (!sc?.methods || sc.methods.includes(p.method)) &&
+      (!sc?.brand || (p.mealCardBrand ?? "Belirtilmemiş") === sc.brand),
+  );
+}
+
+// Kapsama düşen tutar: bölünmüş siparişte yalnız ilgili parça ("Nakit" filtresinde
+// 300 nakit + 100 kart → 300), aksi halde sipariş toplamı.
+export function scopedAmount(o: EndOfDayOrder, sc: LedgerScope | undefined): number {
+  if (!o.split || (!sc?.methods && !sc?.brand)) return o.total;
+  return scopedParts(o, sc).reduce((s, p) => s + p.amount, 0);
+}
+
 export function matchesFilter(o: EndOfDayOrder, f: OrderFilter, targetMin: number): boolean {
   const sc = f.scope;
   if (sc?.channel && o.channel !== sc.channel) return false;
-  if (sc?.methods && !sc.methods.includes(o.method)) return false;
-  if (sc?.brand && (o.mealCardBrand ?? "Belirtilmemiş") !== sc.brand) return false;
+  if ((sc?.methods || sc?.brand) && scopedParts(o, sc).length === 0) return false;
   if (sc?.onDoor != null && o.onDoor !== sc.onDoor) return false;
   if (f.courier && (o.courier ?? NO_COURIER) !== f.courier) return false;
   if (f.state === "cancelled" && o.status !== "cancelled") return false;

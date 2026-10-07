@@ -4,7 +4,8 @@ import { connectDB } from "@/lib/mongodb";
 import OrderModel from "@/models/Order";
 import VoucherModel from "@/models/Voucher";
 import EndOfDaySnapshotModel from "@/models/EndOfDaySnapshot";
-import { type OrderSource } from "@/types";
+import { type OrderSource, type PaymentInfo } from "@/types";
+import { isSplitPayment, paymentParts } from "@/lib/orders/paymentSplit";
 import { istanbulDayStart, istanbulDateISO } from "@/lib/datetime";
 import TrendyolOrderModel from "@/models/TrendyolOrder";
 import {
@@ -214,6 +215,7 @@ export async function getEndOfDayReport(dateStr?: string): Promise<EndOfDayRepor
         source: 1,
         paymentStatus: 1,
         "payment.method": 1,
+        "payment.split": 1,
         courier: 1,
         createdAt: 1,
       })
@@ -274,9 +276,13 @@ export async function getEndOfDayReport(dateStr?: string): Promise<EndOfDayRepor
 
     // Ödeme yöntemi (eksik/bozuk kayıtları "cash"e değil ayrı tutmamak için atla)
     const method = o.payment?.method as PaymentKey | undefined;
-    if (method && paymentMap[method]) {
-      paymentMap[method].count++;
-      paymentMap[method].amount += total;
+    // Bölünmüş ödeme (300 nakit + 100 kart) her yönteme kendi payı kadar yazılır;
+    // sipariş her yöntemin adedinde bir kez sayılır.
+    for (const part of paymentParts(o.payment as PaymentInfo | undefined, total)) {
+      const row = paymentMap[part.method];
+      if (!row) continue;
+      row.count++;
+      row.amount += part.amount;
     }
 
     // Kanal / ticket — eski kayıtlarda source olmayabilir → manual say
@@ -535,6 +541,8 @@ export interface EndOfDayOrder {
   netEstimated: boolean; // settlement yok → tahmini hakediş
   method: PaymentKey | "other";
   mealCardBrand: string | null;
+  // Bölünmüş ödeme parçaları (kendi sipariş, "300 nakit + 100 kart"); yoksa null.
+  split: EndOfDaySplitPart[] | null;
   // Trendyol: para kapıda mı alındı (nakit/kart veya kodla yemek kartı).
   // false → online (bankaya). Kendi siparişte false.
   onDoor: boolean;
@@ -545,6 +553,12 @@ export interface EndOfDayOrder {
   itemCount: number;
   items: EndOfDayOrderItem[];
   district: string | null;
+}
+
+export interface EndOfDaySplitPart {
+  method: PaymentKey | "other";
+  amount: number;
+  mealCardBrand: string | null;
 }
 
 export interface EndOfDayOrders {
@@ -642,7 +656,7 @@ export async function getEndOfDayOrders(dateStr?: string): Promise<EndOfDayOrder
     orderNumber: number;
     items?: { quantity?: number; totalPrice?: number; product?: { name?: string } }[];
     customer?: { name?: string; district?: string };
-    payment?: { method?: PaymentKey; mealCardBrand?: string };
+    payment?: PaymentInfo;
     status: string;
     total?: number;
     paymentStatus?: string;
@@ -662,6 +676,7 @@ export async function getEndOfDayOrders(dateStr?: string): Promise<EndOfDayOrder
         "customer.name": 1,
         "customer.district": 1,
         "payment.method": 1,
+        "payment.split": 1,
         "payment.mealCardBrand": 1,
         status: 1,
         total: 1,
@@ -716,6 +731,16 @@ export async function getEndOfDayOrders(dateStr?: string): Promise<EndOfDayOrder
           method === "meal_card" && o.payment?.mealCardBrand
             ? normalizeMealCardBrand(o.payment.mealCardBrand) ?? o.payment.mealCardBrand
             : null,
+        split: isSplitPayment(o.payment)
+          ? paymentParts(o.payment, total).map((p) => ({
+              method: PAYMENT_KEYS.includes(p.method as PaymentKey) ? (p.method as PaymentKey) : "other",
+              amount: p.amount,
+              mealCardBrand:
+                p.method === "meal_card" && p.mealCardBrand
+                  ? normalizeMealCardBrand(p.mealCardBrand) ?? p.mealCardBrand
+                  : null,
+            }))
+          : null,
         onDoor: false,
         courier: o.courier || null,
         durationMin: o.deliveryDurationMin ?? null,
@@ -751,6 +776,7 @@ export async function getEndOfDayOrders(dateStr?: string): Promise<EndOfDayOrder
         netEstimated: estimated,
         method,
         mealCardBrand: method === "meal_card" ? o.mealCardBrand || "Diğer" : null,
+        split: null,
         onDoor: method === "cash" || method === "card" || o.mealCardSource === "on_delivery",
         courier: o.courier || null,
         durationMin: o.deliveryDurationMin ?? null,

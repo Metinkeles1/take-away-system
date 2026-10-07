@@ -11,7 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { CustomerInfoCard, OrderItemsCard } from "@/components/orders/detail";
 import { ORDER_STATUS_CONFIG } from "@/lib/orderStatus";
-import { cn } from "@/lib/utils";
+import { cn, formatCurrency } from "@/lib/utils";
 
 import { METHOD_META, fmtMin } from "./meta";
 
@@ -73,8 +73,18 @@ export function OwnOrderSheet({ id, onClose }: { id: string | null; onClose: () 
             <>
               <div className="grid grid-cols-3 gap-2">
                 <Fact icon={Wallet} label="Ödeme">
-                  {method?.short}
-                  {order.payment.mealCardBrand && ` · ${order.payment.mealCardBrand}`}
+                  {order.payment.split && order.payment.split.length > 1 ? (
+                    <span className="block text-xs">
+                      {order.payment.split
+                        .map((p) => `${(METHOD_META[p.method] ?? METHOD_META.other).short} ${formatCurrency(p.amount)}`)
+                        .join(" + ")}
+                    </span>
+                  ) : (
+                    <>
+                      {method?.short}
+                      {order.payment.mealCardBrand && ` · ${order.payment.mealCardBrand}`}
+                    </>
+                  )}
                   {order.paymentStatus === "open" && (
                     <span className="block text-[11px] font-medium text-amber-600 dark:text-amber-400">Açık hesap</span>
                   )}

@@ -171,7 +171,7 @@ function CashSheet({
     }
   };
 
-  const cashOnly = items.filter((o) => o.method === "cash");
+  const cashOnly = items.filter((o) => o.cash > 0);
   const mixed = cashOnly.length > 0 && cashOnly.length < items.length;
 
   return (
@@ -227,7 +227,11 @@ function CashSheet({
                             <span className="font-semibold tabular-nums">#{o.orderNumber.slice(-5)}</span>
                             <span className="truncate text-muted-foreground">{o.customer}</span>
                           </p>
-                          <p className="text-xs text-muted-foreground">{sinceMin(o.deliveredAt, now)} dk önce teslim</p>
+                          <p className="text-xs text-muted-foreground">
+                            {sinceMin(o.deliveredAt, now)} dk önce teslim
+                            {o.split && o.cash > 0 && o.card > 0 &&
+                              ` · Nakit ${formatCurrencyShort(o.cash)} + Kart ${formatCurrencyShort(o.card)}`}
+                          </p>
                         </div>
                         <span className="shrink-0 text-sm font-semibold tabular-nums">{formatCurrencyShort(o.amount)}</span>
                         <Button
@@ -251,7 +255,7 @@ function CashSheet({
                   </Button>
                   {mixed && (
                     <Button variant="outline" className="h-11" disabled={busy !== null} onClick={() => void take(cashOnly, "cash")}>
-                      Sadece nakiti aldım · {formatCurrencyShort(cashOnly.reduce((s, o) => s + o.amount, 0))}
+                      Sadece nakiti aldım · {formatCurrencyShort(cashOnly.reduce((s, o) => s + o.cash, 0))}
                     </Button>
                   )}
                 </div>

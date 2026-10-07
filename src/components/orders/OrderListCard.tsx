@@ -198,8 +198,12 @@ function OrderListCardImpl({
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
             <span className="inline-flex items-center gap-1">
               <PayIcon className="h-3.5 w-3.5" />
-              {PAYMENT_LABEL[order.payment.method]}
-              {order.payment.method === "meal_card" && order.payment.mealCardBrand && (
+              {order.payment.split && order.payment.split.length > 1
+                ? order.payment.split
+                    .map((p) => `${PAYMENT_LABEL[p.method]} ${formatCurrency(p.amount)}`)
+                    .join(" + ")
+                : PAYMENT_LABEL[order.payment.method]}
+              {!order.payment.split?.length && order.payment.method === "meal_card" && order.payment.mealCardBrand && (
                 <span className="capitalize">· {order.payment.mealCardBrand}</span>
               )}
             </span>

@@ -14,6 +14,7 @@ import {
   METHOD_ORDER,
   isLate,
   ownNet,
+  orderParts,
   scopeFromKey,
   trendyolNet,
   type LedgerScope,
@@ -316,17 +317,21 @@ function buildRows(report: EndOfDayReport, orders: EndOfDayOrder[]): Row[] {
     if (r.key === "meal_card") {
       const brands = new Map<string, SubLine>();
       for (const o of orders) {
-        if (o.channel !== "own" || o.method !== "meal_card" || o.status === "cancelled") continue;
-        const b = o.mealCardBrand ?? "Belirtilmemiş";
-        const s = brands.get(b) ?? {
-          label: b,
-          count: 0,
-          amount: 0,
-          scope: scopeFromKey(`own-meal-${b}`),
-        };
-        s.count++;
-        s.amount += o.total;
-        brands.set(b, s);
+        if (o.channel !== "own" || o.status === "cancelled") continue;
+        // Bölünmüş ödemede yalnız yemek kartı parçası sayılır.
+        for (const part of orderParts(o)) {
+          if (part.method !== "meal_card") continue;
+          const b = part.mealCardBrand ?? "Belirtilmemiş";
+          const s = brands.get(b) ?? {
+            label: b,
+            count: 0,
+            amount: 0,
+            scope: scopeFromKey(`own-meal-${b}`),
+          };
+          s.count++;
+          s.amount += part.amount;
+          brands.set(b, s);
+        }
       }
       subs.push(...[...brands.values()].sort((a, b) => b.amount - a.amount));
     }

@@ -25,8 +25,10 @@ import {
   type OrderStatus,
   type PaymentInfo,
   type PaymentMethod,
+  type PaymentPart,
   type PaymentRecord,
 } from "@/types";
+import { normalizeSplit, primaryPart } from "@/lib/orders/paymentSplit";
 import { notifyOrdersChanged } from "@/lib/pusher/server";
 import {
   getOpenAccountsByPhone,
@@ -368,6 +370,7 @@ export async function setOrderPaymentMethod(
 
     // Yemek kartı: markayı da yaz (kurye kapıda hangi kart olduğunu seçer).
     // Diğer yöntemlerde marka anlamsız → varsa temizle ki eski marka takılı kalmasın.
+    // Tek yöntem seçildi → varsa bölünmüş ödeme de kalkar.
     const update =
       method === "meal_card" && mealCardBrand
         ? {
@@ -375,10 +378,11 @@ export async function setOrderPaymentMethod(
               "payment.method": method,
               "payment.mealCardBrand": mealCardBrand,
             },
+            $unset: { "payment.split": "" },
           }
         : {
             $set: { "payment.method": method },
-            $unset: { "payment.mealCardBrand": "" },
+            $unset: { "payment.mealCardBrand": "", "payment.split": "" },
           };
 
     const doc = await OrderModel.findOneAndUpdate({ id }, update);
@@ -389,6 +393,51 @@ export async function setOrderPaymentMethod(
   } catch (error) {
     console.error("[setOrderPaymentMethod]", error);
     return { ok: false, error: "Ödeme yöntemi güncellenemedi" };
+  }
+}
+
+// Ödemeyi böl (kurye kapıda "300 nakit + 100 kart" aldı). parts null → bölmeyi
+// kaldırır, sipariş ana yöntemle tek parça kalır. Toplam sunucudaki siparişten
+// okunur; parçalar ona eşit olmalı.
+export async function setOrderPaymentSplit(
+  id: string,
+  parts: PaymentPart[] | null,
+): Promise<{ ok: boolean; error?: string; parts?: PaymentPart[]; method?: PaymentMethod }> {
+  try {
+    await connectDB();
+    const order = await OrderModel.findOne({ id }).select({ total: 1, source: 1 }).lean();
+    if (!order) return { ok: false, error: "Sipariş bulunamadı" };
+    if (order.source && order.source !== "manual") {
+      return { ok: false, error: "Yalnızca kendi siparişlerimizde ödeme bölünebilir" };
+    }
+
+    if (!parts) {
+      await OrderModel.updateOne({ id }, { $unset: { "payment.split": "" } });
+      await notifyOrdersChanged("payment-changed");
+      return { ok: true };
+    }
+
+    const res = normalizeSplit(parts, order.total);
+    if (!res.ok) return { ok: false, error: res.error };
+    const primary = primaryPart(res.parts);
+    const brand = res.parts.find((p) => p.method === "meal_card")?.mealCardBrand;
+
+    await OrderModel.updateOne(
+      { id },
+      {
+        $set: {
+          "payment.split": res.parts,
+          "payment.method": primary.method,
+          ...(brand ? { "payment.mealCardBrand": brand } : {}),
+        },
+        ...(brand ? {} : { $unset: { "payment.mealCardBrand": "" } }),
+      },
+    );
+    await notifyOrdersChanged("payment-changed");
+    return { ok: true, parts: res.parts, method: primary.method };
+  } catch (error) {
+    console.error("[setOrderPaymentSplit]", error);
+    return { ok: false, error: "Ödeme bölünemedi" };
   }
 }
 

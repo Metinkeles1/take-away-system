@@ -114,8 +114,19 @@ export type MealCardBrand =
 
 export type PaymentMethod = "cash" | "card" | "online" | "meal_card" | "iban";
 
-export interface PaymentInfo {
+// Bölünmüş ödemenin bir parçası (kapıda "300 nakit + 100 kart").
+export interface PaymentPart {
   method: PaymentMethod;
+  amount: number;
+  mealCardBrand?: MealCardBrand;
+}
+
+export interface PaymentInfo {
+  // Bölünmüş ödemede en büyük parçanın yöntemi (filtre/etiket uyumu için).
+  method: PaymentMethod;
+  // Doluysa (2+ parça, toplamı = sipariş toplamı) ödeme bölünmüştür; para
+  // dökümleri yöntem başına bu parçalardan hesaplanır (paymentParts).
+  split?: PaymentPart[];
   cashGiven?: number; // Nakit verildi
   change?: number; // Para üstü
   mealCardBrand?: MealCardBrand; // Yemek kartı markası

@@ -9,6 +9,8 @@ import SettingModel from "@/models/Setting";
 import { notifyOrdersChanged } from "@/lib/pusher/server";
 import { istanbulDayStart } from "@/lib/datetime";
 import { generateId } from "@/lib/orders/factory";
+import { paymentParts } from "@/lib/orders/paymentSplit";
+import { type PaymentInfo } from "@/types";
 
 // ─── Kuryedeki para ─────────────────────────────────────────────────────────
 // Kapıda alınan (nakit + kapıda kart) ve henüz kasaya teslim edilmemiş para,
@@ -32,8 +34,11 @@ export interface CourierCashOrder {
   source: "manual" | "trendyol";
   ref: string; // Order.id | TrendyolOrder.orderNumber
   orderNumber: string;
-  method: "cash" | "card";
-  amount: number;
+  method: "cash" | "card"; // nakit payı varsa "cash" (uyarı/filtre için)
+  amount: number; // kuryeden alınacak toplam = cash + card
+  cash: number;
+  card: number;
+  split: boolean; // bölünmüş ödeme (300 nakit + 100 kart)
   deliveredAt: string; // ISO
   customer: string;
 }
@@ -108,7 +113,11 @@ async function pendingOrders(courier?: string): Promise<PendingOrder[]> {
     OrderModel.find({
       status: "delivered",
       source: { $ne: "trendyol" },
-      "payment.method": { $in: ["cash", "card"] },
+      // Bölünmüş ödemede nakit/kart parçası olan siparişler de kuryededir.
+      $or: [
+        { "payment.method": { $in: ["cash", "card"] } },
+        { "payment.split.method": { $in: ["cash", "card"] } },
+      ],
       paymentStatus: { $ne: "open" },
       deliveredAt: { $gte: start },
       handedOverAt: { $exists: false },
@@ -131,12 +140,21 @@ async function pendingOrders(courier?: string): Promise<PendingOrder[]> {
   const out: PendingOrder[] = [];
   for (const o of manual) {
     const c = o.customer as { name?: string; address?: string } | undefined;
+    // Yalnız kapıda alınan (nakit/kart) parçalar kuryededir; yemek kartı/IBAN
+    // parçası kasaya gelmez.
+    const parts = paymentParts(o.payment as PaymentInfo | undefined, o.total ?? 0);
+    const cash = parts.filter((p) => p.method === "cash").reduce((s, p) => s + p.amount, 0);
+    const card = parts.filter((p) => p.method === "card").reduce((s, p) => s + p.amount, 0);
+    if (cash + card <= 0) continue;
     out.push({
       source: "manual",
       ref: o.id,
       orderNumber: String(o.orderNumber),
-      method: o.payment?.method === "card" ? "card" : "cash",
-      amount: o.total ?? 0,
+      method: cash > 0 ? "cash" : "card",
+      amount: cash + card,
+      cash,
+      card,
+      split: parts.length > 1,
       deliveredAt: (o.deliveredAt ?? new Date()).toISOString(),
       customer: c?.address || c?.name || "",
       courier: o.courier?.trim() || UNASSIGNED,
@@ -149,6 +167,9 @@ async function pendingOrders(courier?: string): Promise<PendingOrder[]> {
       orderNumber: t.orderNumber,
       method: t.paymentKey === "card" ? "card" : "cash",
       amount: t.netTotal ?? 0,
+      cash: t.paymentKey === "card" ? 0 : t.netTotal ?? 0,
+      card: t.paymentKey === "card" ? t.netTotal ?? 0 : 0,
+      split: false,
       deliveredAt: (t.deliveredAt ?? new Date()).toISOString(),
       customer: [t.customerName, t.neighborhood].filter(Boolean).join(" · "),
       courier: t.courier?.trim() || UNASSIGNED,
@@ -170,8 +191,8 @@ export async function getCourierCash(): Promise<CourierCashState> {
         row = { courier, cash: 0, card: 0, orderCount: 0, oldestAt: order.deliveredAt, orders: [] };
         map.set(courier, row);
       }
-      if (order.method === "cash") row.cash += order.amount;
-      else row.card += order.amount;
+      row.cash += order.cash;
+      row.card += order.card;
       row.orderCount++;
       if (order.deliveredAt < row.oldestAt) row.oldestAt = order.deliveredAt;
       row.orders.push(order);
@@ -203,8 +224,8 @@ async function recordHandover(
   countedCash?: number | null,
   note?: string,
 ): Promise<CashHandoverRecord> {
-  const expectedCash = pending.filter((o) => o.method === "cash").reduce((s, o) => s + o.amount, 0);
-  const expectedCard = pending.filter((o) => o.method === "card").reduce((s, o) => s + o.amount, 0);
+  const expectedCash = pending.reduce((s, o) => s + o.cash, 0);
+  const expectedCard = pending.reduce((s, o) => s + o.card, 0);
   const counted =
     countedCash != null && Number.isFinite(countedCash) && countedCash >= 0
       ? Math.round(countedCash * 100) / 100
@@ -379,10 +400,10 @@ export async function getMyCourierCash(courier: string): Promise<{
   try {
     await connectDB();
     const [orders, alert] = await Promise.all([pendingOrders(name), readAlert()]);
-    const cashOrders = orders.filter((o) => o.method === "cash");
+    const cashOrders = orders.filter((o) => o.cash > 0);
     return {
-      cash: cashOrders.reduce((s, o) => s + o.amount, 0),
-      card: orders.filter((o) => o.method === "card").reduce((s, o) => s + o.amount, 0),
+      cash: orders.reduce((s, o) => s + o.cash, 0),
+      card: orders.reduce((s, o) => s + o.card, 0),
       orderCount: orders.length,
       oldestCashAt: cashOrders.length
         ? cashOrders.reduce((m, o) => (o.deliveredAt < m ? o.deliveredAt : m), cashOrders[0].deliveredAt)

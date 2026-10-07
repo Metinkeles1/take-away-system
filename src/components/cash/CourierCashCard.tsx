@@ -56,7 +56,7 @@ const dateTimeOf = (iso: string) =>
 // Uyarı yalnız NAKİT için: tutar eşiği ya da en eski nakitin bekleme süresi.
 // Kapıda kart parası zaten bankaya geçer; kartta teslim = slip/POS raporu.
 function cashAlert(row: CourierCashRow, alert: CourierCashState["alert"], now: number) {
-  const cashOrders = row.orders.filter((o) => o.method === "cash");
+  const cashOrders = row.orders.filter((o) => o.cash > 0);
   if (cashOrders.length === 0) return null;
   const oldest = ageMin(cashOrders[0].deliveredAt, now);
   if (row.cash >= alert.amount) return `Nakit ${formatCurrency(alert.amount)} sınırını geçti`;
@@ -279,7 +279,13 @@ function HandoverDialog({
                     )}
                     #{o.orderNumber} {o.customer && <span className="text-muted-foreground">· {o.customer}</span>}
                   </span>
-                  <span className="shrink-0 text-muted-foreground">{o.method === "cash" ? "Nakit" : "Kart"}</span>
+                  <span className="shrink-0 text-muted-foreground">
+                    {o.split && o.cash > 0 && o.card > 0
+                      ? `Nakit ${formatCurrency(o.cash)} + Kart ${formatCurrency(o.card)}`
+                      : o.method === "cash"
+                        ? "Nakit"
+                        : "Kart"}
+                  </span>
                   <span className="w-20 shrink-0 text-right font-semibold tabular-nums">{formatCurrency(o.amount)}</span>
                 </li>
               ))}
