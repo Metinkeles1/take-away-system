@@ -99,6 +99,22 @@ export default function ProductSelector() {
 
   const isPortionable = (product: Product) => Boolean(product.portionable);
 
+  // Ürünü olan kategoriler (+ Tümü) — telefon sütunu ve sm+ şerit ortak kullanır.
+  const categories = useMemo<CategoryEntry[]>(
+    () => [
+      { value: "all", label: "Tümü", emoji: "🍽️", count: menuItems.length },
+      ...MENU_CATEGORIES.map((cat) => ({
+        value: cat.value,
+        label: cat.label,
+        emoji: cat.emoji,
+        imageSrc: categoryImage(cat.value),
+        fallbackSrc: fallbackCategoryUrl(cat.value),
+        count: menuItems.filter((p) => p.category === cat.value).length,
+      })).filter((c) => c.count > 0),
+    ],
+    [menuItems],
+  );
+
   return (
     <div className="h-full flex flex-col gap-3 min-h-0">
       {/* Arama + sıralama */}
@@ -142,41 +158,35 @@ export default function ProductSelector() {
         </Select>
       </div>
 
-      {/* Kategori şeridi — mobilde yatay scroll, sm+ wrap (tüm chip'ler tek/iki satıra ferah dağılır) */}
-      <div className="relative shrink-0">
-        <div className="-mx-px overflow-x-auto sm:overflow-visible scrollbar-hide">
-          <div className="flex gap-2 pb-1 w-max sm:w-auto sm:flex-wrap px-px">
-          <CategoryChip
-            label="Tümü"
-            emoji="🍽️"
-            count={menuItems.length}
-            isActive={activeCategory === "all"}
-            onClick={() => setActiveCategory("all")}
+      {/* Telefonda kategoriler solda dikey sütun, ürünler sağda; sm+ üstte chip şeridi */}
+      <div className="flex-1 min-h-0 flex gap-2 sm:flex-col sm:gap-3">
+      <nav
+        aria-label="Kategoriler"
+        className="sm:hidden w-20 shrink-0 overflow-y-auto scrollbar-hide flex flex-col gap-1 pt-px pb-2"
+      >
+        {categories.map((cat) => (
+          <CategoryRailItem
+            key={cat.value}
+            {...cat}
+            isActive={activeCategory === cat.value}
+            onClick={() => setActiveCategory(cat.value)}
           />
-          {MENU_CATEGORIES.map((cat) => {
-            const count = menuItems.filter((p) => p.category === cat.value).length;
-            if (count === 0) return null;
-            return (
-              <CategoryChip
-                key={cat.value}
-                label={cat.label}
-                emoji={cat.emoji}
-                imageSrc={categoryImage(cat.value)}
-                fallbackSrc={fallbackCategoryUrl(cat.value)}
-                count={count}
-                isActive={activeCategory === cat.value}
-                onClick={() => setActiveCategory(cat.value)}
-              />
-            );
-          })}
-          </div>
-        </div>
-        {/* Sağ kenar fade — sadece mobilde scroll cue, sm+ wrap olduğu için kapalı */}
-        <div className="sm:hidden pointer-events-none absolute right-0 top-0 bottom-1 w-8 bg-linear-to-l from-background to-transparent" />
+        ))}
+      </nav>
+
+      <div className="hidden sm:flex flex-wrap gap-2 shrink-0 px-px">
+        {categories.map((cat) => (
+          <CategoryChip
+            key={cat.value}
+            {...cat}
+            isActive={activeCategory === cat.value}
+            onClick={() => setActiveCategory(cat.value)}
+          />
+        ))}
       </div>
 
       {/* Ürün grid */}
-      <div className="flex-1 min-h-0 overflow-y-auto scrollbar-hide pt-px pb-2 px-px">
+      <div className="flex-1 min-h-0 min-w-0 overflow-y-auto scrollbar-hide pt-px pb-2 px-px">
         {isLoadingMenu ? (
           <div className={GRID_CLASS}>
             {[...Array(12)].map((_, i) => (
@@ -218,20 +228,81 @@ export default function ProductSelector() {
           </div>
         )}
       </div>
+      </div>
     </div>
   );
 }
 
 // ─── Alt Bileşenler ──────────────────────────────────────────────────────────
 
-interface CategoryChipProps {
+interface CategoryEntry {
+  value: ProductCategory | "all";
   label: string;
   emoji: string;
   imageSrc?: string;
   fallbackSrc?: string;
   count: number;
+}
+
+interface CategoryChipProps extends CategoryEntry {
   isActive: boolean;
   onClick: () => void;
+}
+
+function CategoryThumb({
+  label,
+  emoji,
+  imageSrc,
+  fallbackSrc,
+  isActive,
+  className,
+}: Pick<CategoryChipProps, "label" | "emoji" | "imageSrc" | "fallbackSrc" | "isActive"> & {
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-full overflow-hidden flex items-center justify-center text-sm shrink-0",
+        isActive ? "ring-1 ring-background/30" : "ring-1 ring-foreground/8",
+        className,
+      )}
+    >
+      {imageSrc && fallbackSrc ? (
+        <ProductImage
+          src={imageSrc}
+          alt={label}
+          fallbackSrc={fallbackSrc}
+          placeholderClassName="h-full w-full"
+        />
+      ) : (
+        <div className="h-full w-full flex items-center justify-center bg-linear-to-br from-muted to-muted/40">
+          {emoji}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Telefon: soldaki dikey kategori sütununun bir satırı.
+function CategoryRailItem({ isActive, onClick, ...cat }: CategoryChipProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={isActive}
+      className={cn(
+        "flex flex-col items-center gap-1 rounded-xl px-1 py-2 transition-colors",
+        isActive
+          ? "bg-foreground text-background shadow-sm"
+          : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+      )}
+    >
+      <CategoryThumb {...cat} isActive={isActive} className="h-9 w-9" />
+      <span className="text-xs font-medium leading-tight text-center line-clamp-2 wrap-break-word">
+        {cat.label}
+      </span>
+    </button>
+  );
 }
 
 function CategoryChip({
@@ -254,25 +325,14 @@ function CategoryChip({
           : "bg-card text-foreground ring-foreground/10 hover:ring-foreground/25 hover:bg-muted/40",
       )}
     >
-      <div
-        className={cn(
-          "h-7 w-7 rounded-full overflow-hidden flex items-center justify-center text-sm shrink-0",
-          isActive ? "ring-1 ring-background/30" : "ring-1 ring-foreground/8",
-        )}
-      >
-        {imageSrc && fallbackSrc ? (
-          <ProductImage
-            src={imageSrc}
-            alt={label}
-            fallbackSrc={fallbackSrc}
-            placeholderClassName="h-full w-full"
-          />
-        ) : (
-          <div className="h-full w-full flex items-center justify-center bg-linear-to-br from-muted to-muted/40">
-            {emoji}
-          </div>
-        )}
-      </div>
+      <CategoryThumb
+        label={label}
+        emoji={emoji}
+        imageSrc={imageSrc}
+        fallbackSrc={fallbackSrc}
+        isActive={isActive}
+        className="h-7 w-7"
+      />
       <span className="text-xs font-medium leading-tight whitespace-nowrap">
         {label}
       </span>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   useOrderStore,
   selectSubtotal,
@@ -9,7 +9,8 @@ import {
   selectCanComplete,
 } from "@/store/orderStore";
 import { Separator } from "@/components/ui/separator";
-import { cn } from "@/lib/utils";
+import { cn, formatCurrency } from "@/lib/utils";
+import { ChevronDown, ShoppingCart } from "lucide-react";
 import {
   type SavedCustomer,
   type CustomerAddress,
@@ -58,6 +59,9 @@ export default function OrderSidePanel({
   const discountAmount = useOrderStore(selectDiscountAmount);
   const canComplete = useOrderStore(selectCanComplete);
   const isEditMode = mode === "edit";
+  const isSheet = variant === "sheet";
+  // Mobil 2. adım: sepet ürün adımında düzenlenir; burada kapalı durur, istek eklemek için açılır.
+  const [cartOpen, setCartOpen] = useState(false);
 
   // Müşterinin açık hesabı — uyarı kutusu + basılan fiş ortak kullanır (tek sorgu).
   const openAccounts = useCustomerOpenAccounts(draft.customer.phone ?? "");
@@ -107,6 +111,32 @@ export default function OrderSidePanel({
     updateQuantity(key, currentQty - 1);
   };
 
+  const cartList = (
+    <CartList
+      items={draft.items}
+      onIncrement={handleCartIncrement}
+      onDecrement={handleCartDecrement}
+      onRemove={removeItem}
+    />
+  );
+
+  const discountSection = (
+    <DiscountSection
+      discount={draft.discount}
+      amount={discountAmount}
+      onChange={setDiscount}
+    />
+  );
+
+  const paymentPicker = (
+    <PaymentPicker
+      selectedMethod={selectedMethod}
+      selectedBrand={selectedBrand}
+      onMethodChange={handleMethodChange}
+      onBrandChange={(brand) => setPayment({ mealCardBrand: brand })}
+    />
+  );
+
   return (
     <div
       className={cn(
@@ -139,29 +169,43 @@ export default function OrderSidePanel({
 
           <Separator />
 
-          <CartList
-            items={draft.items}
-            onIncrement={handleCartIncrement}
-            onDecrement={handleCartDecrement}
-            onRemove={removeItem}
-          />
-
-          <DiscountSection
-            discount={draft.discount}
-            amount={discountAmount}
-            onChange={setDiscount}
-          />
-
-          <Separator />
-
-          <PaymentPicker
-            selectedMethod={selectedMethod}
-            selectedBrand={selectedBrand}
-            onMethodChange={handleMethodChange}
-            onBrandChange={(brand) => setPayment({ mealCardBrand: brand })}
-          />
-
-          <NotesSection notes={draft.notes ?? ""} onChange={setNotes} />
+          {isSheet ? (
+            <>
+              {paymentPicker}
+              {discountSection}
+              <NotesSection notes={draft.notes ?? ""} onChange={setNotes} />
+              <Separator />
+              {cartOpen ? (
+                cartList
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setCartOpen(true)}
+                  className="flex w-full items-center gap-2 rounded-xl bg-muted/40 px-3 py-3 text-left hover:bg-muted/60 transition-colors"
+                >
+                  <ShoppingCart className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-sm font-medium tabular-nums">
+                      Sepet · {draft.items.reduce((sum, i) => sum + i.quantity, 0)} ürün ·{" "}
+                      {formatCurrency(subtotal)}
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      Aç: adet değiştir, istek ekle (soğansız…)
+                    </span>
+                  </span>
+                  <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              {cartList}
+              {discountSection}
+              <Separator />
+              {paymentPicker}
+              <NotesSection notes={draft.notes ?? ""} onChange={setNotes} />
+            </>
+          )}
         </div>
       </div>
 
