@@ -36,7 +36,7 @@ const OrderItemsCard = memo(function OrderItemsCard({
             return (
               <div
                 key={key}
-                className="flex items-center justify-between rounded-md bg-muted/40 px-3 py-2"
+                className="flex items-center justify-between gap-3 rounded-md bg-muted/40 px-3 py-2"
               >
                 <div className="min-w-0">
                   <p className="flex flex-wrap items-center gap-1.5 font-medium text-sm">
@@ -45,7 +45,7 @@ const OrderItemsCard = memo(function OrderItemsCard({
                   </p>
                   <ItemOptionChips item={item} className="mt-1" />
                 </div>
-                <div className="flex items-center gap-4 text-sm">
+                <div className="flex shrink-0 items-center gap-2 text-sm sm:gap-4">
                   <span className="text-muted-foreground">
                     {item.quantity} × {formatCurrency(unitPrice)}
                   </span>

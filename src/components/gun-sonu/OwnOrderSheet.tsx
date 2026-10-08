@@ -39,8 +39,8 @@ export function OwnOrderSheet({ id, onClose }: { id: string | null; onClose: () 
 
   return (
     <Sheet open={id != null} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent className="flex w-full flex-col gap-0 p-0 sm:max-w-md">
-        <SheetHeader className="border-b p-4">
+      <SheetContent className="flex flex-col gap-0 p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-md">
+        <SheetHeader className="border-b p-4 pr-12">
           <SheetTitle className="flex items-center gap-2">
             {order ? `#${order.orderNumber}` : "Sipariş"}
             {status && (
@@ -108,7 +108,7 @@ export function OwnOrderSheet({ id, onClose }: { id: string | null; onClose: () 
         </div>
 
         {id && (
-          <div className="border-t p-3">
+          <div className="border-t p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
             <Button asChild variant="outline" className="w-full gap-1.5">
               <Link href={`/orders/${id}`}>
                 Sipariş sayfasını aç <ArrowUpRight className="size-3.5" />
@@ -136,7 +136,7 @@ function Fact({
         <Icon className="size-3" />
         {label}
       </p>
-      <p className="mt-0.5 truncate text-sm font-semibold">{children}</p>
+      <p className="mt-0.5 text-sm font-semibold wrap-break-word">{children}</p>
     </div>
   );
 }

@@ -67,7 +67,7 @@ export function TrendyolOrderSheet({
 
   return (
     <Sheet open={!!orderNumber} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent className="w-full overflow-y-auto p-0 sm:max-w-md">
+      <SheetContent className="overflow-y-auto p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-md">
         {!loaded ? (
           <div className="space-y-4 p-6">
             <SheetHeader className="sr-only">
@@ -88,7 +88,7 @@ export function TrendyolOrderSheet({
           </div>
         ) : (
           <>
-            <SheetHeader className="border-b">
+            <SheetHeader className="border-b pr-12">
               <div className="flex flex-wrap items-center gap-2">
                 <SheetTitle className="text-left">#{d.orderNumber}</SheetTitle>
                 <Badge
@@ -291,7 +291,7 @@ function Stat({
     <div className="rounded-lg border p-3">
       <Icon className="mb-1 size-4 text-muted-foreground" />
       <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="truncate text-sm font-semibold">{value}</p>
+      <p className="text-sm font-semibold wrap-break-word">{value}</p>
       {sub && <p className="truncate text-[11px] text-muted-foreground">{sub}</p>}
     </div>
   );
