@@ -6,21 +6,27 @@
 // kanalı promosyon endpoint'ini desteklemiyor ("Desteklenmeyen channel"),
 // GROCERY ise bu mağazaya ait olmayan binlerce kayıt döndürüyor. Restoranın
 // gerçek kademeleri sözleşmeyle belirlenir ve `trendyolCampaigns.ts` içinde
-// tutulur; menü indirim hesabı da bunu kullanır. Bu sayfa o veriyi gösterir.
+// tutulur; panelden (Menü › kademe ayarları) düzenlenen hali sunucuda saklanır.
+// Bu sayfa kayıtlı ayarları gösterir; menü indirim hesabı da aynısını kullanır.
 
-import { Megaphone, Zap, Info } from "lucide-react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { Megaphone, Zap, Info, Settings2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { type CampaignGroup, type CampaignTier } from "@/lib/trendyolCampaigns";
 import {
-  CAMPAIGN_GROUPS,
-  type CampaignGroup,
-  type CampaignTier,
-} from "@/lib/trendyolCampaigns";
+  getCampaignSettings,
+  type CampaignSettings,
+} from "@/actions/trendyolCampaignSettings";
 import { formatCurrency } from "@/lib/utils";
 
-// Menü indirim hesabının baz aldığı grup (MenuTab GROUP_1 kullanıyor).
-const ACTIVE_GROUP_ID = 1;
-
 export function PromotionsTab() {
+  const [settings, setSettings] = useState<CampaignSettings | null>(null);
+  useEffect(() => {
+    getCampaignSettings().then(setSettings);
+  }, []);
+
   return (
     <div className="space-y-4">
       {/* Başlık */}
@@ -30,8 +36,15 @@ export function PromotionsTab() {
           Kampanyalar
         </h1>
         <p className="mt-0.5 text-sm text-gray-500">
-          Çok Al Az Öde · {CAMPAIGN_GROUPS.length} kademe grubu
+          Çok Al Az Öde · {settings?.groups.length ?? 5} kademe grubu
         </p>
+        <Link
+          href="/dashboard/trendyol/menu"
+          className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 hover:underline"
+        >
+          <Settings2 className="h-3.5 w-3.5" />
+          Kademeleri Menü sayfasından düzenle
+        </Link>
       </div>
 
       {/* Bilgi notu */}
@@ -51,13 +64,15 @@ export function PromotionsTab() {
 
       {/* Grup listesi */}
       <div className="space-y-3">
-        {CAMPAIGN_GROUPS.map((group) => (
-          <CampaignGroupRow
-            key={group.id}
-            group={group}
-            active={group.id === ACTIVE_GROUP_ID}
-          />
-        ))}
+        {!settings
+          ? [1, 2, 3].map((i) => <Skeleton key={i} className="h-32 w-full rounded-xl" />)
+          : settings.groups.map((group) => (
+              <CampaignGroupRow
+                key={group.id}
+                group={group}
+                active={group.id === settings.activeGroupId}
+              />
+            ))}
       </div>
     </div>
   );

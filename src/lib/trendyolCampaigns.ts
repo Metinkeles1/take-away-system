@@ -161,7 +161,7 @@ export function calcCampaignDiscount(
   // Bilgi: bir sonraki erişilebilir kademe (normal kademeler + uygulamadaysa flaş).
   const candidates = [...group.tiers, ...(onApp ? group.flash : [])]
     .filter((t) => t.min > amount)
-    .sort((a, b) => a.min - b.min);
+    .sort((a, b) => a.min - b.min || b.discount - a.discount); // aynı eşikte büyük indirim
   const nextTier = candidates[0] ?? null;
 
   return {

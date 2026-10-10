@@ -1,9 +1,9 @@
 "use server";
 
-// Trendyol GO Yemek menü listesini canlı çeker.
+// Trendyol GO Yemek menüsü: canlı liste, fiyat güncelleme, satışa aç/kapa.
 // Endpoint: GET /integrator/product/meal/suppliers/{supplierId}/stores/{storeId}/products
 // storeId zorunlu — env'den (TRENDYOL_STORE_ID) ya da son paketlerden otomatik bulunur.
-// Birden fazla mağaza varsa hepsi sırayla çekilir ve birleştirilir.
+// Birden fazla mağaza varsa hepsi paralel çekilir ve birleştirilir.
 
 import {
   listTrendyolMenuProducts,
@@ -13,7 +13,6 @@ import {
   updateTrendyolProductStatus,
   updateTrendyolSectionStatus,
   type TrendyolMenuProduct,
-  type TrendyolMenuSection,
   type TrendyolPriceUpdateItem,
 } from "@/lib/integrations/trendyol/client";
 
@@ -25,38 +24,32 @@ export interface TrendyolMenuItem {
   price: number;
   originalPrice?: number;
   isActive: boolean;
-  inStock: boolean;
-  category?: string; // birincil kategori (kart etiketi için)
-  categories?: string[]; // ürünün ait olduğu TÜM kategoriler (çoklu kategori filtresi için)
-  sectionId?: number; // kategori (section) id — aç/kapa için
+  sectionIds: number[]; // ait olduğu gerçek kategoriler (vitrin hariç)
   ingredients?: string[]; // çözümlenmiş malzeme adları
-  modifiers?: string[]; // çözümlenmiş modifier grup adları (ör. "Çorbalar")
-  imageUrl?: string;
-  hasDiscount: boolean;
+  modifiers?: string[]; // çözümlenmiş opsiyon grup adları (ör. "İçecek Seçimi")
 }
 
 export interface TrendyolMenuSectionInfo {
   id: number;
   name: string;
-  status: string; // ACTIVE | PASSIVE
+  active: boolean;
   storeId: number;
+  position: number;
+  curated: boolean; // Trendyol'un otomatik vitrin kategorisi (ör. "En Sevilenler")
+  productIds: number[]; // kategori içi sırasıyla
 }
 
 export interface TrendyolMenuResult {
   fetchedAt: string;
   source: "api" | "fallback";
   storeIds: number[];
-  totalCount: number;
-  activeCount: number;
-  outOfStockCount: number;
-  categories: { name: string; count: number }[];
-  sections: TrendyolMenuSectionInfo[];
+  sections: TrendyolMenuSectionInfo[]; // menü sırasıyla
   items: TrendyolMenuItem[];
   error?: string;
 }
 
 // Trendyol'un otomatik vitrin/kürasyon kategorileri — gerçek menü kategorisi değil,
-// ürünleri tekrarlar. Kategori çiplerinde/filtrede gösterilmez. Yeni ad çıkarsa ekle.
+// ürünleri tekrarlar. Ayrı tutulur. Yeni ad çıkarsa ekle.
 const CURATED_SECTION_HINTS = [
   "en sevilen",
   "cok satan",
@@ -83,30 +76,8 @@ function isCuratedSection(name: string): boolean {
   return CURATED_SECTION_HINTS.some((h) => n.includes(h));
 }
 
-// Ürün -> ait olduğu TÜM gerçek kategoriler (bir ürün birden fazla section'da olabilir:
-// ör. hem "Restoranın En Sevilenleri" hem "Kebaplar"). Vitrin kategorileri atlanır.
-// İlk eleman birincil kategori (kart etiketi). Önce ACTIVE bölümler, sonra pasifler.
-function buildProductCategoryMap(
-  sections: TrendyolMenuSection[] | undefined,
-): Map<number, string[]> {
-  const map = new Map<number, string[]>();
-  if (!sections) return map;
-  const isActive = (s: TrendyolMenuSection) =>
-    (s.status ?? "ACTIVE").toUpperCase() === "ACTIVE";
-  const add = (id: number, name: string) => {
-    const arr = map.get(id);
-    if (!arr) map.set(id, [name]);
-    else if (!arr.includes(name)) arr.push(name);
-  };
-  for (const s of sections) {
-    if (!isActive(s) || isCuratedSection(s.name)) continue;
-    for (const ref of s.products ?? []) add(ref.id, s.name);
-  }
-  for (const s of sections) {
-    if (isActive(s) || isCuratedSection(s.name)) continue;
-    for (const ref of s.products ?? []) add(ref.id, s.name);
-  }
-  return map;
+function isActiveStatus(status: string | undefined): boolean {
+  return (status ?? "ACTIVE").toUpperCase() === "ACTIVE";
 }
 
 // Trendyol Menu API response'unda field isimleri varyant gösteriyor olabilir:
@@ -192,14 +163,12 @@ function pickDescription(p: unknown): string | undefined {
   return undefined;
 }
 
-// NOT: Trendyol GO Yemek menü API'si ürün GÖRSELİ döndürmüyor (dokümanda
-// yanıtta resim alanı yok). Bu yüzden imageUrl set edilmez; kart placeholder gösterir.
+// NOT: Trendyol GO Yemek menü API'si ürün GÖRSELİ ve stok bilgisi döndürmüyor.
 
 function normalize(
   p: TrendyolMenuProduct,
   storeId: number,
-  categoryMap: Map<number, string[]>,
-  sectionIdMap: Map<number, number>,
+  sectionIds: number[],
   ingredientMap: Map<number, string>,
   modifierMap: Map<number, string>,
 ): TrendyolMenuItem {
@@ -220,15 +189,11 @@ function normalize(
     name: pickProductName(p, p.id),
     description: pickDescription(p),
     price,
-    originalPrice: original > 0 && original !== selling ? original : undefined,
-    isActive: (p.status ?? "ACTIVE").toUpperCase() === "ACTIVE",
-    inStock: true, // bu endpoint stok bilgisi vermiyor; varsayılan in-stock
-    category: categoryMap.get(p.id)?.[0],
-    categories: categoryMap.get(p.id),
-    sectionId: sectionIdMap.get(p.id),
+    originalPrice: selling > 0 && original > selling ? original : undefined,
+    isActive: isActiveStatus(p.status),
+    sectionIds,
     ingredients: ingredients.length ? ingredients : undefined,
     modifiers: modifiers.length ? modifiers : undefined,
-    hasDiscount: selling > 0 && original > selling,
   };
 }
 
@@ -281,18 +246,16 @@ export async function getTrendyolMenu(): Promise<TrendyolMenuResult> {
   }
 
   try {
-    // productId bazında tekilleştir: aynı ürün birden fazla mağaza/section'da
-    // dönebilir; eklenirse menü sayısı şişer (örn. 6 yerine 12 görünür).
-    const byId = new Map<number, TrendyolMenuItem>();
-    const sectionById = new Map<number, TrendyolMenuSectionInfo>();
-    const errors: string[] = [];
-
-    // Mağazaları paralel çek (çok mağazalı durumda sıralı await gecikmesini önler).
     const responses = await Promise.all(
       storeIds.map((storeId) =>
         listTrendyolMenuProducts({ storeId }).then((res) => ({ storeId, res })),
       ),
     );
+
+    // productId bazında tekilleştir: aynı ürün birden fazla mağazada dönebilir.
+    const byId = new Map<number, TrendyolMenuItem>();
+    const sectionById = new Map<number, TrendyolMenuSectionInfo>();
+    const errors: string[] = [];
 
     for (const { storeId, res } of responses) {
       if (!res.ok) {
@@ -300,25 +263,37 @@ export async function getTrendyolMenu(): Promise<TrendyolMenuResult> {
         continue;
       }
       const data = res.data;
-      const categoryMap = buildProductCategoryMap(data.sections);
 
-      // Section id ↔ ürün eşlemesi + yönetim listesi (pasifler dahil, aç/kapa için).
-      const sectionIdMap = new Map<number, number>();
-      for (const s of data.sections ?? []) {
+      // Kategoriler Trendyol'daki sırasıyla; ürünler de kategori içi sırasıyla.
+      const sections = [...(data.sections ?? [])].sort(
+        (a, b) => (a.position ?? 0) - (b.position ?? 0),
+      );
+      const productSections = new Map<number, number[]>();
+      for (const s of sections) {
+        const curated = isCuratedSection(s.name);
+        const productIds = [...(s.products ?? [])]
+          .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+          .map((r) => r.id);
         if (!sectionById.has(s.id)) {
           sectionById.set(s.id, {
             id: s.id,
             name: s.name,
-            status: (s.status ?? "ACTIVE").toUpperCase(),
+            active: isActiveStatus(s.status),
             storeId,
+            position: s.position ?? sectionById.size,
+            curated,
+            productIds,
           });
         }
-        for (const ref of s.products ?? []) {
-          if (!sectionIdMap.has(ref.id)) sectionIdMap.set(ref.id, s.id);
+        if (curated) continue;
+        for (const pid of productIds) {
+          const arr = productSections.get(pid) ?? [];
+          if (!arr.includes(s.id)) arr.push(s.id);
+          productSections.set(pid, arr);
         }
       }
 
-      // Malzeme/modifier id → ad çözümlemesi (opsiyon gösterimi için).
+      // Malzeme/opsiyon id → ad çözümlemesi.
       const ingredientMap = new Map<number, string>();
       for (const ing of data.ingredients ?? []) ingredientMap.set(ing.id, ing.name);
       const modifierMap = new Map<number, string>();
@@ -328,46 +303,37 @@ export async function getTrendyolMenu(): Promise<TrendyolMenuResult> {
         const item = normalize(
           p,
           storeId,
-          categoryMap,
-          sectionIdMap,
+          productSections.get(p.id) ?? [],
           ingredientMap,
           modifierMap,
         );
         const existing = byId.get(item.productId);
-        if (!existing) {
-          byId.set(item.productId, item);
-        } else {
-          // Aynı ürün başka mağazada/section'da da olabilir → kategorileri birleştir.
-          const mergedCats = Array.from(
-            new Set([...(existing.categories ?? []), ...(item.categories ?? [])]),
-          );
-          byId.set(item.productId, {
-            ...existing,
-            category: existing.category ?? item.category,
-            categories: mergedCats.length ? mergedCats : undefined,
-            sectionId: existing.sectionId ?? item.sectionId,
-          });
-        }
+        if (!existing) byId.set(item.productId, item);
+        else
+          existing.sectionIds = [
+            ...new Set([...existing.sectionIds, ...item.sectionIds]),
+          ];
       }
     }
 
-    const allItems = [...byId.values()];
+    const items = [...byId.values()];
 
-    if (allItems.length === 0) {
+    if (items.length === 0) {
       return await fallbackFromPackages(
         errors.length > 0
-          ? `Menu API hatası: ${errors.join("; ")}`
-          : "Menu API boş döndü",
+          ? `Menü API hatası: ${errors.join("; ")}`
+          : "Menü API boş döndü",
       );
     }
 
-    return buildResult(
-      allItems,
+    return {
+      fetchedAt: new Date().toISOString(),
+      source: "api",
       storeIds,
-      "api",
-      [...sectionById.values()],
-      errors.length > 0 ? errors.join("; ") : undefined,
-    );
+      sections: [...sectionById.values()].sort((a, b) => a.position - b.position),
+      items: items.sort((a, b) => a.name.localeCompare(b.name, "tr")),
+      error: errors.length > 0 ? errors.join("; ") : undefined,
+    };
   } catch (err) {
     return await fallbackFromPackages(
       err instanceof Error ? err.message : "Trendyol API'sına ulaşılamadı",
@@ -375,12 +341,21 @@ export async function getTrendyolMenu(): Promise<TrendyolMenuResult> {
   }
 }
 
-// Fallback: son 30 günün paketlerinden ürünleri çıkar.
+// Fallback: menü API'si çalışmazsa son 30 günün paketlerinden ürünleri çıkar
+// (salt okunur; fiyat ve durum yaklaşık).
 async function fallbackFromPackages(reason: string): Promise<TrendyolMenuResult> {
+  const empty: TrendyolMenuResult = {
+    fetchedAt: new Date().toISOString(),
+    source: "fallback",
+    storeIds: [],
+    sections: [],
+    items: [],
+    error: reason,
+  };
   try {
     const end = Date.now();
     const start = end - 30 * 24 * 60 * 60 * 1000;
-    const map = new Map<string, TrendyolMenuItem>();
+    const map = new Map<number, TrendyolMenuItem>();
     const storeIds = new Set<number>();
     let page = 0;
     while (page < 20) {
@@ -394,40 +369,28 @@ async function fallbackFromPackages(reason: string): Promise<TrendyolMenuResult>
       for (const pkg of res.data.content ?? []) {
         if (pkg.storeId) storeIds.add(pkg.storeId);
         for (const line of pkg.lines ?? []) {
-          const key = String(line.productId);
-          if (map.has(key)) continue;
-          map.set(key, {
+          if (map.has(line.productId)) continue;
+          map.set(line.productId, {
             productId: line.productId,
             storeId: pkg.storeId ?? 0,
             name: line.name,
             description: line.description ?? undefined,
             price: line.unitSellingPrice ?? line.price ?? 0,
             isActive: true,
-            inStock: true,
-            hasDiscount: false,
+            sectionIds: [],
           });
         }
       }
       if (page + 1 >= (res.data.totalPages ?? 1)) break;
       page++;
     }
-    const items = [...map.values()];
-    const result = buildResult(items, [...storeIds], "fallback");
-    result.error = reason;
-    return result;
-  } catch {
     return {
-      fetchedAt: new Date().toISOString(),
-      source: "fallback",
-      storeIds: [],
-      totalCount: 0,
-      activeCount: 0,
-      outOfStockCount: 0,
-      categories: [],
-      sections: [],
-      items: [],
-      error: reason,
+      ...empty,
+      storeIds: [...storeIds],
+      items: [...map.values()].sort((a, b) => a.name.localeCompare(b.name, "tr")),
     };
+  } catch {
+    return empty;
   }
 }
 
@@ -435,114 +398,90 @@ async function fallbackFromPackages(reason: string): Promise<TrendyolMenuResult>
 // Sadece DEĞİŞEN fiyatlar gönderilmeli (Trendyol aynı body'yi tekrarlarsa
 // "tekrarlı fiyat güncelleme" hatası verir). restaurantId göndermiyoruz →
 // fiyat tüm restoranlara uygulanır (tek mağazalı satıcı için doğru davranış).
+// Trendyol kuyruğa alır; sonucu sunucuda bekleyip tek seferde döneriz.
 
 export interface PriceUpdateInput {
   productId: number;
   sellingPrice: number;
 }
 
-export interface PriceUpdateResponse {
+export interface PriceUpdateResult {
   ok: boolean;
-  batchRequestId?: string;
+  pending?: boolean; // Trendyol süre içinde işlemeyi bitirmedi
+  succeeded: number[]; // başarılı productId'ler
+  failed: { productId: number; reason: string }[];
   error?: string;
 }
 
 export async function updateTrendyolPrices(
   items: PriceUpdateInput[],
-): Promise<PriceUpdateResponse> {
+): Promise<PriceUpdateResult> {
   // Aynı ürün birden fazla kez geldiyse sonuncuyu al (duplicate productId'yi önle).
   const byId = new Map<number, number>();
   for (const it of items) {
     if (!Number.isFinite(it.productId) || it.productId <= 0) continue;
     if (!Number.isFinite(it.sellingPrice) || it.sellingPrice <= 0) continue;
-    // 2 ondalık basamağa yuvarla (kuruş)
     byId.set(it.productId, Math.round(it.sellingPrice * 100) / 100);
   }
 
   const payload: TrendyolPriceUpdateItem[] = [...byId.entries()].map(
     ([productId, sellingPrice]) => ({ productId, sellingPrice }),
   );
+  const fail = (error: string): PriceUpdateResult => ({
+    ok: false,
+    succeeded: [],
+    failed: [],
+    error,
+  });
 
-  if (payload.length === 0) {
-    return { ok: false, error: "Geçerli fiyat değişikliği yok." };
-  }
-  if (payload.length > 1000) {
-    return { ok: false, error: "Tek seferde en fazla 1000 ürün güncellenebilir." };
-  }
+  if (payload.length === 0) return fail("Geçerli fiyat değişikliği yok.");
+  if (payload.length > 1000) return fail("Tek seferde en fazla 1000 ürün güncellenebilir.");
 
   try {
     const res = await updateTrendyolMealPrices(payload);
-    if (!res.ok) {
-      return { ok: false, error: `Trendyol: ${res.status} ${res.error}` };
-    }
+    if (!res.ok) return fail(`Trendyol: ${res.status} ${res.error}`);
     const batchRequestId = res.data?.batchRequestId;
-    if (!batchRequestId) {
-      return { ok: false, error: "Trendyol batchRequestId döndürmedi." };
+    if (!batchRequestId) return fail("Trendyol işlem numarası döndürmedi.");
+
+    // Kuyruk genelde birkaç saniyede işlenir; en fazla ~20 sn bekle.
+    for (let i = 0; i < 10; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const r = await getTrendyolBatchRequestResult(batchRequestId);
+      if (!r.ok || (r.data?.status ?? "").toUpperCase() !== "COMPLETED") continue;
+
+      const succeeded: number[] = [];
+      const failed: { productId: number; reason: string }[] = [];
+      for (const it of r.data.items ?? []) {
+        const productId =
+          it.requestItem?.productId ?? it.requestItem?.request?.productId;
+        if (!productId) continue;
+        if ((it.status ?? "").toUpperCase() === "SUCCESS") succeeded.push(productId);
+        else
+          failed.push({
+            productId,
+            reason: it.failureReasons?.[0] ?? "Bilinmeyen hata",
+          });
+      }
+      // Kalem detayı yoksa ve hata sayısı 0 ise hepsini başarılı say.
+      if (succeeded.length + failed.length === 0 && !r.data.failedItemCount) {
+        succeeded.push(...byId.keys());
+      }
+      return { ok: true, succeeded, failed };
     }
-    return { ok: true, batchRequestId };
+    return { ok: true, pending: true, succeeded: [], failed: [] };
   } catch (err) {
-    return {
-      ok: false,
-      error: err instanceof Error ? err.message : "Trendyol API'sına ulaşılamadı",
-    };
-  }
-}
-
-export interface BatchItemResult {
-  productId?: number;
-  status: string;
-  failureReasons: string[];
-}
-
-export interface BatchResultResponse {
-  ok: boolean;
-  completed: boolean;
-  status?: string;
-  itemCount?: number;
-  failedItemCount?: number;
-  items: BatchItemResult[];
-  error?: string;
-}
-
-export async function getTrendyolPriceBatchResult(
-  batchRequestId: string,
-): Promise<BatchResultResponse> {
-  try {
-    const res = await getTrendyolBatchRequestResult(batchRequestId);
-    if (!res.ok) {
-      return {
-        ok: false,
-        completed: false,
-        items: [],
-        error: `Trendyol: ${res.status} ${res.error}`,
-      };
-    }
-    const d = res.data;
-    const status = d?.status;
-    return {
-      ok: true,
-      completed: (status ?? "").toUpperCase() === "COMPLETED",
-      status,
-      itemCount: d?.itemCount,
-      failedItemCount: d?.failedItemCount,
-      items: (d?.items ?? []).map((it) => ({
-        productId: it.requestItem?.productId ?? it.requestItem?.request?.productId,
-        status: it.status ?? "UNKNOWN",
-        failureReasons: it.failureReasons ?? [],
-      })),
-    };
-  } catch (err) {
-    return {
-      ok: false,
-      completed: false,
-      items: [],
-      error: err instanceof Error ? err.message : "Trendyol API'sına ulaşılamadı",
-    };
+    return fail(err instanceof Error ? err.message : "Trendyol API'sına ulaşılamadı");
   }
 }
 
 // ─── Ürün / kategori satışa aç-kapa ────────────────────────────────────
 // Senkron (200). 409 = eşzamanlı değişiklik → tekrar denenmeli.
+function statusError(res: { status: number; error: string }): string {
+  return res.status === 409
+    ? "Eşzamanlı değişiklik oldu, tekrar deneyin."
+    : `Trendyol: ${res.status} ${res.error}`;
+}
+
 export async function setTrendyolProductStatus(
   storeId: number,
   productId: number,
@@ -554,16 +493,7 @@ export async function setTrendyolProductStatus(
       productId,
       status: active ? "ACTIVE" : "PASSIVE",
     });
-    if (!res.ok) {
-      return {
-        ok: false,
-        error:
-          res.status === 409
-            ? "Eşzamanlı değişiklik oldu, tekrar deneyin."
-            : `Trendyol: ${res.status} ${res.error}`,
-      };
-    }
-    return { ok: true };
+    return res.ok ? { ok: true } : { ok: false, error: statusError(res) };
   } catch (err) {
     return {
       ok: false,
@@ -583,55 +513,11 @@ export async function setTrendyolSectionStatus(
       sectionId,
       status: active ? "ACTIVE" : "PASSIVE",
     });
-    if (!res.ok) {
-      return {
-        ok: false,
-        error:
-          res.status === 409
-            ? "Eşzamanlı değişiklik oldu, tekrar deneyin."
-            : `Trendyol: ${res.status} ${res.error}`,
-      };
-    }
-    return { ok: true };
+    return res.ok ? { ok: true } : { ok: false, error: statusError(res) };
   } catch (err) {
     return {
       ok: false,
       error: err instanceof Error ? err.message : "Trendyol API'sına ulaşılamadı",
     };
   }
-}
-
-function buildResult(
-  items: TrendyolMenuItem[],
-  storeIds: number[],
-  source: "api" | "fallback",
-  sections: TrendyolMenuSectionInfo[] = [],
-  warning?: string,
-): TrendyolMenuResult {
-  const catMap = new Map<string, number>();
-  let activeCount = 0;
-  let outOfStockCount = 0;
-  for (const item of items) {
-    if (item.isActive) activeCount++;
-    if (!item.inStock) outOfStockCount++;
-    // Ürün birden fazla kategorideyse her birinde sayılır.
-    const cats = item.categories?.length ? item.categories : ["Kategorisiz"];
-    for (const cat of cats) catMap.set(cat, (catMap.get(cat) ?? 0) + 1);
-  }
-  const categories = [...catMap.entries()]
-    .map(([name, count]) => ({ name, count }))
-    .sort((a, b) => b.count - a.count);
-
-  return {
-    fetchedAt: new Date().toISOString(),
-    source,
-    storeIds,
-    totalCount: items.length,
-    activeCount,
-    outOfStockCount,
-    categories,
-    sections: sections.sort((a, b) => a.name.localeCompare(b.name, "tr")),
-    items: items.sort((a, b) => a.name.localeCompare(b.name, "tr")),
-    error: warning,
-  };
 }
