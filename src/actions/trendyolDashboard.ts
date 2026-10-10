@@ -80,6 +80,9 @@ export interface TrendyolCategoryEarning {
   gross: number;        // Tutar toplamı (brüt)
   trendyolNet: number;  // Trendyol "Satıcı Hakediş" = Tutar − Komisyon − İndirim
   bankNet: number;      // sağlayıcı %10 sonrası bankaya gelen (kart/nakitte = trendyolNet)
+  // Müşterinin ödediği = Tutar − satıcı indirimi (promosyon + kupon). Gün sonu
+  // nakit fişi bu tutara kesilir. Eski snapshot'larda yok.
+  customerPaid?: number;
 }
 
 export interface TrendyolDashboardStats {
@@ -620,6 +623,7 @@ async function computeTrendyolDashboardStats(
     gross: 0,
     trendyolNet: 0,
     bankNet: 0,
+    customerPaid: 0,
   });
   const creditCard = mkCat(); // Kredi Kartı (PAY_WITH_CARD) — net settlement'tan GERÇEK
   const ticket = mkCat();      // Yemek Kartı (PAY_WITH_MEAL_CARD)
@@ -631,6 +635,7 @@ async function computeTrendyolDashboardStats(
     if (t === "PAY_WITH_CARD") {
       creditCard.count++;
       creditCard.gross += gross;
+      creditCard.customerPaid = (creditCard.customerPaid ?? 0) + Math.max(gross - sellerDiscount(p), 0);
       // Online kartın neti settlement'ta GERÇEK var; yoksa (henüz oluşmadıysa) tahmin.
       const real = financeResult.netByOrder.get(p.orderNumber);
       const net = real ?? estimateTrendyolNet(p, commissionRate);
@@ -640,12 +645,14 @@ async function computeTrendyolDashboardStats(
       const net = estimateTrendyolNet(p, commissionRate);
       ticket.count++;
       ticket.gross += gross;
+      ticket.customerPaid = (ticket.customerPaid ?? 0) + Math.max(gross - sellerDiscount(p), 0);
       ticket.trendyolNet += net;
       ticket.bankNet += net * (1 - PROVIDER_COMMISSION_RATE);
     } else if (t === "PAY_WITH_ON_DELIVERY") {
       const net = estimateTrendyolNet(p, commissionRate);
       onDelivery.count++;
       onDelivery.gross += gross;
+      onDelivery.customerPaid = (onDelivery.customerPaid ?? 0) + Math.max(gross - sellerDiscount(p), 0);
       onDelivery.trendyolNet += net;
       // "kod ile" yemek kartı → sağlayıcı %10; gerçek nakit/kart → kesinti yok.
       const isCode = normalizeMealCardBrand(p.payment?.onDelivery?.paymentType) !== null;

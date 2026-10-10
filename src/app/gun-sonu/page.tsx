@@ -23,6 +23,8 @@ import { ArchiveList } from "@/components/gun-sonu/ArchiveList";
 import { CloseDialog, EMPTY_COUNT, countedValues, type CashCountState } from "@/components/gun-sonu/CloseDialog";
 import {
   EPSILON,
+  advFromParams,
+  advToParams,
   formatDayTR,
   istanbulToday,
   ownNet,
@@ -42,11 +44,16 @@ function buildShareText(r: EndOfDayReport): string {
   const lines: string[] = [
     `📊 Gün Sonu · ${formatDayTR(r.date)}`,
     "",
-    `Sipariş: ${r.packageCount} · Brüt: ${formatCurrency(r.totalRevenue)}`,
+    `Sipariş: ${r.packageCount} · Ciro: ${formatCurrency(r.totalRevenue)}`,
   ];
   if (r.cancelledCount > 0) lines.push(`İptal: ${r.cancelledCount}`);
   lines.push("");
   if (tyShow) lines.push(`🛵 Trendyol net: ${formatCurrency(ty.total)}`);
+  const cc = r.trendyol?.earnings?.creditCard;
+  if (cc && cc.count > 0)
+    lines.push(
+      `🧾 Nakit fiş (Trendyol online kart): ${formatCurrency(cc.customerPaid ?? cc.gross)} (${cc.count} sipariş)`,
+    );
   if (own.net > EPSILON) lines.push(`💵 Kendi ödemeler (net): ${formatCurrency(own.net)}`);
   if (own.mealCut > EPSILON) lines.push(`   ↳ yemek kartı kesintisi: −${formatCurrency(own.mealCut)}`);
   lines.push(`✅ Net toplam: ${formatCurrency(grand)}`);
@@ -76,6 +83,7 @@ function readUrl(today: string): UrlState {
       courier: q.get("kurye") ?? undefined,
       state: STATES.find((x) => x === durum),
       q: q.get("ara") ?? undefined,
+      ...advFromParams(q),
     },
     view: q.get("gorunum") === "urunler" ? "products" : "orders",
   };
@@ -88,6 +96,7 @@ function writeUrl({ date, filter, view }: UrlState, today: string) {
   if (filter.courier) q.set("kurye", filter.courier);
   if (filter.state) q.set("durum", filter.state);
   if (filter.q) q.set("ara", filter.q);
+  advToParams(filter, q);
   if (view === "products") q.set("gorunum", "urunler");
   const qs = q.toString();
   const url = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
@@ -279,12 +288,12 @@ export default function EndOfDayPage() {
           <p className="mt-0.5 text-sm text-muted-foreground">{date ? formatDayTR(date) : "\u00a0"}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center rounded-md border shadow-xs">
+          <div className="flex w-full items-center rounded-md border shadow-xs sm:w-auto">
             <button
               type="button"
               aria-label="Önceki gün"
               onClick={() => date && changeDate(shiftDay(date, -1))}
-              className="flex h-8 w-8 items-center justify-center hover:bg-muted"
+              className="flex size-10 shrink-0 items-center justify-center hover:bg-muted sm:size-8"
             >
               <ChevronLeft className="size-4" />
             </button>
@@ -293,67 +302,91 @@ export default function EndOfDayPage() {
               value={date ?? ""}
               max={today}
               onChange={(e) => e.target.value && changeDate(e.target.value)}
-              className="h-8 border-x bg-background px-2 text-sm outline-none"
+              className="h-10 min-w-0 flex-1 border-x bg-background px-2 text-base outline-none sm:h-8 sm:flex-none sm:text-sm"
             />
             <button
               type="button"
               aria-label="Sonraki gün"
               disabled={!date || date >= today}
               onClick={() => date && changeDate(shiftDay(date, 1))}
-              className="flex h-8 w-8 items-center justify-center hover:bg-muted disabled:opacity-40"
+              className="flex size-10 shrink-0 items-center justify-center hover:bg-muted disabled:opacity-40 sm:size-8"
             >
               <ChevronRight className="size-4" />
             </button>
+            {date && date !== today && (
+              <button
+                type="button"
+                onClick={() => changeDate(today)}
+                className="h-10 shrink-0 border-l px-3 text-sm font-medium hover:bg-muted sm:h-8 sm:px-2.5"
+              >
+                Bugün
+              </button>
+            )}
           </div>
-          {date && date !== today && (
-            <Button variant="ghost" size="sm" onClick={() => changeDate(today)}>
-              Bugün
-            </Button>
-          )}
-          <div className="flex items-center">
-            <Button variant="ghost" size="icon-sm" onClick={load} disabled={isLoading} aria-label="Yenile" title="Yenile">
-              <RefreshCw className={cn("size-3.5", isLoading && "animate-spin")} />
-            </Button>
+          {/* Simgeler + Günü Kapat tek satır — dar ekranda alt satıra kaymasın */}
+          <div className="flex w-full items-center gap-2 sm:w-auto">
+            <div className="flex items-center">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="size-9 sm:size-7"
+                onClick={load}
+                disabled={isLoading}
+                aria-label="Yenile"
+                title="Yenile"
+              >
+                <RefreshCw className={cn("size-3.5", isLoading && "animate-spin")} />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="size-9 sm:size-7"
+                onClick={() => setHistoryOpen(true)}
+                aria-label="Kapatılan günler"
+                title="Kapatılan günler"
+              >
+                <History className="size-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="size-9 sm:size-7"
+                onClick={handleShare}
+                disabled={isLoading || empty}
+                aria-label="Paylaş"
+                title={copied ? "Kopyalandı" : "Paylaş"}
+              >
+                {copied ? <Check className="size-3.5 text-emerald-500" /> : <Share2 className="size-3.5" />}
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="size-9 sm:size-7"
+                onClick={() => window.print()}
+                disabled={isLoading || empty}
+                aria-label="Fiş yazdır"
+                title="Fiş yazdır"
+              >
+                <Printer className="size-3.5" />
+              </Button>
+            </div>
             <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => setHistoryOpen(true)}
-              aria-label="Kapatılan günler"
-              title="Kapatılan günler"
-            >
-              <History className="size-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={handleShare}
+              size="sm"
+              onClick={() => setCloseOpen(true)}
               disabled={isLoading || empty}
-              aria-label="Paylaş"
-              title={copied ? "Kopyalandı" : "Paylaş"}
+              className="ml-auto h-10 shrink-0 gap-1.5 px-4 sm:ml-0 sm:h-7 sm:px-2.5"
             >
-              {copied ? <Check className="size-3.5 text-emerald-500" /> : <Share2 className="size-3.5" />}
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => window.print()}
-              disabled={isLoading || empty}
-              aria-label="Fiş yazdır"
-              title="Fiş yazdır"
-            >
-              <Printer className="size-3.5" />
+              <LockKeyhole className="size-3.5" />
+              {closed ? "Yeniden Kapat" : "Günü Kapat"}
             </Button>
           </div>
-          <Button size="sm" onClick={() => setCloseOpen(true)} disabled={isLoading || empty} className="gap-1.5">
-            <LockKeyhole className="size-3.5" />
-            {closed ? "Yeniden Kapat" : "Günü Kapat"}
-          </Button>
         </div>
       </header>
 
       {/* İki panel — masaüstünde ekranı doldurur, her biri kendi içinde kayar */}
       <main className="flex flex-1 flex-col gap-4 px-4 pb-4 sm:px-6 lg:min-h-0 lg:flex-row lg:px-8 lg:pb-6">
-        <section className="rounded-xl border bg-card shadow-xs lg:min-h-0 lg:w-100 lg:shrink-0 lg:overflow-y-auto">
+        {/* Kaydırma çubuğu gizli: fiş/satır açılınca beliren çubuk içeriği daraltıp tasarımı kaydırıyordu. */}
+        <section className="rounded-xl border bg-card shadow-xs [scrollbar-width:none] lg:min-h-0 lg:w-100 lg:shrink-0 lg:overflow-y-auto [&::-webkit-scrollbar]:hidden">
           <Ledger
             report={report}
             orders={orders}
@@ -405,7 +438,7 @@ export default function EndOfDayPage() {
       )}
 
       <Sheet open={historyOpen} onOpenChange={setHistoryOpen}>
-        <SheetContent className="flex w-full flex-col gap-0 p-0 sm:max-w-md">
+        <SheetContent className="flex w-full flex-col gap-0 p-0 data-[side=right]:w-full sm:max-w-md">
           <SheetHeader className="border-b p-4">
             <SheetTitle>Kapatılan Günler</SheetTitle>
             <SheetDescription>Bir güne tıkla, o günün dökümü açılsın.</SheetDescription>

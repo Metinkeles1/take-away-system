@@ -1,9 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Ban, Bike, Building2, ChevronDown, Clock, Hand, Landmark, Receipt } from "lucide-react";
+import { Ban, Bike, Building2, ChevronDown, Clock, Hand, Landmark, ListFilter, Receipt } from "lucide-react";
 
 import type { EndOfDayComparison, EndOfDayOrder, EndOfDayReport } from "@/actions/endOfDay";
+import type { TrendyolCategoryEarning } from "@/actions/trendyolDashboard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MEAL_CARD_PROVIDER_CUT } from "@/lib/commission";
 import { cn, formatCurrency } from "@/lib/utils";
@@ -28,6 +29,13 @@ interface SubLine {
   scope?: LedgerScope; // varsa tıklanınca listeyi süzer
 }
 
+// Satır açılınca gösterilen hesap: ödenen → kesintiler → net.
+interface Step {
+  label: string;
+  amount: number; // negatif = kesinti
+  total?: boolean; // sonuç satırı (kalın, üstü çizgili)
+}
+
 interface Row {
   key: string;
   label: string;
@@ -36,6 +44,7 @@ interface Row {
   color: string;
   icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
   scope?: LedgerScope;
+  steps?: Step[];
   subs: SubLine[];
   subNote?: string;
 }
@@ -82,6 +91,7 @@ export function Ledger({ report, orders, comparison, targetMin, courierPending, 
   const delivered = orders.filter((o) => o.status === "delivered" && o.durationMin != null);
   const avgDur = delivered.length ? delivered.reduce((s, o) => s + (o.durationMin ?? 0), 0) / delivered.length : null;
   const late = orders.filter((o) => isLate(o, targetMin)).length;
+  const cuts = dayCuts(report);
   const change =
     comparison && comparison.totalRevenue > 0
       ? Math.round(((report.totalRevenue - comparison.totalRevenue) / comparison.totalRevenue) * 100)
@@ -97,25 +107,26 @@ export function Ledger({ report, orders, comparison, targetMin, courierPending, 
         <button
           type="button"
           onClick={() => (r.scope ? select(r.scope) : setExpanded((e) => (e === r.key ? null : r.key)))}
-          className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-muted/60"
+          className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted/60 sm:min-h-0 sm:gap-2.5 sm:px-3"
         >
           <span className="size-2.5 shrink-0 rounded-sm" style={{ background: r.color }} />
-          <Icon className="size-3.5 shrink-0 text-muted-foreground" />
+          <Icon className="hidden size-3.5 shrink-0 text-muted-foreground sm:block" />
           <span className="min-w-0 flex-1 truncate font-medium">{r.label}</span>
           {r.count != null && (
-            <span className="text-[11px] tabular-nums text-muted-foreground">{r.count}</span>
+            <span className="hidden text-[11px] tabular-nums text-muted-foreground sm:inline">{r.count}</span>
           )}
-          <span className="w-24 text-right font-semibold tabular-nums">{formatCurrency(r.amount)}</span>
+          <span className="text-right font-semibold whitespace-nowrap tabular-nums sm:w-24">{formatCurrency(r.amount)}</span>
           <ChevronDown
             className={cn(
               "size-3.5 shrink-0 text-muted-foreground/60 transition-transform",
               open && "rotate-180",
-              r.subs.length === 0 && !r.subNote && "invisible",
+              r.subs.length === 0 && !r.subNote && !r.steps && "invisible",
             )}
           />
         </button>
-        {open && (r.subs.length > 0 || r.subNote) && (
-          <div className="flex flex-col pb-1.5 pl-10 pr-8">
+        {open && (r.subs.length > 0 || r.subNote || r.steps) && (
+          <div className="flex flex-col pr-2 pb-1.5 pl-6 sm:pr-8 sm:pl-10">
+            {r.steps && <Steps steps={r.steps} className="px-2 pb-1.5" />}
             {r.subs.map((s) => (
               <button
                 key={s.label}
@@ -123,7 +134,7 @@ export function Ledger({ report, orders, comparison, targetMin, courierPending, 
                 disabled={!s.scope}
                 onClick={() => s.scope && select(s.scope)}
                 className={cn(
-                  "flex items-center gap-2 rounded px-2 py-1 text-left text-xs",
+                  "flex min-h-9 items-center gap-2 rounded px-2 py-1 text-left text-xs sm:min-h-0",
                   s.scope && "hover:bg-background/70",
                   selected != null && s.scope?.key === selected && "bg-background font-medium ring-1 ring-border",
                 )}
@@ -153,17 +164,21 @@ export function Ledger({ report, orders, comparison, targetMin, courierPending, 
                 "text-xs font-medium tabular-nums",
                 change > 0 ? "text-emerald-600 dark:text-emerald-400" : change < 0 ? "text-rose-600 dark:text-rose-400" : "text-muted-foreground",
               )}
-              title={`Geçen hafta aynı gün brüt: ${formatCurrency(comparison!.totalRevenue)}`}
+              title={`Geçen hafta aynı gün ciro: ${formatCurrency(comparison!.totalRevenue)}`}
             >
               {change > 0 ? "▲" : change < 0 ? "▼" : ""} %{Math.abs(change)} geçen haftaya göre
             </span>
           )}
         </span>
         <span className="text-xs tabular-nums text-muted-foreground">
-          {report.packageCount} paket · brüt {formatCurrency(report.totalRevenue)} · ort. sepet{" "}
-          {formatCurrency(report.avgBasket)}
+          {report.packageCount} paket · ort. sepet {formatCurrency(report.avgBasket)}
           {avgDur != null && ` · ort. teslim ${Math.round(avgDur)} dk`}
         </span>
+        <div className="mt-2 flex flex-col gap-0.5 rounded-lg bg-muted/50 px-3 py-2 sm:grid sm:grid-cols-3 sm:gap-2 sm:bg-transparent sm:p-0">
+          <Stat label="Ciro" hint="Müşterilerin ödediği" value={cuts.revenue} />
+          <Stat label="Trendyol kesintisi" hint="Komisyon" value={-cuts.commission} />
+          <Stat label="Yemek k. kesintisi" hint="Sağlayıcı %10" value={-cuts.mealCut} />
+        </div>
       </div>
 
       {/* Dağılım şeridi — satırların renk noktaları açıklamasıdır */}
@@ -179,6 +194,13 @@ export function Ledger({ report, orders, comparison, targetMin, courierPending, 
           ))}
         </div>
       )}
+
+      <ReceiptCard
+        report={report}
+        orders={orders}
+        active={selected === "ty-receipt"}
+        onShowOrders={() => select(scopeFromKey("ty-receipt"))}
+      />
 
       {/* Defter satırları */}
       <div className="mt-3 flex flex-col px-2">
@@ -237,6 +259,194 @@ export function Ledger({ report, orders, comparison, targetMin, courierPending, 
   );
 }
 
+// Trendyol ödeme türünün hesabı: müşterinin ödediği → komisyon → yemek kartı
+// sağlayıcı kesintisi → sana geçen net. customerPaid yoksa (eski snapshot)
+// indirimsiz tutara düşülür; o durumda "komisyon" kampanya indirimini de içerir.
+interface CatBreak {
+  count: number;
+  paid: number;
+  discount: number; // restoranın kampanya indirimi (ödenen tutara zaten yansımış)
+  commission: number;
+  providerCut: number;
+  net: number;
+}
+
+function catBreak(c: TrendyolCategoryEarning | undefined): CatBreak {
+  if (!c) return { count: 0, paid: 0, discount: 0, commission: 0, providerCut: 0, net: 0 };
+  const paid = c.customerPaid ?? c.gross;
+  return {
+    count: c.count,
+    paid,
+    discount: Math.max(c.gross - paid, 0),
+    commission: Math.max(paid - c.trendyolNet, 0),
+    providerCut: Math.max(c.trendyolNet - c.bankNet, 0),
+    net: c.bankNet,
+  };
+}
+
+function addBreak(a: CatBreak, b: CatBreak): CatBreak {
+  return {
+    count: a.count + b.count,
+    paid: a.paid + b.paid,
+    discount: a.discount + b.discount,
+    commission: a.commission + b.commission,
+    providerCut: a.providerCut + b.providerCut,
+    net: a.net + b.net,
+  };
+}
+
+function tyBreaks(report: EndOfDayReport) {
+  const e = report.trendyol?.available ? report.trendyol.earnings : null;
+  return {
+    card: catBreak(e?.creditCard),
+    ticket: catBreak(e?.ticket),
+    door: catBreak(e?.onDelivery),
+    hasEarnings: !!e,
+  };
+}
+
+// Günün kesinti özeti (başlıktaki üç rakam).
+function dayCuts(report: EndOfDayReport) {
+  const t = tyBreaks(report);
+  const all = addBreak(addBreak(t.card, t.ticket), t.door);
+  return {
+    revenue: report.totalRevenue,
+    commission: all.commission,
+    mealCut: all.providerCut + ownNet(report).mealCut,
+  };
+}
+
+function Stat({ label, hint, value }: { label: string; hint: string; value: number }) {
+  return (
+    <div
+      className="flex min-w-0 items-baseline justify-between gap-2 sm:flex-col sm:items-stretch sm:gap-0 sm:rounded-lg sm:bg-muted/50 sm:px-2 sm:py-1.5"
+      title={hint}
+    >
+      <span className="truncate text-xs text-muted-foreground">{label}</span>
+      <span
+        className={cn(
+          "text-sm font-semibold whitespace-nowrap tabular-nums sm:truncate",
+          value < 0 && "text-rose-600 dark:text-rose-400",
+        )}
+      >
+        {value < 0 ? `−${formatCurrency(-value)}` : formatCurrency(value)}
+      </span>
+    </div>
+  );
+}
+
+function Steps({ steps, className }: { steps: Step[]; className?: string }) {
+  return (
+    <div className={cn("flex flex-col gap-0.5 text-xs", className)}>
+      {steps.map((st) => (
+        <div
+          key={st.label}
+          className={cn(
+            "flex justify-between gap-3",
+            st.total ? "mt-0.5 border-t pt-1 font-semibold" : "text-muted-foreground",
+          )}
+        >
+          <span className="min-w-0">{st.label}</span>
+          <span className="whitespace-nowrap tabular-nums">
+            {st.amount < 0 ? `−${formatCurrency(-st.amount)}` : formatCurrency(st.amount)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Ödenen → kesintiler → net adımları; sıfır kesintiler gösterilmez.
+function breakSteps(b: CatBreak, paidLabel: string, netLabel: string, cutLabel = "Yemek kartı kesintisi (%10)"): Step[] {
+  const steps: Step[] = [{ label: paidLabel, amount: b.paid }];
+  if (b.commission > EPSILON) steps.push({ label: "Trendyol komisyonu", amount: -b.commission });
+  if (b.providerCut > EPSILON) steps.push({ label: cutLabel, amount: -b.providerCut });
+  steps.push({ label: netLabel, amount: b.net, total: true });
+  return steps;
+}
+
+// Gün sonu toplu nakit fiş — yalnız Trendyol ONLINE kredi kartı siparişleri.
+// Yemek kartı (online/kod) ve kapıda ödemeler fişe girmez. Fiş tutarı = müşterinin
+// ödediği (indirimsiz tutar − restoran kampanya indirimi). Rapor bunu taşımıyorsa
+// (eski snapshot) sipariş arşivinden toplanır. Kapalı gelir (yer kaplamasın);
+// tıklayınca fişten bankaya köprü dökümü ve "siparişleri göster" açılır.
+function ReceiptCard({
+  report,
+  orders,
+  active,
+  onShowOrders,
+}: {
+  report: EndOfDayReport;
+  orders: EndOfDayOrder[];
+  active: boolean;
+  onShowOrders: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const cc = report.trendyol?.available ? report.trendyol.earnings?.creditCard : undefined;
+  const fromOrders = useMemo(() => {
+    let paid = 0;
+    let discount = 0;
+    let count = 0;
+    for (const o of orders) {
+      if (o.channel !== "trendyol" || o.method !== "online" || o.status === "cancelled") continue;
+      paid += o.total;
+      discount += o.discount;
+      count++;
+    }
+    return { paid, discount, count };
+  }, [orders]);
+  if (!cc || cc.count === 0) return null;
+
+  const paid = cc.customerPaid ?? (fromOrders.count > 0 ? fromOrders.paid : cc.gross);
+  const discount = cc.customerPaid != null ? cc.gross - cc.customerPaid : fromOrders.discount;
+  const steps: Step[] = [
+    { label: "Sipariş tutarı (indirimsiz)", amount: paid + discount },
+    ...(discount > EPSILON ? [{ label: "Kampanya indirimi", amount: -discount }] : []),
+    { label: "Fiş tutarı · müşterinin ödediği", amount: paid, total: true },
+    { label: "Trendyol komisyonu", amount: -Math.max(paid - cc.trendyolNet, 0) },
+    { label: "Kredi kartından bankaya", amount: cc.trendyolNet, total: true },
+  ];
+  return (
+    <div
+      className={cn(
+        "mx-4 mt-4 rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40",
+        active && "ring-2 ring-amber-400",
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left"
+      >
+        <Receipt className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="text-sm leading-tight font-medium">Nakit fiş kesilecek</span>
+          <span className="text-xs text-muted-foreground">Online kart · {cc.count} sipariş</span>
+        </span>
+        <span className="text-base font-bold whitespace-nowrap tabular-nums sm:text-lg">{formatCurrency(paid)}</span>
+        <ChevronDown className={cn("size-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
+      </button>
+      {open && (
+        <div className="flex flex-col gap-2 border-t border-amber-300/60 px-3 pt-2 pb-3 dark:border-amber-800/60">
+          <Steps steps={steps} />
+          <p className="text-xs text-muted-foreground">
+            Fişi müşterinin ödediği tutara kes. Yemek kartı ve kapıda ödemeler fişe girmez.
+          </p>
+          <button
+            type="button"
+            onClick={onShowOrders}
+            className="inline-flex min-h-9 items-center gap-1.5 self-start rounded-md px-2 text-xs font-medium text-amber-700 hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-950/70"
+          >
+            <ListFilter className="size-3.5" />
+            {active ? "Liste filtresini kaldır" : "Siparişleri listede göster"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Notice({
   icon: Icon,
   tone,
@@ -260,14 +470,14 @@ function Notice({
       disabled={!onClick}
       onClick={onClick}
       className={cn(
-        "flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm",
+        "flex min-h-10 items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm sm:min-h-0",
         onClick && "hover:bg-muted/60",
         active && "bg-muted ring-1 ring-border",
       )}
     >
       <Icon className={cn("size-3.5 shrink-0", color)} />
-      <span className="min-w-0 flex-1 truncate text-muted-foreground">{label}</span>
-      <span className={cn("font-semibold tabular-nums", color)}>{value}</span>
+      <span className="min-w-0 flex-1 text-muted-foreground sm:truncate">{label}</span>
+      <span className={cn("shrink-0 font-semibold whitespace-nowrap tabular-nums", color)}>{value}</span>
     </button>
   );
 }
@@ -276,35 +486,41 @@ function Notice({
 function buildRows(report: EndOfDayReport, orders: EndOfDayOrder[]): Row[] {
   const rows: Row[] = [];
   const ty = trendyolNet(report.trendyol);
+  const tb = tyBreaks(report);
+  const bank = addBreak(tb.card, tb.ticket);
   const lines = report.trendyol?.lines ?? [];
-  const tySub = (group: "online" | "onsite") =>
-    lines.filter((l) => l.group === group).map((l) => ({ label: l.label, count: l.count, amount: l.gross }));
   const tyCount = (group: "online" | "onsite") =>
     lines.filter((l) => l.group === group).reduce((s, l) => s + l.count, 0);
+  const discountNote = (d: number) =>
+    d > EPSILON ? `Kampanya indirimi ${formatCurrency(d)} müşterinin ödediğinden zaten düşülü.` : undefined;
 
   if (ty.bankNet > EPSILON)
     rows.push({
       key: "ty-bank",
       label: "Trendyol · bankaya",
-      count: tyCount("online"),
+      count: tyCount("online") || bank.count,
       amount: ty.bankNet,
       color: "#f97316",
       icon: Landmark,
       scope: scopeFromKey("ty-bank"),
-      subs: tySub("online"),
-      subNote: "Tutarlar brüt; satırdaki rakam komisyon ve yemek kartı kesintisi sonrası net.",
+      steps: tb.hasEarnings ? breakSteps(bank, "Müşterilerin ödediği", "Bankaya yatacak") : undefined,
+      subs: tySubs(orders, false),
+      subNote: discountNote(bank.discount),
     });
   if (ty.onsiteNet > EPSILON)
     rows.push({
       key: "ty-door",
       label: "Trendyol · kapıda",
-      count: tyCount("onsite"),
+      count: tyCount("onsite") || tb.door.count,
       amount: ty.onsiteNet,
       color: "#c2410c",
       icon: Hand,
       scope: scopeFromKey("ty-door"),
-      subs: tySub("onsite"),
-      subNote: "Tutarlar brüt; satırdaki rakam komisyon sonrası net.",
+      steps: tb.hasEarnings
+        ? breakSteps(tb.door, "Kapıda alınan", "Sana kalan net", "Kodla yemek kartı kesintisi (%10)")
+        : undefined,
+      subs: tySubs(orders, true),
+      subNote: discountNote(tb.door.discount),
     });
 
   const local = [...report.localPaymentBreakdown]
@@ -337,6 +553,13 @@ function buildRows(report: EndOfDayReport, orders: EndOfDayOrder[]): Row[] {
     }
     const isMeal = r.key === "meal_card";
     const cut = isMeal ? ownNet(report).mealCut : 0;
+    const steps: Step[] | undefined = isMeal
+      ? [
+          { label: "Müşterilerin ödediği", amount: r.amount },
+          { label: `Yemek kartı kesintisi (%${Math.round(MEAL_CARD_PROVIDER_CUT * 100)})`, amount: -cut },
+          { label: "Sana kalan net", amount: r.amount - cut, total: true },
+        ]
+      : undefined;
     rows.push({
       key: `own-${r.key}`,
       label: `Kendi · ${m.short}`,
@@ -345,14 +568,38 @@ function buildRows(report: EndOfDayReport, orders: EndOfDayOrder[]): Row[] {
       color: m.color,
       icon: m.icon,
       scope: scopeFromKey(`own-${r.key}`),
+      steps,
       subs,
-      subNote: isMeal
-        ? `Brüt ${formatCurrency(r.amount)} − %${Math.round(MEAL_CARD_PROVIDER_CUT * 100)} kart kesintisi ${formatCurrency(cut)}. Kasa sayımında brüt girilir.`
-        : undefined,
+      subNote: isMeal ? "Kasa sayımında kesintisiz tutar girilir." : undefined,
     });
   }
 
   return rows;
+}
+
+// Trendyol alt satırları — sipariş arşivinden, müşterinin ödediği tutarla.
+// onDoor=false → bankaya (online kart + online yemek kartı); true → kapıda.
+function tySubs(orders: EndOfDayOrder[], onDoor: boolean): SubLine[] {
+  const map = new Map<string, SubLine>();
+  for (const o of orders) {
+    if (o.channel !== "trendyol" || o.status === "cancelled" || o.onDoor !== onDoor) continue;
+    const label =
+      o.method === "meal_card"
+        ? `Yemek kartı · ${o.mealCardBrand ?? "Diğer"}${onDoor ? " (kod)" : ""}`
+        : o.method === "online"
+          ? "Online kart"
+          : (METHOD_META[o.method] ?? METHOD_META.other).short;
+    const sub = map.get(label) ?? {
+      label,
+      count: 0,
+      amount: 0,
+      scope: o.method === "online" ? scopeFromKey("ty-receipt") : undefined,
+    };
+    sub.count++;
+    sub.amount += o.total;
+    map.set(label, sub);
+  }
+  return [...map.values()].sort((a, b) => b.amount - a.amount);
 }
 
 // Kurumsal fişler açık hesaptır: o gün kasaya girmez → "eline geçen net"e

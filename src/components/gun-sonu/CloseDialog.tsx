@@ -45,8 +45,10 @@ export function CloseDialog({ open, onOpenChange, report, closed, busy, count, o
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-3xl">
-        <DialogHeader>
+      {/* Başlık ve düğmeler sabit, ortası kayar — telefonda adres çubuğu/alt menü
+          görünür alanı daraltınca düğmeler ekran dışına taşmasın (dvh). */}
+      <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 p-0 sm:max-w-3xl">
+        <DialogHeader className="border-b p-4 pr-12">
           <DialogTitle className="flex items-center gap-2">
             <LockKeyhole className="size-4" />
             {closed ? "Günü Yeniden Kapat" : "Günü Kapat"}
@@ -57,7 +59,7 @@ export function CloseDialog({ open, onOpenChange, report, closed, busy, count, o
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto overscroll-contain p-4 md:grid-cols-2">
           <div className="flex flex-col gap-3">
             {count.show ? (
               <CashCountCard
@@ -108,15 +110,16 @@ export function CloseDialog({ open, onOpenChange, report, closed, busy, count, o
           </div>
         </div>
 
-        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={busy}>
+        <div className="grid grid-cols-2 gap-2 border-t p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:flex sm:justify-end">
+          {/* Mobilde Vazgeç yerine sağ üstteki × — iki ana düğme yan yana sığsın */}
+          <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={busy} className="hidden sm:inline-flex">
             Vazgeç
           </Button>
-          <Button variant="outline" onClick={() => onConfirm(false)} disabled={busy} className="gap-1.5">
+          <Button variant="outline" onClick={() => onConfirm(false)} disabled={busy} className="h-10 gap-1.5 sm:h-8">
             <LockKeyhole className="size-3.5" />
             Kapat
           </Button>
-          <Button onClick={() => onConfirm(true)} disabled={busy} className="gap-1.5">
+          <Button onClick={() => onConfirm(true)} disabled={busy} className="h-10 gap-1.5 sm:h-8">
             <Printer className="size-3.5" />
             Kapat ve Yazdır
           </Button>

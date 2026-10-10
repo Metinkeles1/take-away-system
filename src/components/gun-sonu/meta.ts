@@ -48,6 +48,8 @@ export interface LedgerScope {
 // düğmesi de kapsamı buradan üretir → tek tanım.
 export function scopeFromKey(key: string): LedgerScope | undefined {
   if (key === "ty-bank") return { key, label: "Trendyol · online", channel: "trendyol", onDoor: false };
+  if (key === "ty-receipt")
+    return { key, label: "Trendyol · online kart", channel: "trendyol", onDoor: false, methods: ["online"] };
   if (key === "ty-door") return { key, label: "Trendyol · kapıda", channel: "trendyol", onDoor: true };
   if (key === "ch-own") return { key, label: "Kendi", channel: "own" };
   if (key === "ch-trendyol") return { key, label: "Trendyol", channel: "trendyol" };
@@ -68,6 +70,137 @@ export interface OrderFilter {
   courier?: string; // NO_COURIER = kurye atanmamış
   state?: "cancelled" | "open" | "late";
   q?: string;
+  adv?: AdvancedFilter;
+  sort?: SortKey;
+}
+
+// Detaylı filtre (Filtre paneli). Grup içi seçimler VEYA, gruplar arası VE.
+export type AdvStatus = "delivered" | "active" | "open" | "late" | "cancelled";
+export interface AdvancedFilter {
+  methods?: string[]; // cash/card/online/meal_card/iban
+  brands?: string[]; // yemek kartı markası (yalnız yemek kartı parçaları)
+  from?: string; // "HH:MM" — from > to ise gece yarısını aşar (22:00–04:00)
+  to?: string;
+  statuses?: AdvStatus[];
+  min?: number; // sipariş tutarı (brüt)
+  max?: number;
+  districts?: string[];
+}
+
+export type SortKey = "new" | "old" | "amount-desc" | "amount-asc" | "slow";
+
+export const ADV_STATUS_LABEL: Record<AdvStatus, string> = {
+  delivered: "Teslim edildi",
+  active: "Yolda / aktif",
+  open: "Açık hesap",
+  late: "Geç teslim",
+  cancelled: "İptal",
+};
+
+export const SORT_LABEL: Record<SortKey, string> = {
+  new: "En yeni",
+  old: "En eski",
+  "amount-desc": "Tutar ↓",
+  "amount-asc": "Tutar ↑",
+  slow: "En uzun teslim",
+};
+
+export const NO_BRAND = "Belirtilmemiş";
+
+// Kaç detaylı filtre grubu dolu — Filtre düğmesindeki rozet.
+export function advCount(a: AdvancedFilter | undefined): number {
+  if (!a) return 0;
+  return (
+    (a.methods?.length ? 1 : 0) +
+    (a.brands?.length ? 1 : 0) +
+    (a.from || a.to ? 1 : 0) +
+    (a.statuses?.length ? 1 : 0) +
+    (a.min != null || a.max != null ? 1 : 0) +
+    (a.districts?.length ? 1 : 0)
+  );
+}
+
+// Boş grupları at; hiçbiri kalmazsa undefined (adres çubuğu temiz kalsın).
+export function cleanAdv(a: AdvancedFilter): AdvancedFilter | undefined {
+  const out: AdvancedFilter = {};
+  if (a.methods?.length) out.methods = a.methods;
+  if (a.brands?.length) out.brands = a.brands;
+  if (a.from) out.from = a.from;
+  if (a.to) out.to = a.to;
+  if (a.statuses?.length) out.statuses = a.statuses;
+  if (a.min != null) out.min = a.min;
+  if (a.max != null) out.max = a.max;
+  if (a.districts?.length) out.districts = a.districts;
+  return advCount(out) > 0 ? out : undefined;
+}
+
+function inHours(time: string, from?: string, to?: string): boolean {
+  if (from && to && from > to) return time >= from || time <= to; // gece yarısını aşan aralık
+  return (!from || time >= from) && (!to || time <= to);
+}
+
+function advStatusMatch(o: EndOfDayOrder, s: AdvStatus, targetMin: number): boolean {
+  if (s === "open") return o.open;
+  if (s === "late") return isLate(o, targetMin);
+  return o.status === s;
+}
+
+// Parça detaylı filtrenin yöntem/marka şartına uyuyor mu.
+function advPartMatch(p: EndOfDaySplitPart, a: AdvancedFilter | undefined): boolean {
+  if (a?.methods?.length && !a.methods.includes(p.method)) return false;
+  if (a?.brands?.length && !(p.method === "meal_card" && a.brands.includes(p.mealCardBrand ?? NO_BRAND))) return false;
+  return true;
+}
+
+// URL ↔ detaylı filtre + sıralama. Liste değerleri "|" ile ayrılır (marka/mahalle
+// adında virgül olabilir).
+const SORT_KEYS = Object.keys(SORT_LABEL) as SortKey[];
+const ADV_STATUSES = Object.keys(ADV_STATUS_LABEL) as AdvStatus[];
+const HHMM = /^\d{2}:\d{2}$/;
+
+export function advToParams(f: OrderFilter, q: URLSearchParams) {
+  const a = f.adv;
+  if (a?.methods?.length) q.set("odeme", a.methods.join("|"));
+  if (a?.brands?.length) q.set("marka", a.brands.join("|"));
+  if (a?.from || a?.to) q.set("saat", `${a.from ?? ""}-${a.to ?? ""}`);
+  if (a?.statuses?.length) q.set("asama", a.statuses.join("|"));
+  if (a?.min != null) q.set("min", String(a.min));
+  if (a?.max != null) q.set("max", String(a.max));
+  if (a?.districts?.length) q.set("mahalle", a.districts.join("|"));
+  if (f.sort && f.sort !== "new") q.set("sirala", f.sort);
+}
+
+export function advFromParams(q: URLSearchParams): Pick<OrderFilter, "adv" | "sort"> {
+  const list = (k: string) => q.get(k)?.split("|").filter(Boolean);
+  const num = (k: string) => {
+    const n = Number(q.get(k));
+    return q.get(k) && Number.isFinite(n) ? n : undefined;
+  };
+  const [from, to] = (q.get("saat") ?? "-").split("-");
+  const sort = q.get("sirala") as SortKey | null;
+  return {
+    adv: cleanAdv({
+      methods: list("odeme")?.filter((m) => METHOD_META[m]),
+      brands: list("marka"),
+      from: HHMM.test(from) ? from : undefined,
+      to: HHMM.test(to) ? to : undefined,
+      statuses: list("asama")?.filter((x): x is AdvStatus => ADV_STATUSES.includes(x as AdvStatus)),
+      min: num("min"),
+      max: num("max"),
+      districts: list("mahalle"),
+    }),
+    sort: sort && SORT_KEYS.includes(sort) ? sort : undefined,
+  };
+}
+
+export function sortOrders(list: EndOfDayOrder[], sort: SortKey | undefined): EndOfDayOrder[] {
+  if (!sort || sort === "new") return list; // sunucu zaten en yeni → en eski sıralı
+  const out = [...list];
+  if (sort === "old") out.reverse();
+  else if (sort === "amount-desc") out.sort((a, b) => b.total - a.total);
+  else if (sort === "amount-asc") out.sort((a, b) => a.total - b.total);
+  else if (sort === "slow") out.sort((a, b) => (b.durationMin ?? -1) - (a.durationMin ?? -1));
+  return out;
 }
 
 export const NO_COURIER = "__none__";
@@ -77,33 +210,45 @@ export function orderParts(o: EndOfDayOrder): EndOfDaySplitPart[] {
   return o.split ?? [{ method: o.method, amount: o.total, mealCardBrand: o.mealCardBrand }];
 }
 
-// Kapsamdaki parçalar (yöntem + marka). Kapsamda yöntem yoksa tüm parçalar.
-function scopedParts(o: EndOfDayOrder, sc: LedgerScope | undefined): EndOfDaySplitPart[] {
+// Kapsamdaki parçalar (yöntem + marka; defter kapsamı + detaylı filtre).
+// Hiç yöntem şartı yoksa tüm parçalar.
+function scopedParts(o: EndOfDayOrder, sc: LedgerScope | undefined, a?: AdvancedFilter): EndOfDaySplitPart[] {
   return orderParts(o).filter(
     (p) =>
       (!sc?.methods || sc.methods.includes(p.method)) &&
-      (!sc?.brand || (p.mealCardBrand ?? "Belirtilmemiş") === sc.brand),
+      (!sc?.brand || (p.mealCardBrand ?? NO_BRAND) === sc.brand) &&
+      advPartMatch(p, a),
   );
+}
+
+function hasPartRule(sc: LedgerScope | undefined, a: AdvancedFilter | undefined): boolean {
+  return !!(sc?.methods || sc?.brand || a?.methods?.length || a?.brands?.length);
 }
 
 // Kapsama düşen tutar: bölünmüş siparişte yalnız ilgili parça ("Nakit" filtresinde
 // 300 nakit + 100 kart → 300), aksi halde sipariş toplamı.
-export function scopedAmount(o: EndOfDayOrder, sc: LedgerScope | undefined): number {
-  if (!o.split || (!sc?.methods && !sc?.brand)) return o.total;
-  return scopedParts(o, sc).reduce((s, p) => s + p.amount, 0);
+export function scopedAmount(o: EndOfDayOrder, f: OrderFilter): number {
+  if (!o.split || !hasPartRule(f.scope, f.adv)) return o.total;
+  return scopedParts(o, f.scope, f.adv).reduce((s, p) => s + p.amount, 0);
 }
 
 export function matchesFilter(o: EndOfDayOrder, f: OrderFilter, targetMin: number): boolean {
   const sc = f.scope;
+  const a = f.adv;
   if (sc?.channel && o.channel !== sc.channel) return false;
-  if ((sc?.methods || sc?.brand) && scopedParts(o, sc).length === 0) return false;
+  if (hasPartRule(sc, a) && scopedParts(o, sc, a).length === 0) return false;
   if (sc?.onDoor != null && o.onDoor !== sc.onDoor) return false;
   if (f.courier && (o.courier ?? NO_COURIER) !== f.courier) return false;
   if (f.state === "cancelled" && o.status !== "cancelled") return false;
   if (f.state === "open" && !o.open) return false;
   if (f.state === "late" && !isLate(o, targetMin)) return false;
-  // İptaller yalnız "İptal" filtresinde görünür — aksi halde toplamları şişirir.
-  if (f.state !== "cancelled" && o.status === "cancelled") return false;
+  // İptaller yalnız "İptal" seçilince görünür — aksi halde toplamları şişirir.
+  if (f.state !== "cancelled" && !a?.statuses?.includes("cancelled") && o.status === "cancelled") return false;
+  if (a?.statuses?.length && !a.statuses.some((x) => advStatusMatch(o, x, targetMin))) return false;
+  if ((a?.from || a?.to) && !inHours(o.time, a.from, a.to)) return false;
+  if (a?.min != null && o.total < a.min) return false;
+  if (a?.max != null && o.total > a.max) return false;
+  if (a?.districts?.length && !a.districts.includes(o.district ?? "")) return false;
   if (f.q) {
     const q = f.q.toLocaleLowerCase("tr-TR");
     if (

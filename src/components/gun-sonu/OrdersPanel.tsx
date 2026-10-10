@@ -1,26 +1,34 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Bike, List, Package, Search, X } from "lucide-react";
+import { useDeferredValue, useMemo, useState, useSyncExternalStore } from "react";
+import { Bike, List, Package, Search, SlidersHorizontal, X } from "lucide-react";
 
 import type { EndOfDayOrder } from "@/actions/endOfDay";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Segmented } from "@/components/dashboard/komuta/KomutaUI";
 import { TrendyolOrderSheet } from "@/components/dashboard/komuta/TrendyolOrderSheet";
 import { cn, formatCurrency } from "@/lib/utils";
 
 import {
+  ADV_STATUS_LABEL,
   CHANNEL_DOT,
   EPSILON,
   METHOD_META,
   NO_COURIER,
+  SORT_LABEL,
+  advCount,
+  cleanAdv,
   fmtMin,
   isLate,
   matchesFilter,
   scopedAmount,
   scopeFromKey,
+  sortOrders,
+  type AdvancedFilter,
   type OrderFilter,
 } from "./meta";
+import { FilterSheet } from "./FilterSheet";
 import { OwnOrderSheet } from "./OwnOrderSheet";
 import { ProductsView } from "./ProductsView";
 
@@ -36,6 +44,16 @@ interface Props {
   onViewChange: (v: PanelView) => void;
 }
 
+// md ve üstü tablo, altı kart — ikisini birden çizip CSS ile gizlemek DOM'u ikiye katlar.
+const MD_QUERY = "(min-width: 768px)";
+const subscribeMd = (cb: () => void) => {
+  const mq = window.matchMedia(MD_QUERY);
+  mq.addEventListener("change", cb);
+  return () => mq.removeEventListener("change", cb);
+};
+const getMd = () => window.matchMedia(MD_QUERY).matches;
+const getMdServer = () => true;
+
 const STATE_LABEL = { open: "Açık hesap", late: "Geç teslim", cancelled: "İptal" } as const;
 
 // Günün siparişleri (kendi + Trendyol) — Para Defteri'nden gelen kapsamla süzülür.
@@ -46,7 +64,10 @@ export function OrdersPanel({ orders, isLoading, targetMin, filter, onFilterChan
   const [tyOrder, setTyOrder] = useState<string | null>(null);
   const [ownOrder, setOwnOrder] = useState<string | null>(null);
   const openOrder = (o: EndOfDayOrder) => (o.id ? setOwnOrder(o.id) : setTyOrder(o.orderNumber));
+  const [filterOpen, setFilterOpen] = useState(false);
   const set = (patch: Partial<OrderFilter>) => onFilterChange({ ...filter, ...patch });
+  const clearAdv = (patch: Partial<AdvancedFilter>) => set({ adv: cleanAdv({ ...filter.adv, ...patch }) });
+  const nAdv = advCount(filter.adv);
 
   const couriers = useMemo(() => {
     const map = new Map<string, { n: number; mins: number[] }>();
@@ -65,10 +86,37 @@ export function OrdersPanel({ orders, isLoading, targetMin, filter, onFilterChan
       .sort((a, b) => (a.key === NO_COURIER ? 1 : b.key === NO_COURIER ? -1 : b.n - a.n));
   }, [orders]);
 
-  const list = useMemo(() => orders.filter((o) => matchesFilter(o, filter, targetMin)), [orders, filter, targetMin]);
-  // Yöntem filtresinde bölünmüş siparişin yalnız ilgili parçası toplanır.
-  const gross = list.reduce((s, o) => s + scopedAmount(o, filter.scope), 0);
-  const tyNet = list.reduce((s, o) => s + (o.net ?? 0), 0);
+  const isMd = useSyncExternalStore(subscribeMd, getMd, getMdServer);
+  // Yazarken/seçerken giriş akıcı kalsın: liste süzme düşük öncelikte yeniden çizilir.
+  const deferred = useDeferredValue(filter);
+  const { list, gross, tyNet } = useMemo(() => {
+    const list = sortOrders(
+      orders.filter((o) => matchesFilter(o, deferred, targetMin)),
+      deferred.sort,
+    );
+    // Yöntem filtresinde bölünmüş siparişin yalnız ilgili parçası toplanır.
+    let gross = 0;
+    let tyNet = 0;
+    for (const o of list) {
+      gross += scopedAmount(o, deferred);
+      tyNet += o.net ?? 0;
+    }
+    return { list, gross, tyNet };
+  }, [orders, deferred, targetMin]);
+
+  const viewToggle = (
+    <Segmented
+      ariaLabel="Görünüm"
+      value={view}
+      onChange={onViewChange}
+      className="h-10 shrink-0 md:h-8"
+      options={[
+        // Mobilde yalnız ikon — arama satırına sığsın.
+        { id: "orders", label: isMd ? "Siparişler" : "", icon: List },
+        { id: "products", label: isMd ? "Ürünler" : "", icon: Package },
+      ]}
+    />
+  );
 
   // Kanal düğmesi = defterdeki kapsamın kanal-only hâli ("ch-own"/"ch-trendyol").
   const channelValue = filter.scope?.key.startsWith("ch-") ? (filter.scope.channel ?? "all") : "all";
@@ -76,43 +124,59 @@ export function OrdersPanel({ orders, isLoading, targetMin, filter, onFilterChan
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* Başlık: arama + kanal */}
-      <div className="flex flex-col gap-2 border-b p-3 sm:flex-row sm:items-center">
-        <div className="relative flex-1">
-          <Search className="absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <input
-            value={filter.q ?? ""}
-            onChange={(e) => set({ q: e.target.value || undefined })}
-            placeholder="No, müşteri, mahalle ara"
-            className="h-8 w-full rounded-lg border bg-background pr-3 pl-8 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          />
+      {/* Başlık: arama + filtre (+ mobilde görünüm) / kanal. Dar ekranda kanal
+          seçici kendi satırında tam genişlik — yan yana sığmayınca sağa taşıyordu. */}
+      <div className="flex flex-col gap-2 border-b p-3 md:flex-row md:items-center">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <div className="relative min-w-0 flex-1">
+            <Search className="absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={filter.q ?? ""}
+              onChange={(e) => set({ q: e.target.value || undefined })}
+              placeholder={isMd ? "No, müşteri, mahalle ara" : "Ara"}
+              aria-label="No, müşteri, mahalle ara"
+              className="h-10 w-full rounded-lg border bg-background pr-3 pl-8 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring md:h-8 md:text-sm"
+            />
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setFilterOpen(true)}
+            aria-label="Filtre"
+            className={cn(
+              "relative h-10 shrink-0 gap-1.5 px-3 md:h-7 md:px-2.5",
+              (nAdv > 0 || filter.sort) && "border-foreground/30",
+            )}
+          >
+            <SlidersHorizontal className="size-4 md:size-3.5" />
+            <span className="hidden md:inline">Filtre</span>
+            {nAdv > 0 && (
+              <span className="rounded-full bg-foreground px-1.5 text-[10px] font-semibold text-background tabular-nums">
+                {nAdv}
+              </span>
+            )}
+          </Button>
+          {!isMd && viewToggle}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-2">
           <Segmented
             ariaLabel="Kanal"
             value={channelValue}
             onChange={(v) => set({ scope: v === "all" ? undefined : scopeFromKey(`ch-${v}`) })}
+            className="h-10 w-full md:h-8 md:w-auto [&>button]:flex-1 [&>button]:justify-center"
             options={[
               { id: "all", label: "Tümü" },
               { id: "own", label: "Kendi", dot: "bg-blue-500" },
               { id: "trendyol", label: "Trendyol", dot: "bg-orange-500" },
             ]}
           />
-          <Segmented
-            ariaLabel="Görünüm"
-            value={view}
-            onChange={onViewChange}
-            options={[
-              { id: "orders", label: "Siparişler", icon: List },
-              { id: "products", label: "Ürünler", icon: Package },
-            ]}
-          />
+          {isMd && viewToggle}
         </div>
       </div>
 
       {/* Kurye çipleri */}
       {couriers.length > 0 && (
-        <div className="flex gap-1.5 overflow-x-auto border-b px-3 py-2">
+        <div className="flex gap-1.5 overflow-x-auto overscroll-x-contain border-b px-3 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {couriers.map((c) => {
             const active = filter.courier === c.key;
             const slow = c.avg != null && c.avg > targetMin;
@@ -123,7 +187,7 @@ export function OrdersPanel({ orders, isLoading, targetMin, filter, onFilterChan
                 onClick={() => set({ courier: active ? undefined : c.key })}
                 aria-pressed={active}
                 className={cn(
-                  "flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors",
+                  "flex min-h-9 shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors sm:min-h-0",
                   active ? "border-foreground/30 bg-foreground/5 ring-1 ring-foreground/20" : "hover:bg-muted/60",
                 )}
               >
@@ -148,9 +212,15 @@ export function OrdersPanel({ orders, isLoading, targetMin, filter, onFilterChan
         </span>
         {scopeChip && <ActiveChip label={scopeChip.label} onClear={() => set({ scope: undefined })} />}
         {filter.state && <ActiveChip label={STATE_LABEL[filter.state]} onClear={() => set({ state: undefined })} />}
+        {advChips(filter.adv).map((c) => (
+          <ActiveChip key={c.key} label={c.label} onClear={() => clearAdv(c.clear)} />
+        ))}
+        {filter.sort && (
+          <ActiveChip label={`Sıra: ${SORT_LABEL[filter.sort]}`} onClear={() => set({ sort: undefined })} />
+        )}
         <span className="ml-auto flex gap-3 tabular-nums">
           <span>
-            <span className="text-muted-foreground">Brüt </span>
+            <span className="text-muted-foreground">Tutar </span>
             <b>{formatCurrency(gross)}</b>
           </span>
           {tyNet > EPSILON && (
@@ -175,8 +245,8 @@ export function OrdersPanel({ orders, isLoading, targetMin, filter, onFilterChan
         ) : list.length === 0 ? (
           <p className="py-16 text-center text-sm text-muted-foreground">Bu filtreye uyan sipariş yok</p>
         ) : (
-          <>
-            <table className="hidden w-full text-sm md:table">
+          isMd ? (
+            <table className="w-full text-sm">
               <thead className="sticky top-0 z-10 bg-card">
                 <tr className="border-b text-xs text-muted-foreground">
                   <th className="px-3 py-2 text-left font-medium">Saat</th>
@@ -193,19 +263,80 @@ export function OrdersPanel({ orders, isLoading, targetMin, filter, onFilterChan
                 ))}
               </tbody>
             </table>
-            <div className="divide-y md:hidden">
+          ) : (
+            <div className="divide-y">
               {list.map((o) => (
                 <OrderCard key={o.key} o={o} targetMin={targetMin} onOpen={openOrder} />
               ))}
             </div>
-          </>
+          )
         )}
       </div>
 
+      <FilterSheet
+        open={filterOpen}
+        onOpenChange={setFilterOpen}
+        orders={orders}
+        filter={filter}
+        onFilterChange={onFilterChange}
+        targetMin={targetMin}
+      />
       <TrendyolOrderSheet orderNumber={tyOrder} onClose={() => setTyOrder(null)} />
       <OwnOrderSheet id={ownOrder} onClose={() => setOwnOrder(null)} />
     </div>
   );
+}
+
+// Detaylı filtrenin her dolu grubu bir kaldırılabilir etiket.
+function advChips(a: AdvancedFilter | undefined): { key: string; label: string; clear: Partial<AdvancedFilter> }[] {
+  if (!a) return [];
+  const out: { key: string; label: string; clear: Partial<AdvancedFilter> }[] = [];
+  const short = (list: string[]) =>
+    list.length > 2 ? `${list.slice(0, 2).join(", ")} +${list.length - 2}` : list.join(", ");
+  if (a.methods?.length)
+    out.push({
+      key: "m",
+      label: short(
+        a.methods.map((m) => (m === "online" ? "Online kart" : (METHOD_META[m] ?? METHOD_META.other).short)),
+      ),
+      clear: { methods: undefined },
+    });
+  if (a.brands?.length)
+    out.push({
+      key: "b",
+      label: short(a.brands),
+      clear: { brands: undefined },
+    });
+  if (a.from || a.to)
+    out.push({
+      key: "t",
+      label: `${a.from ?? "…"}–${a.to ?? "…"}`,
+      clear: { from: undefined, to: undefined },
+    });
+  if (a.statuses?.length)
+    out.push({
+      key: "s",
+      label: short(a.statuses.map((x) => ADV_STATUS_LABEL[x])),
+      clear: { statuses: undefined },
+    });
+  if (a.min != null || a.max != null)
+    out.push({
+      key: "a",
+      label:
+        a.min != null && a.max != null
+          ? `${formatCurrency(a.min)}–${formatCurrency(a.max)}`
+          : a.min != null
+            ? `${formatCurrency(a.min)} üstü`
+            : `${formatCurrency(a.max!)} altı`,
+      clear: { min: undefined, max: undefined },
+    });
+  if (a.districts?.length)
+    out.push({
+      key: "d",
+      label: short(a.districts),
+      clear: { districts: undefined },
+    });
+  return out;
 }
 
 function ActiveChip({ label, onClear }: { label: string; onClear: () => void }) {
@@ -268,8 +399,9 @@ function Amount({ o, className }: { o: EndOfDayOrder; className?: string }) {
           showNet ? "text-xs text-muted-foreground" : "font-semibold",
           o.status === "cancelled" && "line-through opacity-60",
         )}
+        title={o.discount > EPSILON ? `İndirimsiz ${formatCurrency(o.total + o.discount)} − kampanya indirimi ${formatCurrency(o.discount)}` : undefined}
       >
-        {showNet && "brüt "}
+        {showNet && "ödenen "}
         {formatCurrency(o.total)}
       </span>
       {/* Trendyol: eline geçen net öne çıkar; ~ = ödeme kaydı yok, tahmini */}

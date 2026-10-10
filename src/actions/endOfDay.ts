@@ -99,7 +99,10 @@ export interface EndOfDayTrendyol {
   error?: string; // okunamadıysa sebep
   orderCount: number; // iptal hariç sipariş adedi
   cancelledCount: number;
-  revenue: number; // brüt ciro (₺)
+  revenue: number; // indirimsiz tutar toplamı — Trendyol panelindeki "brüt satış" (₺)
+  // Müşterilerin ödediği (indirimsiz − restoran kampanya indirimi). Ciroya bu girer.
+  // Eski snapshot'larda yok.
+  customerPaid?: number;
   netRevenue: number; // online kart settlement neti — Net Hakediş'in GERÇEK kısmı (₺)
   avgBasket: number;
   // Hakediş kırılımı (kredi kartı / yemek kartı / kapıda) + bankaya yatacak.
@@ -114,7 +117,7 @@ export interface EndOfDayReport {
   date: string;
 
   packageCount: number; // iptal hariç toplam paket
-  totalRevenue: number; // iptal hariç toplam ciro
+  totalRevenue: number; // iptal hariç toplam ciro = müşterilerin ödediği (Trendyol kampanya indirimi düşülmüş)
   cancelledCount: number;
   avgBasket: number;
 
@@ -425,11 +428,20 @@ export async function getEndOfDayReport(dateStr?: string): Promise<EndOfDayRepor
         tLines.push({ label: "Kart", group: "onsite", count: p.count, gross: p.revenue });
     }
 
+    // Ciro = müşterilerin ödediği. Kategori kırılımı yoksa indirimsiz tutara düşülür.
+    const ce = trendyol.earnings;
+    const tyPaid = ce
+      ? (ce.creditCard.customerPaid ?? ce.creditCard.gross) +
+        (ce.ticket.customerPaid ?? ce.ticket.gross) +
+        (ce.onDelivery.customerPaid ?? ce.onDelivery.gross)
+      : trendyol.revenue;
+
     trendyolSummary = {
       available: true,
       orderCount: trendyol.orderCount,
       cancelledCount: trendyol.cancelledCount,
       revenue: trendyol.revenue,
+      customerPaid: tyPaid,
       netRevenue: trendyol.finance?.netRevenue ?? 0,
       avgBasket: trendyol.avgBasket,
       earnings: trendyol.earnings
@@ -449,13 +461,13 @@ export async function getEndOfDayReport(dateStr?: string): Promise<EndOfDayRepor
     };
 
     packageCount += trendyol.orderCount;
-    totalRevenue += trendyol.revenue;
+    totalRevenue += tyPaid;
     cancelledCount += trendyol.cancelledCount;
-    paidAmount += trendyol.revenue;
+    paidAmount += tyPaid;
 
     if (sourceMap.trendyol) {
       sourceMap.trendyol.count += trendyol.orderCount;
-      sourceMap.trendyol.amount += trendyol.revenue;
+      sourceMap.trendyol.amount += tyPaid;
     }
 
     // Ödeme kırılımı — Trendyol key'leri proje ortak key'leriyle aynı
@@ -536,7 +548,8 @@ export interface EndOfDayOrder {
   customer: string;
   createdAt: number; // ms
   time: string; // HH:MM (Istanbul)
-  total: number; // brüt (müşterinin ödediği)
+  total: number; // müşterinin ödediği (Trendyol: indirimsiz tutar − restoran indirimi)
+  discount: number; // Trendyol: restoranın karşıladığı kampanya indirimi; kendi siparişte 0
   net: number | null; // Trendyol hakedişi; kendi siparişte null
   netEstimated: boolean; // settlement yok → tahmini hakediş
   method: PaymentKey | "other";
@@ -723,6 +736,7 @@ export async function getEndOfDayOrders(dateStr?: string): Promise<EndOfDayOrder
         createdAt: ms,
         time: istanbulHHMM(new Date(ms)),
         total,
+        discount: 0,
         net: null,
         netEstimated: false,
         method: method && PAYMENT_KEYS.includes(method) ? method : "other",
@@ -757,7 +771,10 @@ export async function getEndOfDayOrders(dateStr?: string): Promise<EndOfDayOrder
       const status = TY_STATUS[o.packageStatus ?? ""] ?? "active";
       const { net, estimated } = archivedNet(o);
       const method = TY_METHOD[o.paymentKey ?? ""] ?? "online";
-      const total = o.totalPrice ?? 0;
+      // Müşterinin ödediği = indirimsiz tutar − restoran indirimi (arşivde netTotal).
+      // netTotal'ı olmayan çok eski kayıtta indirimsiz tutara düşülür.
+      const listPrice = o.totalPrice ?? 0;
+      const total = o.netTotal || listPrice;
       const lines = (o.lines ?? []).map((l) => ({
         name: l.name || "—",
         qty: l.quantity ?? 1,
@@ -772,6 +789,7 @@ export async function getEndOfDayOrders(dateStr?: string): Promise<EndOfDayOrder
         createdAt: ms,
         time: istanbulHHMM(new Date(ms)),
         total,
+        discount: Math.max(listPrice - total, 0),
         net: status === "cancelled" ? 0 : net,
         netEstimated: estimated,
         method,
