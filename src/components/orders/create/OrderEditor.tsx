@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useOrderStore, selectTotal, selectTotalItems } from "@/store/orderStore";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,15 @@ type OrderEditorProps =
 
 const MOBILE_STEPS = ["Ürünler", "Adres ve ödeme"] as const;
 
+const XL_QUERY = "(min-width: 1280px)";
+const subscribeXl = (cb: () => void) => {
+  const mq = window.matchMedia(XL_QUERY);
+  mq.addEventListener("change", cb);
+  return () => mq.removeEventListener("change", cb);
+};
+const getXl = () => window.matchMedia(XL_QUERY).matches;
+const getXlServer = () => false;
+
 export default function OrderEditor({ mode, initialOrder }: OrderEditorProps) {
   const editingOrderId = useOrderStore((s) => s.editingOrderId);
   const loadOrderForEdit = useOrderStore((s) => s.loadOrderForEdit);
@@ -24,6 +33,7 @@ export default function OrderEditor({ mode, initialOrder }: OrderEditorProps) {
   const totalItems = useOrderStore(selectTotalItems);
   // xl altı iki adım: 1 = ürün seçimi, 2 = müşteri/adres + ödeme. Masaüstü tek ekran.
   const [step, setStep] = useState<1 | 2>(1);
+  const isXl = useSyncExternalStore(subscribeXl, getXl, getXlServer);
 
   // Sepet boşalınca (2. adımda son ürün silindi, sipariş tamamlandı) ürün adımına dön;
   // aksi halde sonraki siparişin ilk ürünü eklenir eklenmez ödeme adımı açılırdı.
@@ -140,9 +150,13 @@ export default function OrderEditor({ mode, initialOrder }: OrderEditorProps) {
           </div>
         )}
 
-        <div className="hidden xl:block min-w-0 min-h-0 pb-3">
-          <OrderSidePanel variant="desktop" mode={mode} />
-        </div>
+        {/* Mobil 2. adımda masaüstü panel mount edilmez: CSS ile gizli olsa da her tuşta
+            ikinci kez render olup (fiş dahil) yazmayı geciktiriyordu. */}
+        {(!onDetails || isXl) && (
+          <div className="hidden xl:block min-w-0 min-h-0 pb-3">
+            <OrderSidePanel variant="desktop" mode={mode} />
+          </div>
+        )}
       </div>
 
       {/* 1. adım alt çubuğu — xl altında */}

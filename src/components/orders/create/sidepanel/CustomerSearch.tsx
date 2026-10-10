@@ -69,9 +69,32 @@ function foldText(text: string): string {
 function queryTokens(query: string): string[] {
   return foldText(query).split(/\s+/).filter(Boolean);
 }
-function matchesAllTokens(haystack: string, tokens: string[]): boolean {
-  const folded = foldText(haystack);
+function matchesFolded(folded: string, tokens: string[]): boolean {
   return tokens.length > 0 && tokens.every((t) => folded.includes(t));
+}
+
+// Müşteri listesinin sadeleştirilmiş hali — liste değişince bir kez hesaplanır.
+// Eskiden her tuşta tüm müşterilerin tüm adresleri karakter karakter yeniden
+// sadeleştiriliyordu; kalabalık listede yazarken gecikme yapıyordu.
+interface SearchEntry {
+  customer: SavedCustomer;
+  phoneDigits: string;
+  foldedName: string | null;
+  foldedAddrs: { addr: CustomerAddress; folded: string }[];
+}
+function buildSearchIndex(customers: SavedCustomer[]): SearchEntry[] {
+  return customers.map((c) => {
+    const name = realName(c);
+    return {
+      customer: c,
+      phoneDigits: c.phone.replace(/\D/g, ""),
+      foldedName: name ? foldText(name) : null,
+      foldedAddrs: c.addresses.map((a) => ({
+        addr: a,
+        folded: foldText(`${a.address} ${a.addressDetail ?? ""} ${name ?? ""}`),
+      })),
+    };
+  });
 }
 
 const MARK = "bg-yellow-200 dark:bg-yellow-900 text-foreground rounded px-0.5";
@@ -226,26 +249,29 @@ export function CustomerSearch({
         : "";
   const isDigitSearch = digitQuery.length >= 3;
 
+  const searchIndex = useMemo(() => buildSearchIndex(savedCustomers), [savedCustomers]);
+
   // ── Öneri grupları: hangi alan yazılıyorsa ona göre filtrele ───────────
   const groups = useMemo<SuggestionGroup[]>(() => {
     if (digitQuery.length >= 3) {
-      const matched = savedCustomers.filter((c) =>
-        c.phone.replace(/\D/g, "").includes(digitQuery),
-      );
+      const matched = searchIndex.filter((e) => e.phoneDigits.includes(digitQuery));
       return sortGroups(
-        matched.map((c) => ({ customer: c, addresses: sortAddresses(c, c.addresses) })),
+        matched.map(({ customer: c }) => ({
+          customer: c,
+          addresses: sortAddresses(c, c.addresses),
+        })),
       );
     }
     if (activeField === "address" && addressQuery.length >= 2) {
       const tokens = queryTokens(addressQuery);
       const matched: SuggestionGroup[] = [];
-      for (const c of savedCustomers) {
-        const name = realName(c);
-        const nameMatches = !!name && matchesAllTokens(name, tokens);
+      for (const e of searchIndex) {
+        const c = e.customer;
+        const nameMatches = !!e.foldedName && matchesFolded(e.foldedName, tokens);
         // Adres + daire/kat + isim birlikte aranır: "atatürk 12 ahmet" de bulur.
-        const matchingAddrs = c.addresses.filter((a) =>
-          matchesAllTokens(`${a.address} ${a.addressDetail ?? ""} ${name ?? ""}`, tokens),
-        );
+        const matchingAddrs = e.foldedAddrs
+          .filter((f) => matchesFolded(f.folded, tokens))
+          .map((f) => f.addr);
         if (matchingAddrs.length > 0) {
           matched.push({ customer: c, addresses: sortAddresses(c, matchingAddrs) });
         } else if (nameMatches) {
@@ -255,7 +281,7 @@ export function CustomerSearch({
       return sortGroups(matched);
     }
     return [];
-  }, [activeField, digitQuery, addressQuery, savedCustomers]);
+  }, [activeField, digitQuery, addressQuery, searchIndex]);
 
   // ── Düz (klavye ile gezilebilir) satır listesi — her satır bir adres ───
   const rows = useMemo<SuggestionRow[]>(

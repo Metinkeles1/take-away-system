@@ -49,7 +49,9 @@ const SORT_OPTIONS: { value: SortOption; label: string }[] = [
 ];
 
 export default function ProductSelector() {
-  const draft = useOrderStore((s) => s.draft);
+  // Sadece sepet kalemleri — tüm draft'a abone olursa adres/telefon yazarken
+  // her tuşta ürün ızgarası baştan çizilir.
+  const cartItems = useOrderStore((s) => s.draft.items);
   const addItem = useOrderStore((s) => s.addItem);
   const addItemWithPortion = useOrderStore((s) => s.addItemWithPortion);
   const updateQuantity = useOrderStore((s) => s.updateQuantity);
@@ -91,11 +93,11 @@ export default function ProductSelector() {
   // Sepetteki ürünlerin toplam adedi — kart başına filter+reduce yerine O(1) lookup
   const cartQuantities = useMemo(() => {
     const m = new Map<string, number>();
-    for (const i of draft.items) {
+    for (const i of cartItems) {
       m.set(i.product.id, (m.get(i.product.id) ?? 0) + i.quantity);
     }
     return m;
-  }, [draft.items]);
+  }, [cartItems]);
 
   const isPortionable = (product: Product) => Boolean(product.portionable);
 
