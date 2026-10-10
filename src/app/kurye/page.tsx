@@ -57,6 +57,13 @@ import { useTrendyolAutoSync } from "@/hooks/useTrendyolAutoSync";
 import { orderPriority, type PriorityLevel } from "@/lib/operations";
 import { CourierCashBanner } from "@/components/cash/CourierCashBanner";
 import {
+  useCourierPush,
+  PushBellButton,
+  PushBanner,
+  PushSheet,
+  CourierCallOverlay,
+} from "@/components/kurye/CourierPush";
+import {
   type Order,
   type GeoPoint,
   type PaymentMethod,
@@ -450,6 +457,11 @@ export default function KuryePage() {
   const [courier, setCourier] = useState<string | null>(null);
   const [courierReady, setCourierReady] = useState(false);
   const [couriers, setCouriers] = useState<Courier[]>([]);
+  // Kurye çağır bildirimi (Web Push) — panel çağırınca telefon titrer.
+  const push = useCourierPush(courier);
+  // Ayarlar → Kurye çağır kapalıysa zil ve hatırlatma gizlenir.
+  const [courierCallEnabled, setCourierCallEnabled] = useState(false);
+  const [pushSheetOpen, setPushSheetOpen] = useState(false);
   // Çoklu kurye modu (paneldeki Ayarlar'dan açılır). Kapalıyken tek-kurye sade akış.
   const [multiCourierMode, setMultiCourierMode] = useState(false);
   // Dükkan konumu (Ayarlar'dan pinlenir). Varsa pini olan siparişlerde kuş uçuşu
@@ -564,6 +576,7 @@ export default function KuryePage() {
         shopLocation: shop,
         shopIban: iban,
         deliveryTargetMin: target,
+        courierCallEnabled: callOn,
       } = (await res.json()) as Awaited<ReturnType<typeof getCourierBoard>>;
       if (req < appliedSeq.current) return;
       appliedSeq.current = req;
@@ -577,6 +590,7 @@ export default function KuryePage() {
       setShopLocation(shop);
       setShopIban(iban);
       setTargetMin(target);
+      setCourierCallEnabled(callOn !== false);
     } catch {
       // Ağ hatası — sessiz geç; poll / Pusher tekrar dener.
     } finally {
@@ -1394,6 +1408,9 @@ export default function KuryePage() {
                 </span>
               </button>
             )}
+            {courierCallEnabled && (
+              <PushBellButton push={push} onClick={() => setPushSheetOpen(true)} />
+            )}
             <button
               onClick={() => void handleRefresh()}
               disabled={refreshing}
@@ -1466,6 +1483,13 @@ export default function KuryePage() {
 
       {/* Üzerindeki (kasaya teslim edilmemiş) para — eşik aşılınca "Kasaya uğra" */}
       <CourierCashBanner courier={courier} />
+
+      {/* Bildirim kapalıysa hatırlatma; ayar sheet'i; ekran açıkken gelen çağrı. */}
+      {courierCallEnabled && (
+        <PushBanner push={push} onOpen={() => setPushSheetOpen(true)} />
+      )}
+      <PushSheet push={push} open={pushSheetOpen} onClose={() => setPushSheetOpen(false)} />
+      <CourierCallOverlay push={push} />
 
       {/* Trendyol çekme geri bildirimi — hata veya "sipariş yok" bilgisi. */}
       {activeTab === "mine" && trendyolError && (

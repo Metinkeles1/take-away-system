@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Inbox, Loader2, Maximize, Minimize, PlusCircle, RefreshCw, Volume2, VolumeX } from "lucide-react";
+import { BellRing, Inbox, Loader2, Maximize, Minimize, PlusCircle, RefreshCw, Volume2, VolumeX } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -14,6 +14,7 @@ import type { Order } from "@/types";
 import { useNow, type PanelBoard } from "./usePanelData";
 import { PanelOrderCard, ageMinutes, ageTone } from "./PanelOrderCard";
 import { CourierPanel } from "./CourierPanel";
+import { CallCourierSheet } from "./CallCourierSheet";
 import { HourlyBars, PanelStats } from "./PanelStats";
 import { useNewOrderAlert } from "./useNewOrderAlert";
 
@@ -47,6 +48,7 @@ export function PanelView({
   const [channel, setChannel] = useState<Channel>("all");
   const [tab, setTab] = useState<MobileTab>("waiting");
   const [syncing, setSyncing] = useState(false);
+  const [callOpen, setCallOpen] = useState(false);
 
   const target = summary?.deliveryTargetMin ?? DEFAULT_TARGET;
   const couriers = summary?.couriers ?? [];
@@ -118,6 +120,20 @@ export function PanelView({
             )}
           </p>
         </div>
+        {summary?.courierCallEnabled && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-10 min-w-10 shrink-0 lg:h-9"
+          onClick={() => setCallOpen(true)}
+          title="Kurye çağır — telefonuna bildirim gönder"
+          aria-label="Kurye çağır"
+        >
+          <BellRing className="size-4" />
+          <span className="hidden sm:inline">Kurye çağır</span>
+        </Button>
+        )}
+        <CallCourierSheet open={callOpen} onOpenChange={setCallOpen} />
         <Button
           variant="outline"
           size="icon"

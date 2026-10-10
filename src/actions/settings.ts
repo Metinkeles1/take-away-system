@@ -14,6 +14,7 @@ const SHOP_LOCATION_KEY = "shopLocation";
 const SHOP_IBAN_KEY = "shopIban";
 const MONTHLY_TARGET_KEY = "monthlyRevenueTarget";
 const DELIVERY_TARGET_KEY = "deliveryTargetMin";
+const COURIER_CALL_KEY = "courierCallEnabled";
 
 export interface ShopLocation {
   lat: number;
@@ -230,6 +231,41 @@ export async function setMultiCourierMode(
     return { ok: true };
   } catch (error) {
     console.error("[setMultiCourierMode]", error);
+    return { ok: false, error: "Ayar kaydedilemedi" };
+  }
+}
+
+// Kurye çağır bildirimi (Web Push): kapalıyken paneldeki "Kurye çağır" butonu
+// ve kurye ekranındaki zil/hatırlatma gizlenir, sunucu da gönderimi reddeder.
+// Varsayılan açık (hiç kaydedilmemişse).
+export async function getCourierCallEnabled(): Promise<boolean> {
+  try {
+    await connectDB();
+    const doc = await SettingModel.findOne({ key: COURIER_CALL_KEY })
+      .select("value")
+      .lean();
+    const value = (doc as unknown as { value?: boolean } | null)?.value;
+    return value !== false;
+  } catch (error) {
+    console.error("[getCourierCallEnabled]", error);
+    return true;
+  }
+}
+
+export async function setCourierCallEnabled(
+  on: boolean,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await connectDB();
+    await SettingModel.updateOne(
+      { key: COURIER_CALL_KEY },
+      { $set: { value: on } },
+      { upsert: true },
+    );
+    revalidatePath("/settings");
+    return { ok: true };
+  } catch (error) {
+    console.error("[setCourierCallEnabled]", error);
     return { ok: false, error: "Ayar kaydedilemedi" };
   }
 }

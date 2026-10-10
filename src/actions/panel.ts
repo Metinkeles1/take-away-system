@@ -10,7 +10,7 @@ import { istanbulDayStart } from "@/lib/datetime";
 import { getCourierCash, type CourierCashState } from "@/actions/courierCash";
 import { getOpenAccountsSummary } from "@/actions/dashboardInsights";
 import { getActiveCouriers } from "@/actions/couriers";
-import { getDeliveryTargetMin } from "@/actions/settings";
+import { getCourierCallEnabled, getDeliveryTargetMin } from "@/actions/settings";
 
 // Panelin (ana sayfa) özet beslemesi. Panel dükkânda herkesin gördüğü ekranda
 // açık durur → CİRO BİLEREK YOK (istemciye hiç gönderilmez). Yalnız operasyon:
@@ -30,6 +30,7 @@ export interface PanelSummary {
   cash: CourierCashState;
   openAccounts: { total: number; count: number; customerCount: number };
   couriers: string[]; // aktif kurye adları
+  courierCallEnabled: boolean; // Ayarlar → Kurye çağır bildirimi
 }
 
 const HOUR_MS = 3_600_000;
@@ -48,7 +49,7 @@ export async function getPanelSummary(): Promise<PanelSummary> {
   const yStart = todayStart - DAY_MS;
   const ySoFar = new Date(nowMs - DAY_MS);
 
-  const [ownDocs, tyDocs, ownYesterday, tyYesterday, ownDelivered, tyDelivered, cash, open, couriers, target] =
+  const [ownDocs, tyDocs, ownYesterday, tyYesterday, ownDelivered, tyDelivered, cash, open, couriers, target, courierCallEnabled] =
     await Promise.all([
       OrderModel.find({ source: { $ne: "trendyol" }, createdAt: { $gte: new Date(todayStart) } })
         .select({ createdAt: 1, status: 1 })
@@ -85,6 +86,7 @@ export async function getPanelSummary(): Promise<PanelSummary> {
       getOpenAccountsSummary().catch(() => ({ totalOpen: 0, count: 0, customerCount: 0 })),
       getActiveCouriers(),
       getDeliveryTargetMin(),
+      getCourierCallEnabled(),
     ]);
 
   const hourly = Array.from({ length: 24 }, (_, hour) => ({ hour, own: 0, trendyol: 0 }));
@@ -127,5 +129,6 @@ export async function getPanelSummary(): Promise<PanelSummary> {
     cash,
     openAccounts: { total: open.totalOpen, count: open.count, customerCount: open.customerCount },
     couriers: couriers.map((c) => c.name),
+    courierCallEnabled,
   };
 }

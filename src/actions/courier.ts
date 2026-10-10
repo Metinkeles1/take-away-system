@@ -11,6 +11,7 @@ import {
   getShopLocation,
   getShopIban,
   getDeliveryTargetMin,
+  getCourierCallEnabled,
   type ShopLocation,
   type ShopIban,
 } from "@/actions/settings";
@@ -258,6 +259,8 @@ export async function getCourierBoard(): Promise<{
   shopIban: ShopIban | null;
   // Öncelik etiketi (kurye ekranı) bu hedefe göre hesaplanır.
   deliveryTargetMin: number;
+  // Kurye çağır bildirimi Ayarlar'dan açık mı (kapalıysa zil/hatırlatma gizlenir).
+  courierCallEnabled: boolean;
 }> {
   const [
     orders,
@@ -266,6 +269,7 @@ export async function getCourierBoard(): Promise<{
     shopLocation,
     shopIban,
     deliveryTargetMin,
+    courierCallEnabled,
   ] = await Promise.all([
     getCourierOrders(),
     getStoredTrendyolCourierOrders(),
@@ -273,6 +277,7 @@ export async function getCourierBoard(): Promise<{
     getShopLocation(),
     getShopIban(),
     getDeliveryTargetMin(),
+    getCourierCallEnabled(),
   ]);
   return {
     orders,
@@ -281,6 +286,7 @@ export async function getCourierBoard(): Promise<{
     shopLocation,
     shopIban,
     deliveryTargetMin,
+    courierCallEnabled,
   };
 }
 

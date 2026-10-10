@@ -19,6 +19,8 @@ import {
   setShopIban,
   getMonthlyTarget,
   setMonthlyTarget,
+  getCourierCallEnabled,
+  setCourierCallEnabled,
 } from "@/actions/settings";
 import { LocationPicker, type LatLng } from "@/components/kurye/LocationPicker";
 import { GoogleContactsCard } from "@/components/settings/GoogleContactsCard";
@@ -40,6 +42,7 @@ import {
   MapPin,
   Landmark,
   Target,
+  BellRing,
 } from "lucide-react";
 
 // Dükkan konumu hiç ayarlı değilken haritanın ortalanacağı nokta (env ile bölgeye
@@ -59,6 +62,9 @@ export default function SettingsPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [multiMode, setMultiMode] = useState(false);
   const [modeBusy, setModeBusy] = useState(false);
+  // Kurye çağır bildirimi — paneldeki buton + kurye ekranındaki zil.
+  const [callOn, setCallOn] = useState(true);
+  const [callBusy, setCallBusy] = useState(false);
   // Dükkan konumu — kurye ekranında müşteriye uzaklık bundan hesaplanır.
   const [shopLoc, setShopLoc] = useState<LatLng | null>(null);
   const [shopPickerOpen, setShopPickerOpen] = useState(false);
@@ -73,15 +79,17 @@ export default function SettingsPage() {
 
   const load = async () => {
     try {
-      const [list, mode, shop, iban, tgt] = await Promise.all([
+      const [list, mode, shop, iban, tgt, call] = await Promise.all([
         getCouriers(),
         getMultiCourierMode(),
         getShopLocation(),
         getShopIban(),
         getMonthlyTarget(),
+        getCourierCallEnabled(),
       ]);
       setCouriers(list);
       setMultiMode(mode);
+      setCallOn(call);
       setShopLoc(shop);
       if (iban) {
         setIbanName(iban.name);
@@ -139,6 +147,20 @@ export default function SettingsPage() {
       toast.success(next ? "Çoklu kurye modu açıldı" : "Tek kurye moduna geçildi");
     } else {
       setMultiMode(!next); // geri al
+      toast.error(res.error ?? "Ayar kaydedilemedi");
+    }
+  };
+
+  const handleToggleCall = async () => {
+    const next = !callOn;
+    setCallOn(next); // optimistic
+    setCallBusy(true);
+    const res = await setCourierCallEnabled(next);
+    setCallBusy(false);
+    if (res.ok) {
+      toast.success(next ? "Kurye çağır açıldı" : "Kurye çağır kapatıldı");
+    } else {
+      setCallOn(!next); // geri al
       toast.error(res.error ?? "Ayar kaydedilemedi");
     }
   };
@@ -249,6 +271,43 @@ export default function SettingsPage() {
                   className={
                     "inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform " +
                     (multiMode ? "translate-x-6" : "translate-x-1")
+                  }
+                />
+              </button>
+            </CardContent>
+          </Card>
+        </section>
+
+        {/* Kurye çağır bildirimi anahtarı */}
+        <section className="mb-8">
+          <Card>
+            <CardContent className="flex items-center gap-3 p-4">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-lime-100 text-lime-700">
+                <BellRing className="h-5 w-5" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold">Kurye çağır bildirimi</p>
+                <p className="text-xs text-muted-foreground">
+                  {callOn
+                    ? "Açık — panelde “Kurye çağır” butonu var, kuryenin telefonu titrer."
+                    : "Kapalı — panelde buton ve kurye ekranında zil görünmez, bildirim gitmez."}
+                </p>
+              </div>
+              <button
+                role="switch"
+                aria-checked={callOn}
+                aria-label="Kurye çağır bildirimi"
+                disabled={callBusy || loading}
+                onClick={() => void handleToggleCall()}
+                className={
+                  "relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors disabled:opacity-60 " +
+                  (callOn ? "bg-lime-600" : "bg-slate-300")
+                }
+              >
+                <span
+                  className={
+                    "inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform " +
+                    (callOn ? "translate-x-6" : "translate-x-1")
                   }
                 />
               </button>

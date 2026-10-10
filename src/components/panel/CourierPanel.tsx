@@ -21,7 +21,7 @@ interface Row {
 
 // Telefonda para dökümü alttan açılır (başparmağa yakın), geniş ekranda sağdan.
 const WIDE = "(min-width: 768px)";
-function useWide() {
+export function useWide() {
   return useSyncExternalStore(
     (cb) => {
       const mq = window.matchMedia(WIDE);
