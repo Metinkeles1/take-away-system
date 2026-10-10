@@ -58,9 +58,9 @@ import { orderPriority, type PriorityLevel } from "@/lib/operations";
 import { CourierCashBanner } from "@/components/cash/CourierCashBanner";
 import {
   useCourierPush,
-  PushBellButton,
   PushBanner,
-  PushSheet,
+  CourierProfileSheet,
+  pushNeedsAttention,
   CourierCallOverlay,
 } from "@/components/kurye/CourierPush";
 import {
@@ -461,7 +461,8 @@ export default function KuryePage() {
   const push = useCourierPush(courier);
   // Ayarlar → Kurye çağır kapalıysa zil ve hatırlatma gizlenir.
   const [courierCallEnabled, setCourierCallEnabled] = useState(false);
-  const [pushSheetOpen, setPushSheetOpen] = useState(false);
+  // İsme dokununca açılan profil sheet'i (bildirim aç/kapat + kuryeyi değiştir).
+  const [profileOpen, setProfileOpen] = useState(false);
   // Çoklu kurye modu (paneldeki Ayarlar'dan açılır). Kapalıyken tek-kurye sade akış.
   const [multiCourierMode, setMultiCourierMode] = useState(false);
   // Dükkan konumu (Ayarlar'dan pinlenir). Varsa pini olan siparişlerde kuş uçuşu
@@ -531,8 +532,6 @@ export default function KuryePage() {
   // gelir. Depoyu "çek" butonu veya otomatik çekme (useTrendyolAutoSync) doldurur.
   const [trendyolOrders, setTrendyolOrders] = useState<Order[]>([]);
   useTrendyolAutoSync();
-  const [trendyolLoading, setTrendyolLoading] = useState(false);
-  const [trendyolFetched, setTrendyolFetched] = useState(false);
   const [trendyolError, setTrendyolError] = useState<string | null>(null);
   // Elle "Yenile" basılınca ikon dönsün diye ayrı bayrak. load() arka plan
   // poll'ünde sessiz çalışır (loading'i değiştirmez); manuel yenilemede görsel
@@ -599,15 +598,13 @@ export default function KuryePage() {
   };
 
   // Trendyol'dan taze çek → paylaşımlı depoyu güncelle → Pusher ile TÜM kurye
-  // ekranlarına yay. Sürekli istek atılmaz; sadece butona basınca. Env tanımlı
+  // ekranlarına yay. Sürekli istek atılmaz; sadece "Yenile"ye basınca. Env tanımlı
   // değilse sessizce boş döner. Çeken kurye anında görsün diye sonucu da yazarız;
   // diğer kuryeler Pusher → load() ile alır.
   const fetchTrendyol = async () => {
-    setTrendyolLoading(true);
     setTrendyolError(null);
     try {
       const res = await syncTrendyolCourierPackages();
-      setTrendyolFetched(true);
       if (!res.ok) {
         setTrendyolError(res.error ?? "Trendyol siparişleri alınamadı");
         return;
@@ -615,20 +612,15 @@ export default function KuryePage() {
       setTrendyolOrders(res.orders);
     } catch {
       setTrendyolError("Trendyol siparişleri alınamadı");
-    } finally {
-      setTrendyolLoading(false);
     }
   };
 
-  // "Yenile" butonu: hem paketleri hem (daha önce çekilmişse) Trendyol'u tazeler
-  // ve süre boyunca ikonu döndürür — kurye butonun çalıştığını net görür.
+  // "Yenile" butonu: paketleri VE Trendyol'u birlikte tazeler (ayrı Trendyol
+  // butonu yok) ve süre boyunca ikonu döndürür — kurye butonun çalıştığını görür.
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      await Promise.all([
-        load(),
-        trendyolFetched ? fetchTrendyol() : Promise.resolve(),
-      ]);
+      await Promise.all([load(), fetchTrendyol()]);
     } finally {
       setRefreshing(false);
     }
@@ -1352,12 +1344,16 @@ export default function KuryePage() {
       <header className="z-20 shrink-0 border-b border-slate-800 bg-slate-900/95 text-white backdrop-blur">
         <div className="mx-auto flex max-w-md items-center justify-between px-4 py-3">
           <button
-            onClick={changeCourier}
+            onClick={() => setProfileOpen(true)}
             className="flex min-w-0 items-center gap-2.5 rounded-xl py-1 pr-2 text-left transition active:scale-95"
-            title="Kuryeyi değiştir"
+            title="Profil ve bildirimler"
           >
-            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-lime-500/20 text-sm font-bold text-lime-300">
+            <span className="relative grid h-9 w-9 shrink-0 place-items-center rounded-full bg-lime-500/20 text-sm font-bold text-lime-300">
               {courier ? courier.slice(0, 2).toUpperCase() : "🛵"}
+              {/* Bildirim kapalıysa kırmızı nokta — profilden açılır. */}
+              {courierCallEnabled && pushNeedsAttention(push) && (
+                <span className="absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full bg-rose-500 ring-2 ring-slate-900" />
+              )}
             </span>
             <div className="min-w-0">
               <h1 className="flex items-center gap-1 text-base font-bold leading-tight">
@@ -1365,34 +1361,11 @@ export default function KuryePage() {
                 <UserRound className="h-3.5 w-3.5 shrink-0 text-slate-400" />
               </h1>
               <p className="truncate text-[11px] text-slate-400">
-                değiştirmek için dokun
+                {courierCallEnabled && push.state === "on" ? "bildirim açık · profil" : "profil için dokun"}
               </p>
             </div>
           </button>
           <div className="flex shrink-0 items-center gap-1.5">
-            {/* Trendyol siparişlerini tek seferlik çek (teslimat sekmesinde).
-                Sürekli istek atılmaz; tekrar basınca tazelenir. */}
-            {activeTab === "mine" && (
-              <button
-                onClick={() => void fetchTrendyol()}
-                disabled={trendyolLoading}
-                className="relative rounded-full bg-orange-500/20 p-2.5 text-orange-300 transition active:scale-90 disabled:opacity-60"
-                aria-label="Trendyol siparişlerini çek"
-                title="Trendyol siparişlerini çek"
-              >
-                {trendyolLoading ? (
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                ) : (
-                  <Store className="h-5 w-5" />
-                )}
-                {/* Sayı, ikonun köşesinde rozet — yazı kaldırıldı, dar ekranda taşmaz. */}
-                {trendyolOrders.length > 0 && (
-                  <span className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-orange-500 px-1 text-[10px] font-bold text-white">
-                    {trendyolOrders.length}
-                  </span>
-                )}
-              </button>
-            )}
             {/* Gezi rotası tek giriş — teslimat sekmesinde ≥2 durak varsa. Alt sheet
                 açar: tüm rotaya yol tarifi / haritadan planla. */}
             {activeTab === "mine" && canRoute && (
@@ -1407,9 +1380,6 @@ export default function KuryePage() {
                   {routableCount}
                 </span>
               </button>
-            )}
-            {courierCallEnabled && (
-              <PushBellButton push={push} onClick={() => setPushSheetOpen(true)} />
             )}
             <button
               onClick={() => void handleRefresh()}
@@ -1486,9 +1456,16 @@ export default function KuryePage() {
 
       {/* Bildirim kapalıysa hatırlatma; ayar sheet'i; ekran açıkken gelen çağrı. */}
       {courierCallEnabled && (
-        <PushBanner push={push} onOpen={() => setPushSheetOpen(true)} />
+        <PushBanner push={push} onOpen={() => setProfileOpen(true)} />
       )}
-      <PushSheet push={push} open={pushSheetOpen} onClose={() => setPushSheetOpen(false)} />
+      <CourierProfileSheet
+        push={push}
+        courier={courier}
+        callEnabled={courierCallEnabled}
+        open={profileOpen}
+        onClose={() => setProfileOpen(false)}
+        onChangeCourier={changeCourier}
+      />
       <CourierCallOverlay push={push} />
 
       {/* Trendyol çekme geri bildirimi — hata veya "sipariş yok" bilgisi. */}
@@ -1498,15 +1475,6 @@ export default function KuryePage() {
           <span>Trendyol: {trendyolError}</span>
         </div>
       )}
-      {activeTab === "mine" &&
-        trendyolFetched &&
-        !trendyolError &&
-        trendyolOrders.length === 0 && (
-          <div className="mx-auto flex w-full max-w-md items-center gap-2 bg-orange-50 px-4 py-2 text-xs font-medium text-orange-700">
-            <Store className="h-3.5 w-3.5 shrink-0" />
-            <span>Taşınacak (kendi kuryeli) aktif Trendyol siparişi yok.</span>
-          </div>
-        )}
 
       {/* Kayan içerik alanı */}
       <main

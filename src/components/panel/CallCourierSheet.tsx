@@ -214,7 +214,7 @@ export function CallCourierSheet({ open, onOpenChange }: { open: boolean; onOpen
             )}
             {list && list.some((c) => c.devices === 0) && (
               <p className="text-xs text-muted-foreground">
-                “Kapalı” kuryeler, kurye ekranında üstteki zil simgesinden bildirimi açmalı.
+                “Kapalı” kuryeler, kurye ekranında adlarına dokunup bildirimi açmalı.
               </p>
             )}
           </section>

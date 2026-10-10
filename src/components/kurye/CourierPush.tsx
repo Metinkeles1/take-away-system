@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Bell, BellOff, BellRing, Loader2, Share, SquarePlus, X } from "lucide-react";
+import { Bell, BellOff, BellRing, Loader2, Share, SquarePlus, UserRound, X } from "lucide-react";
 import { removePushSubscription, savePushSubscription } from "@/actions/courierPush";
 import { cn } from "@/lib/utils";
 
@@ -181,24 +181,10 @@ export function useCourierPush(courier: string | null) {
 
 type Push = ReturnType<typeof useCourierPush>;
 
-// Başlıktaki zil — durumu renkle gösterir, dokununca ayar sheet'i açar.
-export function PushBellButton({ push, onClick }: { push: Push; onClick: () => void }) {
-  if (push.state === "loading" || push.state === "unsupported") return null;
-  const on = push.state === "on";
-  return (
-    <button
-      onClick={onClick}
-      aria-label={on ? "Bildirimler açık" : "Bildirimler kapalı"}
-      title={on ? "Bildirimler açık" : "Bildirimler kapalı"}
-      className={cn(
-        "relative rounded-full p-2.5 transition active:scale-90",
-        on ? "bg-lime-500/20 text-lime-300" : "text-slate-300 hover:bg-white/10",
-      )}
-    >
-      {on ? <BellRing className="h-5 w-5" /> : <BellOff className="h-5 w-5" />}
-      {!on && <span className="absolute right-1.5 top-1.5 h-2.5 w-2.5 rounded-full bg-rose-500 ring-2 ring-slate-900" />}
-    </button>
-  );
+// Bildirim "kapalı" ve kurye bir şey yapabilir durumda mı (profil rozetindeki
+// kırmızı nokta için).
+export function pushNeedsAttention(push: Push): boolean {
+  return push.state === "off" || push.state === "ios-install" || push.state === "denied";
 }
 
 // Başlığın altındaki hatırlatma — bildirim kapalıyken. "Sonra" bugünlük gizler.
@@ -248,90 +234,137 @@ export function PushBanner({ push, onOpen }: { push: Push; onOpen: () => void })
   );
 }
 
-// Alt sheet — duruma göre aç/kapat, iPhone kurulum rehberi veya izin rehberi.
-export function PushSheet({ push, open, onClose }: { push: Push; open: boolean; onClose: () => void }) {
+// Profil sheet'i — kurye adına dokununca açılır: bildirim aç/kapat (Ayarlar'dan
+// kurye çağır açıksa) + kuryeyi değiştir. Başlıkta ayrı zil butonu yok.
+export function CourierProfileSheet({
+  push,
+  courier,
+  callEnabled,
+  open,
+  onClose,
+  onChangeCourier,
+}: {
+  push: Push;
+  courier: string | null;
+  callEnabled: boolean;
+  open: boolean;
+  onClose: () => void;
+  onChangeCourier: () => void;
+}) {
   if (!open) return null;
+  const showPush = callEnabled && push.state !== "loading" && push.state !== "unsupported";
+  const on = push.state === "on";
+  const canToggle = push.state === "on" || push.state === "off";
+
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50" onClick={onClose}>
       <div
-        className="w-full max-w-md rounded-t-3xl bg-white p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl"
+        className="max-h-[90dvh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mx-auto mb-4 h-1.5 w-10 rounded-full bg-slate-200" />
-        <div className="mb-4 flex items-center gap-3">
-          <span
-            className={cn(
-              "grid h-12 w-12 shrink-0 place-items-center rounded-2xl",
-              push.state === "on" ? "bg-lime-100 text-lime-700" : "bg-slate-100 text-slate-600",
-            )}
-          >
-            {push.state === "on" ? <BellRing className="h-6 w-6" /> : <BellOff className="h-6 w-6" />}
+        <div className="mx-auto mb-5 h-1.5 w-10 rounded-full bg-slate-200" />
+
+        {/* Kimlik */}
+        <div className="mb-5 flex items-center gap-3">
+          <span className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-slate-900 text-lg font-bold text-lime-300">
+            {courier ? courier.slice(0, 2).toUpperCase() : "🛵"}
           </span>
           <div className="min-w-0">
-            <h2 className="text-lg font-bold leading-tight text-slate-900">Kurye çağrı bildirimi</h2>
-            <p className="text-sm text-slate-500">
-              {push.state === "on" ? "Açık — panel çağırınca telefonun titrer" : "Kapalı — çağrılar gelmez"}
-            </p>
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Kurye</p>
+            <h2 className="truncate text-xl font-bold text-slate-900">{courier ?? "—"}</h2>
           </div>
         </div>
 
-        {push.state === "ios-install" && (
-          <div className="space-y-3 text-sm text-slate-700">
-            <p>iPhone&apos;da bildirim için bu sayfayı önce uygulama olarak eklemen gerekiyor:</p>
-            <ol className="space-y-2">
-              <li className="flex items-center gap-3 rounded-xl bg-slate-50 p-3">
-                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-slate-900 text-xs font-bold text-white">1</span>
-                <span className="flex flex-wrap items-center gap-1">
-                  Safari&apos;de alttaki <Share className="inline h-4 w-4" /> <b>Paylaş</b> düğmesine dokun
-                </span>
-              </li>
-              <li className="flex items-center gap-3 rounded-xl bg-slate-50 p-3">
-                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-slate-900 text-xs font-bold text-white">2</span>
-                <span className="flex flex-wrap items-center gap-1">
-                  <SquarePlus className="inline h-4 w-4" /> <b>Ana Ekrana Ekle</b>&apos;yi seç
-                </span>
-              </li>
-              <li className="flex items-center gap-3 rounded-xl bg-slate-50 p-3">
-                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-slate-900 text-xs font-bold text-white">3</span>
-                <span>Ana ekrandaki <b>Kurye</b> uygulamasını aç, buradan bildirimi aç</span>
-              </li>
-            </ol>
-            <p className="text-xs text-slate-400">iOS 16.4 veya üstü gerekir.</p>
+        {/* Bildirimler */}
+        {showPush && (
+          <div className="mb-3 rounded-2xl border border-slate-200 p-4">
+            <div className="flex items-center gap-3">
+              <span
+                className={cn(
+                  "grid h-10 w-10 shrink-0 place-items-center rounded-xl",
+                  on ? "bg-lime-100 text-lime-700" : "bg-slate-100 text-slate-500",
+                )}
+              >
+                {on ? <BellRing className="h-5 w-5" /> : <BellOff className="h-5 w-5" />}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="font-bold leading-tight text-slate-900">Çağrı bildirimi</p>
+                <p className="text-xs text-slate-500">
+                  {on ? "Açık · panel çağırınca telefonun titrer" : "Kapalı · çağrılar gelmez"}
+                </p>
+              </div>
+              {canToggle && (
+                <button
+                  role="switch"
+                  aria-checked={on}
+                  aria-label="Çağrı bildirimi"
+                  disabled={push.busy}
+                  onClick={() => void (on ? push.disable() : push.enable())}
+                  className={cn(
+                    "relative inline-flex h-8 w-14 shrink-0 items-center rounded-full transition-colors disabled:opacity-60",
+                    on ? "bg-lime-500" : "bg-slate-300",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "grid h-6 w-6 place-items-center rounded-full bg-white shadow transition-transform",
+                      on ? "translate-x-7" : "translate-x-1",
+                    )}
+                  >
+                    {push.busy && <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />}
+                  </span>
+                </button>
+              )}
+            </div>
+
+            {push.state === "ios-install" && (
+              <div className="mt-4 space-y-2 text-sm text-slate-700">
+                <p>iPhone&apos;da bildirim için bu sayfayı önce uygulama olarak ekle:</p>
+                <ol className="space-y-2">
+                  <li className="flex items-center gap-3 rounded-xl bg-slate-50 p-3">
+                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-slate-900 text-xs font-bold text-white">1</span>
+                    <span className="flex flex-wrap items-center gap-1">
+                      Safari&apos;de alttaki <Share className="inline h-4 w-4" /> <b>Paylaş</b>&apos;a dokun
+                    </span>
+                  </li>
+                  <li className="flex items-center gap-3 rounded-xl bg-slate-50 p-3">
+                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-slate-900 text-xs font-bold text-white">2</span>
+                    <span className="flex flex-wrap items-center gap-1">
+                      <SquarePlus className="inline h-4 w-4" /> <b>Ana Ekrana Ekle</b>&apos;yi seç
+                    </span>
+                  </li>
+                  <li className="flex items-center gap-3 rounded-xl bg-slate-50 p-3">
+                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-slate-900 text-xs font-bold text-white">3</span>
+                    <span>Ana ekrandaki <b>Kurye</b> uygulamasını aç, bildirimi buradan aç</span>
+                  </li>
+                </ol>
+                <p className="text-xs text-slate-400">iOS 16.4 veya üstü gerekir.</p>
+              </div>
+            )}
+
+            {push.state === "denied" && (
+              <p className="mt-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
+                Bildirim izni engellenmiş. Telefon ayarlarından bu uygulama (veya tarayıcı) için{" "}
+                <b>Bildirimler</b>&apos;e izin ver, sonra sayfayı yenile.
+              </p>
+            )}
+
+            {push.error && (
+              <p className="mt-3 rounded-xl bg-rose-50 p-3 text-sm font-medium text-rose-700">{push.error}</p>
+            )}
           </div>
         )}
 
-        {push.state === "denied" && (
-          <div className="space-y-2 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
-            <p className="font-semibold">Bildirim izni engellenmiş.</p>
-            <p>
-              Telefon ayarlarından bu uygulama (veya tarayıcı) için <b>Bildirimler</b>&apos;e izin ver, sonra
-              sayfayı yenile.
-            </p>
-          </div>
-        )}
-
-        {push.error && <p className="mb-3 rounded-xl bg-rose-50 p-3 text-sm font-medium text-rose-700">{push.error}</p>}
-
-        {push.state === "off" && (
-          <button
-            onClick={() => void push.enable()}
-            disabled={push.busy}
-            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-lime-400 py-4 text-base font-bold text-slate-900 transition active:scale-[0.98] disabled:opacity-60"
-          >
-            {push.busy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Bell className="h-5 w-5" />}
-            Bildirimleri aç
-          </button>
-        )}
-        {push.state === "on" && (
-          <button
-            onClick={() => void push.disable()}
-            disabled={push.busy}
-            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-100 py-4 text-base font-bold text-slate-700 transition active:scale-[0.98] disabled:opacity-60"
-          >
-            {push.busy ? <Loader2 className="h-5 w-5 animate-spin" /> : <BellOff className="h-5 w-5" />}
-            Bildirimleri kapat
-          </button>
-        )}
+        <button
+          onClick={() => {
+            onClose();
+            onChangeCourier();
+          }}
+          className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-100 py-4 text-base font-bold text-slate-700 transition active:scale-[0.98]"
+        >
+          <UserRound className="h-5 w-5" />
+          Kuryeyi değiştir
+        </button>
         <button onClick={onClose} className="mt-2 w-full rounded-2xl py-3 text-sm font-semibold text-slate-500 active:bg-slate-50">
           Kapat
         </button>
