@@ -407,7 +407,7 @@ export default function AppSidebar({ variant = "desktop", onNavigate }: Props) {
         )}
       </div>
 
-      <nav className="flex-1 py-4 overflow-y-auto px-2">
+      <nav className="flex-1 py-4 overflow-y-auto scrollbar-hide px-2">
         <div className="space-y-4">
           {NAV_SECTIONS.map((section, i) => (
             <div key={section.title}>
