@@ -133,7 +133,7 @@ export function PanelOrderCard({
               <span className="shrink-0 rounded bg-sky-500 px-1.5 text-xs font-semibold leading-5 text-white">Yeni</span>
             )}
           </p>
-          <p className="truncate text-xs text-muted-foreground">
+          <p className="line-clamp-2 text-xs text-muted-foreground md:line-clamp-1">
             {order.customer?.district && <span className="text-foreground/70">{order.customer.district} · </span>}
             {itemsLine(order)}
           </p>

@@ -297,7 +297,7 @@ export default function NewVoucherClient({
   );
 
   return (
-    <main className="h-full flex flex-col px-3 pt-3 sm:px-4 sm:pt-4 md:px-6 md:pt-5 lg:px-8 lg:pt-6 overflow-hidden">
+    <main className="h-full flex flex-col px-3 pt-3 pb-20 sm:px-4 sm:pt-4 md:px-6 md:pt-5 lg:px-8 lg:pt-6 lg:pb-0 overflow-hidden">
       <div className="mb-3 shrink-0">
         <Link
           href={`/corporate/${corporate.id}`}

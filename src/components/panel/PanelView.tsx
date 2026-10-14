@@ -96,7 +96,7 @@ export function PanelView({
   );
 
   return (
-    <div className="flex h-full flex-col gap-3 overflow-hidden px-3 pb-3 pt-3 md:px-4 lg:px-6 lg:pb-5 lg:pt-4">
+    <div className="flex h-full flex-col gap-3 overflow-y-auto px-3 pb-3 pt-3 md:overflow-hidden md:px-4 lg:px-6 lg:pb-5 lg:pt-4">
       {/* ── Başlık ─────────────────────────────────────────────── */}
       <header className="flex shrink-0 items-center gap-3">
         <div className="min-w-0 flex-1">
@@ -172,9 +172,11 @@ export function PanelView({
       <PanelStats s={summary} cash={cash} now={now} />
 
       {/* ── Mobil sekmeler ─────────────────────────────────────── */}
+      {/* Telefonda sayfa bütün olarak kayar (siparişler tam boy listelenir), sekmeler
+          üstte yapışık kalır; md+ tek ekran, listeler kendi kutusunda kayar. */}
       {/* Telefonda 3 sekme; tablette (ve menü açık 1024px’te) iki sipariş sütunu yan
           yana sığdığı için 2 sekme. Üç sütunlu masaüstü düzeni xl’den itibaren. */}
-      <div className="grid shrink-0 grid-cols-3 rounded-lg bg-muted p-1 md:grid-cols-2 xl:hidden">
+      <div className="sticky top-0 z-10 grid shrink-0 grid-cols-3 rounded-lg bg-muted p-1 shadow-xs md:static md:grid-cols-2 md:shadow-none xl:hidden">
         <TabBtn className="md:hidden" active={tab === "waiting"} onClick={() => setTab("waiting")} label="Bekleyen" count={waiting.length} />
         <TabBtn className="md:hidden" active={tab === "assigned"} onClick={() => setTab("assigned")} label="Kuryede" count={assigned.length} />
         <TabBtn className="hidden md:flex" active={tab !== "couriers"} onClick={() => setTab("waiting")} label="Siparişler" count={all.length} />
@@ -182,7 +184,7 @@ export function PanelView({
       </div>
 
       {/* ── Ana alan ───────────────────────────────────────────── */}
-      <div className="grid min-h-0 flex-1 grid-rows-1 gap-3 xl:grid-cols-12">
+      <div className="grid flex-none gap-3 md:min-h-0 md:flex-1 md:grid-rows-1 xl:grid-cols-12">
         {/* Sipariş panosu */}
         <section
           className={cn(
@@ -221,7 +223,7 @@ export function PanelView({
             </div>
           </div>
 
-          <div className="grid min-h-0 flex-1 grid-rows-1 md:grid-cols-2 md:divide-x">
+          <div className="grid md:min-h-0 md:flex-1 md:grid-cols-2 md:grid-rows-1 md:divide-x">
             <Lane
               title="Kurye bekliyor"
               hint="Kurye atanmamış"
@@ -243,7 +245,7 @@ export function PanelView({
 
         {/* Sağ kolon: kuryeler + saatlik sipariş */}
         <aside className={cn("min-h-0 flex-col gap-3 xl:col-span-4 xl:flex", tab === "couriers" ? "flex" : "hidden")}>
-          <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border bg-card">
+          <section className="flex flex-col overflow-hidden rounded-xl border bg-card md:min-h-0 md:flex-1">
             <div className="flex shrink-0 items-center justify-between border-b px-4 py-2">
               <h2 className="text-sm font-semibold">Kuryeler</h2>
               <span className="text-xs text-muted-foreground">dokun → parayı teslim al</span>
@@ -295,7 +297,7 @@ function Lane({
         <span className="text-xs font-semibold tabular-nums">{orders.length}</span>
         <span className="ml-auto text-xs text-muted-foreground/70">{hint}</span>
       </div>
-      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3 md:pt-1.5 lg:px-4">
+      <div className="space-y-2 p-3 md:min-h-0 md:flex-1 md:overflow-y-auto md:pt-1.5 lg:px-4">
         {loading ? (
           [0, 1, 2].map((i) => <Skeleton key={i} className="h-20 w-full rounded-lg" />)
         ) : orders.length === 0 ? (
