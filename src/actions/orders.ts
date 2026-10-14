@@ -584,6 +584,8 @@ export async function collectOpenAccount(
       set.paymentStatus = "paid";
       set.paidAt = new Date();
       set.payment = payment;
+      // Para panelde (işletmede) alındı → kuryedeki para hesabına düşmesin.
+      set.handedOverAt = new Date();
     }
 
     await OrderModel.updateOne(
@@ -661,6 +663,8 @@ export async function collectCustomerOpenAccounts(
         set.paymentStatus = "paid";
         set.paidAt = now;
         set.payment = payment;
+        // Para panelde alındı → kuryedeki para hesabına düşmesin.
+        set.handedOverAt = now;
         closed++;
       }
       await OrderModel.updateOne({ id: d.id }, { $push: { payments: record }, $set: set });

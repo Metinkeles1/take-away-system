@@ -119,6 +119,8 @@ async function pendingOrders(courier?: string): Promise<PendingOrder[]> {
         { "payment.split.method": { $in: ["cash", "card"] } },
       ],
       paymentStatus: { $ne: "open" },
+      // Panelden tahsil edilen açık hesaplar (tahsilat kaydı olan) kuryede değildir.
+      "payments.0": { $exists: false },
       deliveredAt: { $gte: start },
       handedOverAt: { $exists: false },
       ...courierFilter,
