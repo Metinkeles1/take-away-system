@@ -147,6 +147,22 @@ const PAYMENT_LABEL: Record<
   },
 };
 
+// Trendyol siparişi online ödenmiş mi (kurye tahsilat yapmaz)? Kapıda yemek
+// kartı da "meal_card" olduğundan yönteme değil eşlemedeki prepaid işaretine
+// bakılır. İşaretsiz eski kayıtta yalnızca "online" ön ödemeli sayılır.
+function isTrendyolPrepaid(o: Order): boolean {
+  return o.source === "trendyol" && (o.payment.prepaid ?? o.payment.method === "online");
+}
+
+// Trendyol'da yöntem adının yanına kanal: "Kapıda Nakit" / "Online · Yemek Kartı".
+// Kendi siparişlerimizde yalın yöntem adı.
+function payLabelFor(o: Order): string | undefined {
+  const base = PAYMENT_LABEL[o.payment.method]?.label;
+  if (!base || o.source !== "trendyol") return base;
+  if (isTrendyolPrepaid(o)) return o.payment.method === "online" ? "Online ödendi" : `Online · ${base}`;
+  return `Kapıda ${base}`;
+}
+
 // Kurye kartındaki ödeme yöntemi chip'lerinin sırası.
 const PAYMENT_METHODS: PaymentMethod[] = [
   "cash",
@@ -284,7 +300,7 @@ function buildWhatsAppUrl(
     ? "AÇIK HESAP (ödeme alınamadı)"
     : o.payment.split && o.payment.split.length > 1
       ? splitLabel(o.payment.split)
-      : (PAYMENT_LABEL[o.payment.method]?.label ?? "Ödeme");
+      : (payLabelFor(o) ?? "Ödeme");
   // Trendyol siparişi ise grupta net ayrılsın diye başına etiket koy.
   const tag = o.source === "trendyol" ? "🛍️ Trendyol · " : "";
   let text = `${tag}${fullAddress(o)} — ${payLabel} — Teslim edildi`;
@@ -2274,7 +2290,7 @@ function PoolList({
                     )}
                   >
                     <pay.icon className="h-3 w-3" />
-                    {pay.label}
+                    {payLabelFor(o)}
                   </span>
                 )}
                 {group && (
@@ -2367,8 +2383,7 @@ function OrderCard({
   // YAPMAZ; kapıda ödemede (nakit/kart/yemek kartı) yapar. Kapıda yemek kartı da
   // "meal_card" olduğundan yönteme değil eşlemedeki prepaid işaretine bakılır.
   // İşaretsiz eski kayıtta yalnızca "online" ön ödemeli sayılır (güvenli taraf).
-  const trendyolPrepaid =
-    isTrendyol && (o.payment.prepaid ?? o.payment.method === "online");
+  const trendyolPrepaid = isTrendyolPrepaid(o);
   // Kapıda toplanacak toplam = bu sipariş + müşterinin eski açık hesapları.
   const grandTotal = o.total + (debt?.total ?? 0);
   // Pinlenmiş konum varsa kesin koordinata git; yoksa metin adresini geocode et.
@@ -2414,10 +2429,20 @@ function OrderCard({
           </span>
         )}
         {pay && (
-          <span className="inline-flex min-w-0 items-center gap-1 rounded-lg bg-white/10 px-2 py-0.5 text-xs font-semibold text-white">
+          <span
+            className={cn(
+              "inline-flex min-w-0 items-center gap-1 rounded-lg px-2 py-0.5 text-xs font-semibold",
+              // Trendyol: kapıda = amber (para alınacak), online = yeşil.
+              isTrendyol
+                ? trendyolPrepaid
+                  ? "bg-emerald-500/25 text-emerald-200"
+                  : "bg-amber-400 text-slate-900"
+                : "bg-white/10 text-white",
+            )}
+          >
             <pay.icon className="h-3.5 w-3.5 shrink-0" />
             <span className="truncate">
-              {pay.label}
+              {payLabelFor(o)}
               {o.payment.method === "meal_card" && o.payment.mealCardBrand && (
                 <span className="text-orange-300">
                   {" · "}
@@ -2552,9 +2577,14 @@ function OrderCard({
           </div>
           <div className="shrink-0 text-right">
             <p className="text-[11px] font-semibold tracking-wide text-slate-400 uppercase">
-              {debt ? "Toplam tahsilat" : "Tahsilat"}
+              {trendyolPrepaid ? "Online ödendi" : debt ? "Toplam tahsilat" : "Tahsilat"}
             </p>
-            <p className="text-2xl leading-none font-extrabold tracking-tight text-slate-900 tabular-nums">
+            <p
+              className={cn(
+                "text-2xl leading-none font-extrabold tracking-tight tabular-nums",
+                trendyolPrepaid ? "text-slate-300 line-through" : "text-slate-900",
+              )}
+            >
               {money(grandTotal)}
             </p>
           </div>
@@ -2594,7 +2624,7 @@ function OrderCard({
                 )}
               >
                 <pay.icon className="h-4 w-4" />
-                {pay.label}
+                {payLabelFor(o)}
                 {o.payment.method === "meal_card" && o.payment.mealCardBrand && (
                   <span>· {MEAL_CARD_BRAND_LABEL[o.payment.mealCardBrand]}</span>
                 )}

@@ -41,6 +41,34 @@ export const PAYMENT_LABEL: Record<string, string> = {
   meal_card: "Yemek Kartı",
 };
 
+// Arşiv kaydı online mı ödenmiş (kurye tahsilat yapmadı)? Kapıda kodla ödenen
+// yemek kartı (mealCardSource "on_delivery") kapıda sayılır.
+export function archivedIsPrepaid(d: {
+  paymentKey?: string | null;
+  mealCardSource?: string | null;
+}): boolean {
+  const key = d.paymentKey ?? "online";
+  if (key === "online") return true;
+  if (key === "meal_card") return d.mealCardSource !== "on_delivery";
+  return false;
+}
+
+// Arşiv kaydının ödeme etiketi, kanal açıkça yazılı: "Kapıda Nakit",
+// "Online · Yemek Kartı · Multinet", "Kapıda Yemek Kartı · Pluxee" …
+export function archivedPaymentLabel(d: {
+  paymentKey?: string | null;
+  mealCardBrand?: string | null;
+  mealCardSource?: string | null;
+}): string {
+  const key = d.paymentKey ?? "online";
+  if (key === "meal_card") {
+    const base = archivedIsPrepaid(d) ? "Online · Yemek Kartı" : "Kapıda Yemek Kartı";
+    return d.mealCardBrand ? `${base} · ${d.mealCardBrand}` : base;
+  }
+  if (key === "cash") return "Kapıda Nakit";
+  return PAYMENT_LABEL[key] ?? "—";
+}
+
 // Trendyol'un yemek kartı identifier'larını ortak marka adına normalize eder.
 // cardSourceType (online ödeme) ve onDelivery.paymentType (kapıda kod) için ortak.
 export function normalizeMealCardBrand(raw: string | undefined | null): string | null {

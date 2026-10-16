@@ -206,6 +206,19 @@ function OrderListCardImpl({
               {!order.payment.split?.length && order.payment.method === "meal_card" && order.payment.mealCardBrand && (
                 <span className="capitalize">· {order.payment.mealCardBrand}</span>
               )}
+              {/* Trendyol: para kapıda mı alındı, online mı ödendi — tek bakışta. */}
+              {order.source === "trendyol" && (
+                <span
+                  className={cn(
+                    "rounded px-1.5 py-0.5 text-[10px] font-bold",
+                    (order.payment.prepaid ?? order.payment.method === "online")
+                      ? "bg-emerald-100 text-emerald-700"
+                      : "bg-amber-100 text-amber-800",
+                  )}
+                >
+                  {(order.payment.prepaid ?? order.payment.method === "online") ? "Online" : "Kapıda"}
+                </span>
+              )}
             </span>
             {order.status === "delivered" && order.deliveryDurationMin != null && (
               <span

@@ -16,8 +16,9 @@ import {
 } from "@/lib/trendyol/archive";
 import {
   NON_REVENUE_STATUSES,
-  PAYMENT_LABEL,
+  archivedIsPrepaid,
   archivedNet,
+  archivedPaymentLabel,
 } from "@/lib/integrations/trendyol/packageUtils";
 import { istanbulDayStart } from "@/lib/datetime";
 import type { Order } from "@/types";
@@ -377,11 +378,7 @@ export async function getTrendyolOrderDetail(orderNumber: string): Promise<Trend
     if (h) history = { count: h.count, total: h.total, first: h.first ? new Date(h.first).getTime() : null };
   }
 
-  const key = d.paymentKey ?? "";
-  const paymentLabel =
-    key === "meal_card" && d.mealCardBrand
-      ? `Yemek Kartı · ${d.mealCardBrand}`
-      : (PAYMENT_LABEL[key] ?? "—");
+  const paymentLabel = archivedPaymentLabel(d);
 
   return {
     orderNumber: d.orderNumber,
@@ -502,6 +499,7 @@ export async function getTrendyolOrdersForList(period: TrendyolListPeriod = "wee
         netTotal: 1,
         paymentKey: 1,
         mealCardBrand: 1,
+        mealCardSource: 1,
         courier: 1,
         packageCreationDate: 1,
         packageModificationDate: 1,
@@ -549,6 +547,7 @@ export async function getTrendyolOrdersForList(period: TrendyolListPeriod = "wee
         payment: {
           method,
           mealCardBrand: MEAL_BRANDS.has(brand) ? (brand as NonNullable<Order["payment"]["mealCardBrand"]>) : undefined,
+          prepaid: archivedIsPrepaid(d),
         },
         status: TY_STATUS[d.packageStatus ?? ""] ?? "pending",
         subtotal: d.totalPrice ?? 0,

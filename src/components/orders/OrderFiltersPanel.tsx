@@ -11,7 +11,15 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 export type OrderFilter = "all" | OrderStatus;
 export type ChannelFilter = "all" | "own" | "trendyol";
 // "open" = açık hesap (ödeme yönteminden bağımsız, paymentStatus'a bakar).
-export type PaymentFilter = "all" | PaymentMethod | "open";
+// "door" = kapıda ödeme (para kuryeye verildi; yöntemden bağımsız).
+export type PaymentFilter = "all" | PaymentMethod | "open" | "door";
+
+// Para kapıda mı alındı? Trendyol'da eşlemedeki prepaid işaretine bakılır
+// (kapıda yemek kartı da "meal_card"); kendi siparişlerde online/IBAN hariç hepsi.
+export function isPaidAtDoor(o: Order): boolean {
+  if (o.source === "trendyol") return !(o.payment.prepaid ?? o.payment.method === "online");
+  return o.payment.method !== "online" && o.payment.method !== "iban";
+}
 
 // Takvimden seçilen gün aralığı (iki uç dahil, yerel gün).
 export interface OrderDateRange {
@@ -65,6 +73,7 @@ export const PAYMENT_LABEL: Record<PaymentMethod, string> = {
 export function matchesPayment(o: Order, filter: PaymentFilter): boolean {
   if (filter === "all") return true;
   if (filter === "open") return o.paymentStatus === "open";
+  if (filter === "door") return isPaidAtDoor(o);
   return o.payment.method === filter;
 }
 
@@ -89,6 +98,7 @@ const STATUS_TABS: { key: OrderFilter; label: string }[] = [
 ];
 const PAYMENT_TABS: { key: PaymentFilter; label: string }[] = [
   { key: "all", label: "Tümü" },
+  { key: "door", label: "Kapıda ödeme" },
   { key: "cash", label: PAYMENT_LABEL.cash },
   { key: "card", label: PAYMENT_LABEL.card },
   { key: "meal_card", label: PAYMENT_LABEL.meal_card },

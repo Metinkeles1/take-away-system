@@ -12,6 +12,7 @@ import {
   OrderActiveFilters,
   OrderFilters,
   matchesPayment,
+  isPaidAtDoor,
   dateRangeLabel,
   dateRangeBounds,
   periodCovers,
@@ -140,10 +141,12 @@ export default function OrdersPage() {
       online: 0,
       iban: 0,
       open: 0,
+      door: 0,
     };
     orders.forEach((o) => {
       acc[o.payment.method] += 1;
       if (o.paymentStatus === "open") acc.open += 1;
+      if (isPaidAtDoor(o)) acc.door += 1;
     });
     return acc;
   }, [orders]);

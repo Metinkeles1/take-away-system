@@ -36,7 +36,7 @@ import {
 import { periodWindows, type DashboardPeriod } from "@/lib/dashboardPeriods";
 import TrendyolOrderModel from "@/models/TrendyolOrder";
 import { ensureTrendyolArchiveFresh, LIVE_MAX_AGE_MS } from "@/lib/trendyol/archive";
-import { PAYMENT_LABEL as TY_PAYMENT_LABEL, archivedNet } from "@/lib/integrations/trendyol/packageUtils";
+import { archivedNet, archivedPaymentLabel } from "@/lib/integrations/trendyol/packageUtils";
 
 type Channel = OrderSource | "all";
 type OverviewMetric = DashboardOverview["current"];
@@ -530,6 +530,7 @@ interface TyArchiveRow {
   netRevenue?: number | null;
   paymentKey?: string | null;
   mealCardBrand?: string | null;
+  mealCardSource?: string | null;
   packageCreationDate?: Date | null;
 }
 
@@ -553,6 +554,7 @@ async function tyArchiveOrders(period: DashboardPeriod, dayOffset: number): Prom
       netRevenue: 1,
       paymentKey: 1,
       mealCardBrand: 1,
+      mealCardSource: 1,
       packageCreationDate: 1,
     })
     .sort({ packageCreationDate: -1 })
@@ -568,9 +570,7 @@ function tyIsCancelled(d: TyArchiveRow): boolean {
 }
 
 function tyPaymentLabel(d: TyArchiveRow): string {
-  const key = d.paymentKey ?? "";
-  if (key === "meal_card" && d.mealCardBrand) return `Yemek K. · ${d.mealCardBrand}`;
-  return TY_PAYMENT_LABEL[key] ?? "—";
+  return archivedPaymentLabel(d);
 }
 
 // Filtre eşlemesi çubuk kategorileriyle BİREBİR aynı (ham anahtar → TY_PAYMENT_MAP).
