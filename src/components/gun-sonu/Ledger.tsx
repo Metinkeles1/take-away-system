@@ -91,6 +91,8 @@ export function Ledger({ report, orders, comparison, targetMin, courierPending, 
   const delivered = orders.filter((o) => o.status === "delivered" && o.durationMin != null);
   const avgDur = delivered.length ? delivered.reduce((s, o) => s + (o.durationMin ?? 0), 0) / delivered.length : null;
   const late = orders.filter((o) => isLate(o, targetMin)).length;
+  // İptal edilen siparişlerin tutarı — toplama girmeyen, bilgi amaçlı.
+  const cancelledAmount = orders.reduce((s, o) => (o.status === "cancelled" ? s + o.total : s), 0);
   const cuts = dayCuts(report);
   const change =
     comparison && comparison.totalRevenue > 0
@@ -248,7 +250,13 @@ export function Ledger({ report, orders, comparison, targetMin, courierPending, 
           icon={Ban}
           tone="bad"
           label="İptal · toplama dahil değil"
-          value={report.cancelledCount > 0 ? String(report.cancelledCount) : null}
+          value={
+            report.cancelledCount > 0
+              ? cancelledAmount > EPSILON
+                ? `${report.cancelledCount} · ${formatCurrency(cancelledAmount)}`
+                : String(report.cancelledCount)
+              : null
+          }
           active={filter.state === "cancelled"}
           onClick={() =>
             onFilter({ ...filter, scope: undefined, state: filter.state === "cancelled" ? undefined : "cancelled" })
