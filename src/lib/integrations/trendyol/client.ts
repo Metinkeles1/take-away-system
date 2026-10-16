@@ -21,6 +21,8 @@
 //   İptal:
 //      PUT /integrator/order/meal/suppliers/{supplierId}/packages/unsupplied
 
+import { normalizeTrendyolAddress } from "./address";
+
 // HTTP header'ları ASCII (ByteString) olmak zorunda — Türkçe karakterleri çevir.
 function toAsciiHeader(value: string): string {
   return value
@@ -245,7 +247,7 @@ export interface TrendyolPackagesResponse {
   content: TrendyolPackage[];
 }
 
-export function listTrendyolPackages(params: {
+export async function listTrendyolPackages(params: {
   storeId?: string | number;
   packageStatuses?: string;
   modificationStartDate?: number;
@@ -263,10 +265,17 @@ export function listTrendyolPackages(params: {
   if (params.page !== undefined) qs.set("page", String(params.page));
   if (params.size !== undefined) qs.set("size", String(params.size));
   const query = qs.toString();
-  return trendyolRequest<TrendyolPackagesResponse>({
+  const res = await trendyolRequest<TrendyolPackagesResponse>({
     method: "GET",
     path: supplierPath(`/packages${query ? `?${query}` : ""}`),
   });
+  // Adres biçimi tüm tüketiciler için burada düzeltilir (bkz. address.ts).
+  if (res.ok && Array.isArray(res.data?.content)) {
+    for (const p of res.data.content) {
+      if (p.address) p.address = normalizeTrendyolAddress(p.address);
+    }
+  }
+  return res;
 }
 
 // ─── Finansal kayıtlar (settlements) ───────────────────────────────────

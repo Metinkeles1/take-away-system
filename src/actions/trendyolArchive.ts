@@ -5,6 +5,7 @@
 
 import { connectDB } from "@/lib/mongodb";
 import TrendyolOrderModel from "@/models/TrendyolOrder";
+import { cleanTrendyolField, floorLabel } from "@/lib/integrations/trendyol/address";
 import {
   formatArchivedAddress,
   anonymizeTrendyolOrders,
@@ -399,9 +400,9 @@ export async function getTrendyolOrderDetail(orderNumber: string): Promise<Trend
     city: d.city ?? "",
     street: d.street ?? "",
     building: [
-      d.apartmentNumber ? `Bina ${d.apartmentNumber}` : null,
-      d.floor ? `Kat ${d.floor}` : null,
-      d.doorNumber ? `Daire ${d.doorNumber}` : null,
+      cleanTrendyolField(d.apartmentNumber) ? `Bina ${d.apartmentNumber}` : null,
+      cleanTrendyolField(d.floor) ? floorLabel(d.floor) : null,
+      cleanTrendyolField(d.doorNumber) ? `Daire ${d.doorNumber}` : null,
     ]
       .filter(Boolean)
       .join(", "),

@@ -14,6 +14,7 @@ import type {
   ProductCategory,
 } from "@/types";
 import type { TrendyolPackage } from "./client";
+import { floorLabel } from "./address";
 
 // Trendyol ödeme tipini panelin ödeme yöntemine eşler. Online ödenmiş (kart /
 // yemek kartı online) siparişlerde kurye tahsilat YAPMAZ — rozet yine de doğru
@@ -117,8 +118,10 @@ export function reconcileBuildingNo(
 
   if (!PLAIN_NO.test(apt)) {
     // Blok/site adı — adreste zaten geçiyorsa tekrar etme.
+    // Kelime olarak geçmeli — "A" bloğu her "a" harfinde eşleşmesin.
     const lower = (s: string) => s.toLocaleLowerCase("tr");
-    return lower(mapLine).includes(lower(apt))
+    const esc = lower(apt).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(^|[^0-9a-zçğıöşü])${esc}($|[^0-9a-zçğıöşü])`, "i").test(lower(mapLine))
       ? { line: mapLine, buildingNote: null }
       : { line: mapLine, buildingNote: `Bina ${apt}` };
   }
@@ -173,7 +176,7 @@ export function mapTrendyolPackageToOrder(p: TrendyolPackage): Order {
   // address1'i birebir tekrar ediyorsa eklenmez (gürültüyü azalt).
   const building = [
     buildingNote,
-    a.floor ? `Kat ${a.floor}` : null,
+    floorLabel(a.floor),
     a.doorNumber ? `Daire ${a.doorNumber}` : null,
   ]
     .filter(Boolean)
