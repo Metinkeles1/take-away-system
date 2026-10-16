@@ -345,7 +345,7 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
       return null;
     }
 
-    const order = buildOrderFromDraft(draft);
+    let order = buildOrderFromDraft(draft);
 
     // DB'ye kaydet
     const result = await createOrder(order, {
@@ -353,6 +353,10 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
     });
     if (!result.ok) {
       return null;
+    }
+    // Kayıtlı adres pini varsa sipariş ilk anda pinli görünsün
+    if (result.geo && !order.customer.geo) {
+      order = { ...order, customer: { ...order.customer, geo: result.geo } };
     }
 
     // Optimistic UI güncellemesi (DB başarılı olduktan sonra)

@@ -227,7 +227,7 @@ export async function getOrderById(id: string): Promise<Order | null> {
 export async function createOrder(
   order: Order,
   opts?: { updateSavedAddress?: boolean },
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; geo?: Order["customer"]["geo"] }> {
   try {
     await connectDB();
 
@@ -273,7 +273,22 @@ export async function createOrder(
     revalidatePath("/orders");
     await notifyOrdersChanged("order-created");
 
-    return { ok: true };
+    // Okurken uygulanan kayıtlı-adres pinini (withFallbackGeo) burada da döndür —
+    // istemci siparişi ilk anda pinli eklesin; yoksa liste tazelenene kadar
+    // "Tahmini" konum görünüp sonra pinliye atlıyordu.
+    let geo = customerForDB.geo;
+    if (!geo) {
+      try {
+        geo = withFallbackGeo(
+          customerForDB,
+          await getAddressBook([customerForDB.phone]),
+        ).geo;
+      } catch {
+        // pin bulunamazsa liste tazelenince gelir
+      }
+    }
+
+    return { ok: true, geo };
   } catch (error) {
     console.error("[createOrder]", error);
     return { ok: false, error: "Sipariş kaydedilemedi" };
