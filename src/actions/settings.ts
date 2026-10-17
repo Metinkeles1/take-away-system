@@ -5,6 +5,7 @@ import { connectDB } from "@/lib/mongodb";
 import SettingModel from "@/models/Setting";
 import ContactSyncLogModel from "@/models/ContactSyncLog";
 import {
+  logConnectionEvent,
   patchGoogleContactsSetting,
   readGoogleContactsSetting,
 } from "@/lib/integrations/googleContacts";
@@ -323,7 +324,7 @@ export async function saveGoogleContactsClient(data: {
     await patchGoogleContactsSetting(
       { clientId, ...(clientSecret ? { clientSecret } : {}) },
       // Başka bir OAuth istemcisine geçildiyse eski token onunla çalışmaz.
-      clientChanged ? ["refreshToken", "email", "connectedAt"] : [],
+      clientChanged ? ["refreshToken", "email", "connectedAt", "droppedAt"] : [],
     );
     revalidatePath("/settings");
     return { ok: true };
@@ -335,7 +336,15 @@ export async function saveGoogleContactsClient(data: {
 
 export async function disconnectGoogleContacts(): Promise<{ ok: boolean }> {
   try {
-    await patchGoogleContactsSetting({}, ["refreshToken", "email", "connectedAt"]);
+    const current = await readGoogleContactsSetting();
+    await patchGoogleContactsSetting({}, ["refreshToken", "email", "connectedAt", "droppedAt"]);
+    await logConnectionEvent({
+      event: "disconnected",
+      email: current.email,
+      connectedAt: current.connectedAt,
+      // Kopmuş bağlantı kesildiyse süre kopma anına göre okunur (dropped kaydı).
+      ...(current.droppedAt ? { error: "zaten kopmuştu" } : {}),
+    });
     revalidatePath("/settings");
     return { ok: true };
   } catch (error) {

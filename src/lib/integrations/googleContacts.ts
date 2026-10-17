@@ -1,5 +1,6 @@
 import { connectDB } from "@/lib/mongodb";
 import SettingModel from "@/models/Setting";
+import GoogleConnectionLogModel from "@/models/GoogleConnectionLog";
 import type { ContactAddress } from "@/lib/customers/contactFields";
 
 // Google People API — müşterileri doğrudan Google Kişiler'e (telefon rehberi)
@@ -28,6 +29,8 @@ export interface GoogleContactsSetting {
   refreshToken?: string;
   email?: string;
   connectedAt?: Date;
+  // Token ilk reddedildiğinde dolar; kopma kaydı bağlantı başına bir kez düşsün.
+  droppedAt?: Date;
   lastSync?: {
     at: Date;
     created: number;
@@ -143,6 +146,45 @@ export async function exchangeCode(
   return { refreshToken: data.refresh_token, email };
 }
 
+// Bağlantı olayı kaydı (bkz. GoogleConnectionLog) — kayıt hatası işi bozmasın.
+export async function logConnectionEvent(entry: {
+  event: "connected" | "disconnected" | "dropped";
+  email?: string;
+  connectedAt?: Date;
+  error?: string;
+}): Promise<void> {
+  try {
+    await connectDB();
+    const hoursConnected = entry.connectedAt
+      ? Math.round(((Date.now() - new Date(entry.connectedAt).getTime()) / 36e5) * 10) / 10
+      : undefined;
+    await GoogleConnectionLogModel.create({ at: new Date(), ...entry, hoursConnected });
+  } catch (err) {
+    console.error("[googleContacts] bağlantı olayı yazılamadı", err);
+  }
+}
+
+// Kopmayı bağlantı başına bir kez kaydeder: droppedAt atomik olarak ilk kez
+// dolduran çağrı yazar, sonraki başarısız senkronlar tekrar yazmaz.
+async function recordDrop(s: GoogleContactsSetting, error: string): Promise<void> {
+  try {
+    await connectDB();
+    const res = await SettingModel.updateOne(
+      { key: SETTING_KEY, "value.droppedAt": { $exists: false } },
+      { $set: { "value.droppedAt": new Date() } },
+    );
+    if (res.modifiedCount === 0) return;
+    await logConnectionEvent({
+      event: "dropped",
+      email: s.email,
+      connectedAt: s.connectedAt,
+      error,
+    });
+  } catch (err) {
+    console.error("[googleContacts] kopma kaydedilemedi", err);
+  }
+}
+
 async function getAccessToken(s: GoogleContactsSetting): Promise<string> {
   if (!s.clientId || !s.clientSecret || !s.refreshToken) {
     throw new Error("Google Kişiler bağlı değil");
@@ -158,9 +200,16 @@ async function getAccessToken(s: GoogleContactsSetting): Promise<string> {
     }),
     cache: "no-store",
   });
-  const data = (await res.json()) as { access_token?: string; error?: string };
+  const data = (await res.json()) as {
+    access_token?: string;
+    error?: string;
+    error_description?: string;
+  };
   if (!res.ok || !data.access_token) {
     // invalid_grant: izin geri alınmış / süresi dolmuş → Ayarlar'dan tekrar bağlan.
+    if (data.error === "invalid_grant") {
+      await recordDrop(s, [data.error, data.error_description].filter(Boolean).join(": "));
+    }
     throw new Error(
       data.error === "invalid_grant"
         ? "Google bağlantısı düşmüş — Ayarlar'dan tekrar bağlanın"

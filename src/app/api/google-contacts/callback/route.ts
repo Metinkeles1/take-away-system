@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   CALLBACK_PATH,
   exchangeCode,
+  logConnectionEvent,
   patchGoogleContactsSetting,
   readGoogleContactsSetting,
 } from "@/lib/integrations/googleContacts";
@@ -36,11 +37,11 @@ export async function GET(req: NextRequest) {
       code,
       `${origin}${CALLBACK_PATH}`,
     );
-    await patchGoogleContactsSetting({
-      refreshToken,
-      email,
-      connectedAt: new Date(),
-    });
+    await patchGoogleContactsSetting(
+      { refreshToken, email, connectedAt: new Date() },
+      ["droppedAt"],
+    );
+    await logConnectionEvent({ event: "connected", email });
     return back("connected");
   } catch (err) {
     console.error("[google-contacts/callback]", err);
