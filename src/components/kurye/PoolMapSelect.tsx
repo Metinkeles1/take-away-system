@@ -89,11 +89,6 @@ export function PoolMapSelect({
   const [mapReady, setMapReady] = useState(false);
   const [approxCoords, setApproxCoords] = useState<Record<string, ApproxHit>>({});
   const [geocoding, setGeocoding] = useState(false);
-  // claim modunda üstlendikten sonra: seçilen paketler (yol tarifi ekranı).
-  const [claimedView, setClaimedView] = useState<Order[] | null>(null);
-  const [claimedApproxCoords, setClaimedApproxCoords] = useState<
-    Record<string, ApproxHit> | null
-  >(null);
   // Ekran açılınca GPS'i önceden al — yol tarifi tıklamasında hazır olsun
   // (bkz. warmDeviceLocation).
   useEffect(() => {
@@ -170,8 +165,6 @@ export function PoolMapSelect({
   useEffect(() => {
     if (open) {
       setSelected(new Set());
-      setClaimedView(null);
-      setClaimedApproxCoords(null);
     }
   }, [open]);
 
@@ -418,13 +411,9 @@ export function PoolMapSelect({
   const confirmClaim = async () => {
     if (selected.size === 0 || claiming || !onClaim) return;
     setClaiming(true);
-    const picked = orders.filter((o) => selected.has(o.id));
+    // Üstlenince ekranı ana sayfa kapatır ve "Teslimat"a geçirir.
     try {
       await onClaim([...selected]);
-      // Üstlendikten sonra listeden düşse bile rota için geocode edilmiş yaklaşık
-      // koordinatları koru.
-      setClaimedApproxCoords(approxCoords);
-      setClaimedView(picked);
     } finally {
       setClaiming(false);
     }
@@ -507,16 +496,13 @@ export function PoolMapSelect({
     );
   };
 
-  const title = claimedView
-    ? "Üstlenildi 🎉"
-    : mode === "route"
+  const title =
+    mode === "route"
       ? "Haritada Planla"
       : selectable.length === 0
         ? "Paket haritası"
         : "Paket seç";
-  const subtitle = claimedView
-    ? `${claimedView.length} paket senin — yol tarifini aç`
-    : summaryLine
+  const subtitle = summaryLine
       ? summaryLine
       : geocoding
         ? "Pinsiz konumlar bulunuyor…"
@@ -544,7 +530,7 @@ export function PoolMapSelect({
 
       <div className="relative h-[42vh] shrink-0">
         <div ref={containerRef} className="absolute inset-0 bg-slate-200" />
-        {takenOnMap.length > 0 && !claimedView && (
+        {takenOnMap.length > 0 && (
           <div className="pointer-events-none absolute bottom-2 left-2 z-1000 flex items-center gap-3 rounded-lg bg-white/90 px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 shadow-sm">
             <span className="flex items-center gap-1">
               <span className="h-2.5 w-2.5 rounded-full bg-lime-600" /> Sende
@@ -556,67 +542,35 @@ export function PoolMapSelect({
         )}
       </div>
 
-      {claimedView ? (
-        <div className="min-h-0 flex-1 overflow-y-auto p-3">
-          <div className="rounded-2xl bg-white p-4 text-center ring-1 ring-slate-200">
-            <div className="mx-auto mb-2 grid h-12 w-12 place-items-center rounded-full bg-emerald-100">
-              <Check className="h-7 w-7 text-emerald-600" />
-            </div>
-            <p className="font-bold text-slate-800">
-              {claimedView.length} paket üstlenildi
-            </p>
-            <p className="mt-0.5 text-sm text-slate-500">
-              Kalanlar havuzda — diğer kurye seçebilir.
-            </p>
-          </div>
-        </div>
-      ) : (
-        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
-          {selectable.length > 1 && (
-            <button
-              onClick={toggleAll}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-white py-2.5 text-sm font-bold text-slate-700 ring-1 ring-slate-200 transition active:scale-[0.99]"
-            >
-              {allSelected
-                ? "Seçimi temizle"
-                : `Tümünü seç (${selectable.length})`}
-            </button>
-          )}
-          {selected.size >= CAPACITY_WARN && (
-            <p className="flex items-center gap-1.5 rounded-xl bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-700 ring-1 ring-amber-200">
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-              {selected.size} durak çok olabilir — taşıma kapasitesi ve Google ~10
-              durak sınırına dikkat.
-            </p>
-          )}
-          {selPinned.map(renderRow)}
-          {selPinless.map(renderRow)}
-          {selectable.length === 0 && (
-            <p className="px-1 py-6 text-center text-sm font-medium text-slate-500">
-              {mode === "route" ? "Paket yok 🎉" : "Havuzda boş paket kalmadı 🎉"}
-            </p>
-          )}
-        </div>
-      )}
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+        {selectable.length > 1 && (
+          <button
+            onClick={toggleAll}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-white py-2.5 text-sm font-bold text-slate-700 ring-1 ring-slate-200 transition active:scale-[0.99]"
+          >
+            {allSelected
+              ? "Seçimi temizle"
+              : `Tümünü seç (${selectable.length})`}
+          </button>
+        )}
+        {selected.size >= CAPACITY_WARN && (
+          <p className="flex items-center gap-1.5 rounded-xl bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-700 ring-1 ring-amber-200">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            {selected.size} durak çok olabilir — taşıma kapasitesi ve Google ~10
+            durak sınırına dikkat.
+          </p>
+        )}
+        {selPinned.map(renderRow)}
+        {selPinless.map(renderRow)}
+        {selectable.length === 0 && (
+          <p className="px-1 py-6 text-center text-sm font-medium text-slate-500">
+            {mode === "route" ? "Paket yok 🎉" : "Havuzda boş paket kalmadı 🎉"}
+          </p>
+        )}
+      </div>
 
       <div className="shrink-0 border-t border-slate-200 bg-white p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-        {claimedView ? (
-          <div className="flex items-stretch gap-2">
-            <button
-              onClick={onClose}
-              className="w-24 shrink-0 rounded-2xl bg-slate-100 py-4 text-sm font-bold text-slate-600 transition active:scale-95"
-            >
-              Kapat
-            </button>
-            <button
-              onClick={() => openRoute(claimedView, claimedApproxCoords)}
-              className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-indigo-600 py-4 text-base font-bold text-white shadow-sm shadow-indigo-600/25 transition active:scale-[0.98]"
-            >
-              <Navigation className="h-5 w-5 fill-white" />
-              Yol Tarifi Al ({claimedView.length} durak)
-            </button>
-          </div>
-        ) : mode === "route" ? (
+        {mode === "route" ? (
           selected.size > 0 ? (
             <button
               onClick={() => openRoute(selectedOrders)}

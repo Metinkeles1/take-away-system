@@ -613,30 +613,27 @@ export default function KuryePage() {
     }
   };
 
-  // Trendyol'dan taze çek → paylaşımlı depoyu güncelle → Pusher ile TÜM kurye
-  // ekranlarına yay. Sürekli istek atılmaz; sadece "Yenile"ye basınca. Env tanımlı
-  // değilse sessizce boş döner. Çeken kurye anında görsün diye sonucu da yazarız;
-  // diğer kuryeler Pusher → load() ile alır.
-  const fetchTrendyol = async () => {
+  // Trendyol'dan taze çek → paylaşımlı depoyu güncelle (değiştiyse Pusher ile TÜM
+  // kurye ekranlarına yayılır). Dönen liste ekrana YAZILMAZ: Trendyol cevabında
+  // "hangi kuryede" bilgisi yok, yazılırsa üstlenilen paketler ekrandan düşüyordu.
+  // Ekran paketleri her zaman depodan (load) okur.
+  const syncTrendyol = async () => {
     setTrendyolError(null);
     try {
       const res = await syncTrendyolCourierPackages();
-      if (!res.ok) {
-        setTrendyolError(res.error ?? "Trendyol siparişleri alınamadı");
-        return;
-      }
-      setTrendyolOrders(res.orders);
+      if (!res.ok) setTrendyolError(res.error ?? "Trendyol siparişleri alınamadı");
     } catch {
       setTrendyolError("Trendyol siparişleri alınamadı");
     }
   };
 
-  // "Yenile" butonu: paketleri VE Trendyol'u birlikte tazeler (ayrı Trendyol
-  // butonu yok) ve süre boyunca ikonu döndürür — kurye butonun çalıştığını görür.
+  // "Yenile" butonu: paketleri hemen tazeler, Trendyol çekilince depodan bir kez
+  // daha okur (ayrı Trendyol butonu yok). Süre boyunca ikon döner — kurye butonun
+  // çalıştığını görür.
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      await Promise.all([load(), fetchTrendyol()]);
+      await Promise.all([load(), syncTrendyol().then(load)]);
     } finally {
       setRefreshing(false);
     }
@@ -1686,6 +1683,27 @@ export default function KuryePage() {
               </>
             ) : (
               <div className="flex w-full flex-col gap-2">
+                {/* Trendyol: teslim anında ödeme türü belirgin. Kapıda → tutar ve
+                    yöntemle "tahsil et" uyarısı; online → tahsilat yok. */}
+                {current.source === "trendyol" &&
+                  (isTrendyolPrepaid(current) ? (
+                    <div className="flex items-center gap-2 rounded-2xl bg-emerald-50 px-3 py-2.5 text-sm font-semibold text-emerald-800 ring-1 ring-emerald-200">
+                      <CheckCircle2 className="h-5 w-5 shrink-0" />
+                      Online ödendi · tahsilat yok
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-3 rounded-2xl bg-amber-50 px-3 py-3 text-amber-900 ring-2 ring-amber-400">
+                      <WalletCards className="h-7 w-7 shrink-0 text-amber-600" />
+                      <div className="flex flex-col">
+                        <span className="text-lg leading-tight font-extrabold">
+                          {formatCurrency(current.total)} TAHSİL ET
+                        </span>
+                        <span className="text-sm font-semibold text-amber-700">
+                          {payLabelFor(current)}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
                 {/* Eski borç varsa: ödeme alındığında onları da kapatma kutucuğu. */}
                 {current.customerOpenAccounts && (
                   <button
@@ -1744,8 +1762,12 @@ export default function KuryePage() {
                       ) : (
                         <>
                           <span className="flex items-center gap-2 text-base font-bold">
-                            <CheckCircle2 className="h-5 w-5" /> Ödeme Alındı &
-                            Teslim
+                            <CheckCircle2 className="h-5 w-5" />{" "}
+                            {current.source !== "trendyol"
+                              ? "Ödeme Alındı & Teslim"
+                              : isTrendyolPrepaid(current)
+                                ? "Teslim Et"
+                                : `${formatCurrency(current.total)} Aldım · Teslim`}
                           </span>
                           <span className="text-[11px] font-medium text-emerald-100">
                             Teslim kaydedilir, sonra WhatsApp açılır
@@ -1789,7 +1811,15 @@ export default function KuryePage() {
         courier={courier}
         shopLocation={shopLocation}
         onClose={() => setPoolMapOpen(false)}
-        onClaim={claimSelected}
+        onClaim={async (ids) => {
+          // Optimistic güncelleme claimSelected'ın ilk adımında yapılır → harita
+          // kapanıp "Teslimat"a geçince paketler orada hazır; sunucuyu beklemeyiz.
+          const done = claimSelected(ids);
+          setPoolMapOpen(false);
+          setTab("mine");
+          go(0); // ilk pakete geç + yarım kalmış teslim onayını sıfırla
+          await done;
+        }}
         priorityOf={priorityOf}
       />
 
