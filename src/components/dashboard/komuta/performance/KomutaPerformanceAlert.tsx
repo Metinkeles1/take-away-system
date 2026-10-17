@@ -33,7 +33,7 @@ export function KomutaPerformanceAlert({
     .sort((a, b) => (a.changePct ?? 0) - (b.changePct ?? 0));
   const avg = couriers?.totals.avg ?? null;
   const target = couriers?.target ?? 0;
-  const slowCouriers = (couriers?.rows ?? []).filter((r) => r.avg > target && r.count >= 3);
+  const slowCouriers = (couriers?.rows ?? []).filter((r) => r.avg !== null && r.avg > target && r.timed >= 3);
   const avgOver = avg !== null && avg > target;
 
   if (down.length === 0 && slowCouriers.length === 0 && !avgOver) return null;
@@ -59,7 +59,7 @@ export function KomutaPerformanceAlert({
       key: `k-${r.name}`,
       href: "/komuta/performans?g=kurye",
       text: r.name,
-      badge: `${Math.round(r.avg)} dk`,
+      badge: `${Math.round(r.avg ?? 0)} dk`,
       tone: "amber" as const,
     })),
   ];

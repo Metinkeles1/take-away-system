@@ -3,10 +3,21 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Bar, BarChart, CartesianGrid, Cell, ReferenceLine, XAxis, YAxis } from "recharts";
-import { AlarmClock, Bike, Pencil, Timer, TimerReset } from "lucide-react";
+import {
+  AlarmClock,
+  Bike,
+  CalendarDays,
+  Globe,
+  HandCoins,
+  Pencil,
+  Timer,
+  TimerReset,
+  Wallet,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import {
+  type CourierPay,
   type CourierPerformance as CourierPerformanceData,
   type CourierPerfRow,
   type SlowOrder,
@@ -14,7 +25,7 @@ import {
 import { setDeliveryTargetMin } from "@/actions/settings";
 import { type DashboardPeriod } from "@/lib/dashboardPeriods";
 import { type OrderSource } from "@/types";
-import { cn } from "@/lib/utils";
+import { cn, formatCurrencyShort } from "@/lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -56,6 +67,10 @@ function minDelta(cur: number | null, prev: number | null) {
   return { text: `${d < 0 ? "▼" : "▲"} ${Math.abs(d)} dk`, good: d < 0 };
 }
 
+const doorAmount = (p: CourierPay) => p.cash + p.card + p.mealCard;
+const fmtPerDay = (n: number) => n.toLocaleString("tr-TR", { maximumFractionDigits: 1 });
+const pctOf = (part: number, total: number) => (total > 0 ? Math.round((part / total) * 100) : 0);
+
 export function CourierPerformance({
   period,
   channel,
@@ -76,9 +91,9 @@ export function CourierPerformance({
 
   const t = data?.totals;
   const target = data?.target ?? 35;
-  const overPct = t && t.count > 0 ? (t.overTarget / t.count) * 100 : 0;
+  const overPct = t && t.timed > 0 ? (t.overTarget / t.timed) * 100 : 0;
   const overDelta =
-    t && t.count > 0 && t.prevOverTargetPct !== null
+    t && t.timed > 0 && t.prevOverTargetPct !== null
       ? (() => {
           const d = Math.round(overPct - t.prevOverTargetPct);
           return d === 0 ? null : { text: `${d > 0 ? "▲" : "▼"} ${Math.abs(d)} puan`, good: d < 0 };
@@ -88,13 +103,14 @@ export function CourierPerformance({
   if (data && t && t.count === 0) {
     return (
       <EmptyState>
-        Bu dönemde teslim süresi kaydı olan paket yok.
+        Bu dönemde teslim edilen paket yok.
         {channel === "trendyol" && " Trendyol'da yalnız bizim kuryenin taşıdığı paketler sayılır."}
       </EmptyState>
     );
   }
 
-  const maxScale = Math.max(target + 15, ...(data?.rows.map((r) => r.avg) ?? [0])) * 1.1;
+  const maxScale = Math.max(target + 15, ...(data?.rows.map((r) => r.avg ?? 0) ?? [0])) * 1.1;
+  const pay = t?.pay;
 
   return (
     <div className="flex flex-col gap-4">
@@ -134,12 +150,52 @@ export function CourierPerformance({
         />
       </StatStrip>
 
+      <StatStrip className="grid-cols-2 lg:grid-cols-4">
+        <PerfStat
+          label="Günlük ortalama"
+          icon={CalendarDays}
+          value={t ? `${fmtPerDay(t.count / Math.max(1, t.activeDays))} paket` : "—"}
+          sub={t ? `${t.activeDays} günde ${fmtInt(t.count)} paket` : undefined}
+          isLoading={isLoading}
+        />
+        <PerfStat
+          label="Taşınan tutar"
+          icon={Wallet}
+          value={formatCurrencyShort(t?.revenue ?? 0)}
+          sub={t && t.count > 0 ? `paket başı ${formatCurrencyShort(t.revenue / t.count)}` : undefined}
+          isLoading={isLoading}
+        />
+        <PerfStat
+          label="Kapıda ödeme"
+          icon={HandCoins}
+          value={pay ? `${fmtInt(pay.doorCount)} paket` : "—"}
+          sub={
+            pay && t
+              ? `%${pctOf(pay.doorCount, t.count)} · ${formatCurrencyShort(doorAmount(pay))}`
+              : undefined
+          }
+          isLoading={isLoading}
+        />
+        <PerfStat
+          label="Online ödeme"
+          icon={Globe}
+          value={pay ? `${fmtInt(pay.onlineCount)} paket` : "—"}
+          sub={
+            pay && t ? `%${pctOf(pay.onlineCount, t.count)} · ${formatCurrencyShort(pay.online)}` : undefined
+          }
+          isLoading={isLoading}
+        />
+      </StatStrip>
+
       {/* ─── Kurye karşılaştırması ─── */}
       <Card className="gap-3">
         <CardHeader className="flex flex-row items-start justify-between gap-2">
           <div className="space-y-1">
             <CardTitle>Kurye karşılaştırması</CardTitle>
-            <CardDescription>Çizgi = {target} dk hedef. Satıra tıkla → gün gün süre ve en yavaş paketler.</CardDescription>
+            <CardDescription>
+              Çizgi = {target} dk hedef. Satıra tıkla → gün gün paket, ödeme dağılımı, bölgeler ve en yavaş
+              paketler.
+            </CardDescription>
           </div>
         </CardHeader>
         <CardContent>
@@ -151,11 +207,14 @@ export function CourierPerformance({
             </div>
           ) : (
             <div className="-mx-6 overflow-x-auto px-6">
-              <table className="w-full min-w-170 border-collapse text-sm">
+              <table className="w-full min-w-230 border-collapse text-sm">
                 <thead>
                   <tr className="border-b text-xs font-semibold text-muted-foreground">
                     <th className="px-2 py-2 text-left">Kurye</th>
                     <th className="px-2 py-2 text-right">Paket</th>
+                    <th className="px-2 py-2 text-right">Günde</th>
+                    <th className="px-2 py-2 text-left">Kapıda / Online</th>
+                    <th className="px-2 py-2 text-right">Tutar</th>
                     <th className="px-2 py-2 text-right">Ortalama</th>
                     <th className="px-2 py-2 text-left">Hedefe göre</th>
                     <th className="px-2 py-2 text-right">En hızlı / yavaş</th>
@@ -165,7 +224,7 @@ export function CourierPerformance({
                 </thead>
                 <tbody>
                   {(data?.rows ?? []).map((r) => {
-                    const over = (r.overTarget / r.count) * 100;
+                    const over = r.timed > 0 ? (r.overTarget / r.timed) * 100 : 0;
                     const d = minDelta(r.avg, r.prevAvg);
                     return (
                       <tr
@@ -189,15 +248,30 @@ export function CourierPerformance({
                             </span>
                           )}
                         </td>
-                        <td className={cn("px-2 py-2.5 text-right font-semibold tabular-nums", paceClass(r.avg, target, "text"))}>
-                          {fmtMin(r.avg)}
+                        <td className="px-2 py-2.5 text-right tabular-nums">
+                          {fmtPerDay(r.perDay)}
+                          <span className="block text-[11px] text-muted-foreground">{r.activeDays} gün</span>
+                        </td>
+                        <td className="px-2 py-2.5">
+                          <PaySplit pay={r.pay} />
+                        </td>
+                        <td className="px-2 py-2.5 text-right tabular-nums">{formatCurrencyShort(r.revenue)}</td>
+                        <td
+                          className={cn(
+                            "px-2 py-2.5 text-right font-semibold tabular-nums",
+                            r.avg !== null ? paceClass(r.avg, target, "text") : "text-muted-foreground",
+                          )}
+                        >
+                          {r.avg !== null ? fmtMin(r.avg) : "—"}
                         </td>
                         <td className="px-2 py-2.5">
                           <div className="relative h-2 w-28 rounded-full bg-muted">
-                            <span
-                              className={cn("absolute inset-y-0 left-0 rounded-full", paceClass(r.avg, target, "bg"))}
-                              style={{ width: `${Math.min(100, (r.avg / maxScale) * 100)}%` }}
-                            />
+                            {r.avg !== null && (
+                              <span
+                                className={cn("absolute inset-y-0 left-0 rounded-full", paceClass(r.avg, target, "bg"))}
+                                style={{ width: `${Math.min(100, (r.avg / maxScale) * 100)}%` }}
+                              />
+                            )}
                             <span
                               className="absolute -top-1 h-4 w-0.5 rounded bg-foreground/70"
                               style={{ left: `${(target / maxScale) * 100}%` }}
@@ -205,7 +279,9 @@ export function CourierPerformance({
                           </div>
                         </td>
                         <td className="px-2 py-2.5 text-right tabular-nums text-muted-foreground">
-                          {Math.round(r.fastest)} / {Math.round(r.slowest)} dk
+                          {r.fastest !== null && r.slowest !== null
+                            ? `${Math.round(r.fastest)} / ${Math.round(r.slowest)} dk`
+                            : "—"}
                         </td>
                         <td className="px-2 py-2.5 text-right">
                           <span
@@ -251,7 +327,10 @@ export function CourierPerformance({
                         </div>
                       </td>
                       <td className="px-2 py-2.5 text-right tabular-nums">{data.unassigned.count}</td>
-                      <td className="px-2 py-2.5 text-right tabular-nums">{fmtMin(data.unassigned.avg)}</td>
+                      <td colSpan={3} />
+                      <td className="px-2 py-2.5 text-right tabular-nums">
+                        {data.unassigned.avg !== null ? fmtMin(data.unassigned.avg) : "—"}
+                      </td>
                       <td colSpan={4} className="px-2 py-2.5 text-xs">
                         Kurye seçilmeden teslim edilmiş ya da süresi Trendyol kaydından alınmış paketler
                       </td>
@@ -284,8 +363,11 @@ export function CourierPerformance({
 
       <p className="text-xs text-muted-foreground">
         Süre = sipariş alındığı an → kurye &quot;teslim ettim&quot; dediği an. Trendyol&apos;da yalnız bizim
-        kuryenin taşıdığı paketler sayılır (Trendyol GO hariç). Teslim süresi kaydı olmayan eski siparişler
-        hesaba girmez.
+        kuryenin taşıdığı paketler sayılır (Trendyol GO hariç). Kapıda = kuryenin elden aldığı (nakit, kart,
+        kapıda yemek kartı); online = uygulamada ödenen ve IBAN. Günlük ortalama, kuryenin paket attığı
+        günlere bölünür.
+        {t && t.count > t.timed &&
+          ` ${fmtInt(t.count - t.timed)} paketin süresi kayıtlı değil; paket ve tutara sayıldı, süre hesabına girmedi.`}
         {data && data.excluded > 0 &&
           ` 180 dakikayı aşan ${data.excluded} kayıt hatalı sayılıp hesaptan çıkarıldı.`}
       </p>
@@ -296,6 +378,23 @@ export function CourierPerformance({
         seriesUnit={data?.seriesUnit ?? "day"}
         onClose={() => setDetail(null)}
       />
+    </div>
+  );
+}
+
+// ─── Kapıda / online oran çubuğu ─────────────────────────────────────────────
+function PaySplit({ pay }: { pay: CourierPay }) {
+  const total = pay.doorCount + pay.onlineCount;
+  const door = pctOf(pay.doorCount, total);
+  return (
+    <div className="w-32">
+      <div className="flex h-2 overflow-hidden rounded-full bg-muted">
+        <span className="bg-amber-500" style={{ width: `${door}%` }} />
+        <span className="bg-sky-500" style={{ width: `${total ? 100 - door : 0}%` }} />
+      </div>
+      <span className="mt-1 block text-[11px] tabular-nums text-muted-foreground">
+        {pay.doorCount} kapıda · {pay.onlineCount} online
+      </span>
     </div>
   );
 }
@@ -583,6 +682,50 @@ function SlowOrdersCard({
 
 // ─── Kurye detayı ────────────────────────────────────────────────────────────
 const seriesConfig = { avg: { label: "Ortalama", color: "#8b5cf6" } } satisfies ChartConfig;
+const countConfig = { count: { label: "Paket", color: "#0ea5e9" } } satisfies ChartConfig;
+
+function MiniStat({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div className="rounded-lg border p-2.5">
+      <p className="text-[11px] text-muted-foreground">{label}</p>
+      <p className="text-base font-semibold tabular-nums">{value}</p>
+      {sub && <p className="text-[11px] text-muted-foreground">{sub}</p>}
+    </div>
+  );
+}
+
+function PayBreakdown({ pay }: { pay: CourierPay }) {
+  const total = doorAmount(pay) + pay.online;
+  const parts = [
+    { label: "Nakit", amount: pay.cash, cls: "bg-amber-500" },
+    { label: "Kart", amount: pay.card, cls: "bg-orange-500" },
+    { label: "Yemek kartı (kapıda)", amount: pay.mealCard, cls: "bg-rose-400" },
+    { label: "Online", amount: pay.online, cls: "bg-sky-500" },
+  ].filter((p) => p.amount > 0);
+  return (
+    <div>
+      <p className="mb-2 text-xs font-medium text-muted-foreground">
+        Ödeme · {pay.doorCount} kapıda ({formatCurrencyShort(doorAmount(pay))}) · {pay.onlineCount} online (
+        {formatCurrencyShort(pay.online)})
+      </p>
+      <div className="flex h-2.5 overflow-hidden rounded-full bg-muted">
+        {parts.map((p) => (
+          <span key={p.label} className={p.cls} style={{ width: `${pctOf(p.amount, total)}%` }} />
+        ))}
+      </div>
+      <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+        {parts.map((p) => (
+          <li key={p.label} className="flex items-center gap-1.5">
+            <span className={cn("size-2 rounded-sm", p.cls)} />
+            <span className="text-muted-foreground">{p.label}</span>
+            <span className="font-medium tabular-nums">{formatCurrencyShort(p.amount)}</span>
+            <span className="text-muted-foreground tabular-nums">%{pctOf(p.amount, total)}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 function CourierDetailDialog({
   row,
@@ -603,9 +746,75 @@ function CourierDetailDialog({
             <DialogHeader>
               <DialogTitle>{row.name}</DialogTitle>
               <DialogDescription>
-                {row.count} paket · ortalama {fmtMin(row.avg)} · medyan {fmtMin(row.median)}
+                {row.count} paket
+                {row.avg !== null && ` · ortalama ${fmtMin(row.avg)}`}
+                {row.median !== null && ` · medyan ${fmtMin(row.median)}`}
               </DialogDescription>
             </DialogHeader>
+
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <MiniStat label="Paket" value={fmtInt(row.count)} />
+              <MiniStat label="Günde" value={fmtPerDay(row.perDay)} sub={`${row.activeDays} gün çalıştı`} />
+              <MiniStat label="Tutar" value={formatCurrencyShort(row.revenue)} />
+              <MiniStat
+                label="Paket başı"
+                value={formatCurrencyShort(row.count ? row.revenue / row.count : 0)}
+              />
+            </div>
+
+            <PayBreakdown pay={row.pay} />
+
+            <div>
+              <p className="mb-2 text-xs font-medium text-muted-foreground">
+                {seriesUnit === "hour" ? "Saat saat paket sayısı" : "Gün gün paket sayısı"}
+              </p>
+              <ChartContainer config={countConfig} className="aspect-auto h-40 w-full">
+                <BarChart data={row.series} margin={{ left: 0, right: 8, top: 12, bottom: 0 }}>
+                  <CartesianGrid vertical={false} strokeDasharray="3 3" strokeOpacity={0.5} />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} fontSize={11} minTickGap={12} />
+                  <YAxis tickLine={false} axisLine={false} fontSize={11} width={28} allowDecimals={false} />
+                  <ChartTooltip
+                    cursor={{ fill: "var(--muted)", opacity: 0.5 }}
+                    content={
+                      <ChartTooltipContent
+                        hideIndicator
+                        formatter={(v) => <span className="tabular-nums">{v} paket</span>}
+                      />
+                    }
+                  />
+                  <Bar dataKey="count" radius={[4, 4, 0, 0]} fill="var(--color-count)" fillOpacity={0.7} />
+                </BarChart>
+              </ChartContainer>
+            </div>
+
+            <div>
+              <p className="mb-2 text-xs font-medium text-muted-foreground">Teslimat yaptığı bölgeler</p>
+              {row.regions.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Bölge bilgisi yok.</p>
+              ) : (
+                <ul className="flex flex-col gap-2">
+                  {row.regions.map((g) => (
+                    <li key={g.name} className="grid grid-cols-[minmax(0,8rem)_1fr_auto] items-center gap-3 text-sm">
+                      <span className="truncate">{g.name}</span>
+                      <div className="h-2.5 overflow-hidden rounded bg-muted">
+                        <div
+                          className="h-full rounded bg-violet-500"
+                          style={{ width: `${(g.count / row.regions[0].count) * 100}%` }}
+                        />
+                      </div>
+                      <span className="text-right text-xs tabular-nums text-muted-foreground">
+                        <span className="font-semibold text-foreground">{g.count}</span> paket
+                        {g.avg !== null && (
+                          <span className={cn("ml-1.5", g.avg > target && "text-rose-600 dark:text-rose-400")}>
+                            · {g.avg} dk
+                          </span>
+                        )}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
 
             <div>
               <p className="mb-2 text-xs font-medium text-muted-foreground">

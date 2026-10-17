@@ -19,7 +19,8 @@ import TrendyolOrderModel from "@/models/TrendyolOrder";
 import { ensureTrendyolArchiveFresh, LIVE_MAX_AGE_MS } from "@/lib/trendyol/archive";
 import { periodWindows, DAY_MS, ISTANBUL_OFFSET_MS, type DashboardPeriod } from "@/lib/dashboardPeriods";
 import { courierKey, productKey, titleCaseTr } from "@/lib/performanceNames";
-import { type OrderSource } from "@/types";
+import { paymentParts } from "@/lib/orders/paymentSplit";
+import { type OrderSource, type PaymentInfo } from "@/types";
 import { getDeliveryTargetMin } from "./settings";
 
 type Channel = OrderSource | "all";
@@ -297,16 +298,40 @@ export interface CourierSeriesPoint {
   count: number;
 }
 
+/** Ödeme dökümü (₺). Kapıda = kuryenin elden aldığı (nakit, kart, kapıda yemek kartı). */
+export interface CourierPay {
+  doorCount: number;
+  onlineCount: number;
+  cash: number;
+  card: number;
+  mealCard: number; // kapıda yemek kartı
+  online: number; // online ödeme + online yemek kartı + IBAN
+}
+
+export interface CourierRegion {
+  name: string;
+  count: number;
+  avg: number | null;
+}
+
 export interface CourierPerfRow {
   key: string;
   name: string;
+  /** Teslim ettiği tüm paketler (süresi kaydedilmemişler dahil). */
   count: number;
+  /** Süresi kayıtlı paketler — ortalama/medyan/hedef aşımı bunlardan. */
+  timed: number;
   own: number;
   trendyol: number;
-  avg: number;
-  median: number;
-  fastest: number;
-  slowest: number;
+  activeDays: number;
+  perDay: number;
+  revenue: number;
+  pay: CourierPay;
+  regions: CourierRegion[];
+  avg: number | null;
+  median: number | null;
+  fastest: number | null;
+  slowest: number | null;
   overTarget: number;
   prevAvg: number | null;
   prevCount: number;
@@ -320,6 +345,10 @@ export interface CourierPerformance {
   seriesUnit: "hour" | "day";
   totals: {
     count: number;
+    timed: number;
+    revenue: number;
+    activeDays: number;
+    pay: CourierPay;
     avg: number | null;
     median: number | null;
     overTarget: number;
@@ -328,7 +357,7 @@ export interface CourierPerformance {
   };
   rows: CourierPerfRow[];
   /** Kurye adı girilmemiş teslimler (ör. Trendyol'un kendi saatinden gelenler). */
-  unassigned: { count: number; avg: number } | null;
+  unassigned: { count: number; avg: number | null } | null;
   hourly: { hour: number; avg: number; count: number }[];
   buckets: { label: string; from: number; to: number | null; count: number }[];
   /** 180 dk'yı aşan, hatalı sayılıp hesaba katılmayan kayıt sayısı. */
@@ -341,9 +370,79 @@ interface Delivery {
   orderNumber: string;
   channel: "own" | "trendyol";
   courier: string | null;
-  minutes: number;
+  minutes: number | null; // süre kaydı yoksa ya da hatalıysa null
   at: number;
   district: string | null;
+  amount: number;
+  pay: Omit<CourierPay, "doorCount" | "onlineCount">;
+}
+
+type Timed = Delivery & { minutes: number };
+const isTimed = (d: Delivery): d is Timed => d.minutes !== null;
+
+const emptyPay = (): CourierPay => ({ doorCount: 0, onlineCount: 0, cash: 0, card: 0, mealCard: 0, online: 0 });
+
+function sumPay(ds: Delivery[]): CourierPay {
+  const p = emptyPay();
+  for (const d of ds) {
+    p.cash += d.pay.cash;
+    p.card += d.pay.card;
+    p.mealCard += d.pay.mealCard;
+    p.online += d.pay.online;
+    // Paket, tutarının çoğu nasıl ödendiyse o sayılır (bölünmüş ödemede).
+    const door = d.pay.cash + d.pay.card + d.pay.mealCard;
+    if (door > 0 && door >= d.pay.online) p.doorCount++;
+    else p.onlineCount++;
+  }
+  return p;
+}
+
+function ownPay(payment: Partial<PaymentInfo> | undefined, total: number): Delivery["pay"] {
+  const p = { cash: 0, card: 0, mealCard: 0, online: 0 };
+  for (const part of paymentParts(payment, total)) {
+    if (part.method === "cash") p.cash += part.amount;
+    else if (part.method === "card") p.card += part.amount;
+    else if (part.method === "meal_card") p.mealCard += part.amount;
+    else p.online += part.amount; // online, iban
+  }
+  return p;
+}
+
+// Trendyol: kapıda yemek kartı (kodla) kapıda sayılır; uygulamada ödenen online.
+function tyPay(key: string | undefined, mealSource: string | undefined, amount: number): Delivery["pay"] {
+  const p = { cash: 0, card: 0, mealCard: 0, online: 0 };
+  if (key === "cash") p.cash = amount;
+  else if (key === "card") p.card = amount;
+  else if (key === "meal_card" && mealSource === "on_delivery") p.mealCard = amount;
+  else p.online = amount;
+  return p;
+}
+
+function topRegions(ds: Delivery[], n: number): CourierRegion[] {
+  const m = new Map<string, { names: Map<string, number>; mins: number[]; count: number }>();
+  for (const d of ds) {
+    const raw = d.district?.trim();
+    if (!raw) continue;
+    const k = raw.toLocaleLowerCase("tr-TR");
+    const g = m.get(k) ?? { names: new Map<string, number>(), mins: [] as number[], count: 0 };
+    g.count++;
+    g.names.set(raw, (g.names.get(raw) ?? 0) + 1);
+    if (d.minutes !== null) g.mins.push(d.minutes);
+    m.set(k, g);
+  }
+  return [...m.values()]
+    .sort((a, b) => b.count - a.count)
+    .slice(0, n)
+    .map((g) => ({
+      name: titleCaseTr([...g.names.entries()].sort((a, b) => b[1] - a[1])[0][0]),
+      count: g.count,
+      avg: g.mins.length ? Math.round(avgOf(g.mins)) : null,
+    }));
+}
+
+// Kuryenin paket teslim ettiği gün sayısı (İstanbul günü).
+function activeDays(ds: Delivery[]): number {
+  return new Set(ds.map((d) => Math.floor((d.at + ISTANBUL_OFFSET_MS) / DAY_MS))).size;
 }
 
 const BUCKETS: { label: string; from: number; to: number | null }[] = [
@@ -374,8 +473,17 @@ function whenLabel(ms: number): string {
   return `${dateLabel(ms)} ${hh}:${mm}`;
 }
 
-function toSlow(d: Delivery): SlowOrder {
-  return { ...d, when: whenLabel(d.at) };
+function toSlow(d: Timed): SlowOrder {
+  return {
+    id: d.id,
+    orderNumber: d.orderNumber,
+    channel: d.channel,
+    courier: d.courier,
+    minutes: d.minutes,
+    at: d.at,
+    when: whenLabel(d.at),
+    district: d.district,
+  };
 }
 
 export async function getCourierPerformance(
@@ -397,6 +505,8 @@ export async function getCourierPerformance(
     deliveryDurationMin?: number;
     courier?: string | null;
     customer?: { district?: string };
+    payment?: Partial<PaymentInfo>;
+    total?: number;
   };
   type TyRow = {
     orderNumber: string;
@@ -405,6 +515,10 @@ export async function getCourierPerformance(
     courier?: string | null;
     neighborhood?: string;
     district?: string;
+    paymentKey?: string;
+    mealCardSource?: string;
+    netTotal?: number;
+    totalPrice?: number;
   };
 
   const [target, own, ty] = await Promise.all([
@@ -413,18 +527,26 @@ export async function getCourierPerformance(
       ? (OrderModel.find({
           ...ownSourceFilter(channel),
           status: "delivered",
-          deliveryDurationMin: { $gt: 0 },
           createdAt: { $gte: from, $lt: to },
         })
-          .select({ id: 1, orderNumber: 1, createdAt: 1, deliveryDurationMin: 1, courier: 1, "customer.district": 1 })
+          .select({
+            id: 1,
+            orderNumber: 1,
+            createdAt: 1,
+            deliveryDurationMin: 1,
+            courier: 1,
+            "customer.district": 1,
+            payment: 1,
+            total: 1,
+          })
           .lean() as unknown as Promise<OwnRow[]>)
       : Promise.resolve([] as OwnRow[]),
     // Yalnız bizim kuryenin taşıdığı paketler (STORE). GO = Trendyol kuryesi.
     wantTy(channel)
       ? (TrendyolOrderModel.find({
           deliveryType: "STORE",
-          deliveryDurationMin: { $gt: 0 },
           packageStatus: { $nin: TY_CANCELLED },
+          $or: [{ deliveryDurationMin: { $gt: 0 } }, { packageStatus: "Delivered" }],
           packageCreationDate: { $gte: from, $lt: to },
         })
           .select({
@@ -434,6 +556,10 @@ export async function getCourierPerformance(
             courier: 1,
             neighborhood: 1,
             district: 1,
+            paymentKey: 1,
+            mealCardSource: 1,
+            netTotal: 1,
+            totalPrice: 1,
           })
           .lean() as unknown as Promise<TyRow[]>)
       : Promise.resolve([] as TyRow[]),
@@ -445,21 +571,30 @@ export async function getCourierPerformance(
       orderNumber: String(o.orderNumber),
       channel: "own" as const,
       courier: o.courier?.trim() || null,
-      minutes: o.deliveryDurationMin ?? 0,
+      minutes: o.deliveryDurationMin && o.deliveryDurationMin > 0 ? o.deliveryDurationMin : null,
       at: new Date(o.createdAt).getTime(),
       district: o.customer?.district || null,
+      amount: o.total ?? 0,
+      pay: ownPay(o.payment, o.total ?? 0),
     })),
-    ...ty.map((o) => ({
-      id: null,
-      orderNumber: o.orderNumber,
-      channel: "trendyol" as const,
-      courier: o.courier?.trim() || null,
-      minutes: o.deliveryDurationMin ?? 0,
-      at: o.packageCreationDate ? new Date(o.packageCreationDate).getTime() : 0,
-      district: o.neighborhood || o.district || null,
-    })),
+    ...ty.map((o) => {
+      const amount = o.netTotal || o.totalPrice || 0;
+      return {
+        id: null,
+        orderNumber: o.orderNumber,
+        channel: "trendyol" as const,
+        courier: o.courier?.trim() || null,
+        minutes: o.deliveryDurationMin && o.deliveryDurationMin > 0 ? o.deliveryDurationMin : null,
+        at: o.packageCreationDate ? new Date(o.packageCreationDate).getTime() : 0,
+        district: o.neighborhood || o.district || null,
+        amount,
+        pay: tyPay(o.paymentKey, o.mealCardSource, amount),
+      };
+    }),
   ];
 
+  // Paket sayısı / tutar / ödeme tüm teslimlerden; süre istatistikleri yalnız
+  // geçerli süre kaydı olanlardan (180 dk üstü hatalı sayılıp süresi düşer).
   let excluded = 0;
   const curRows: Delivery[] = [];
   const prevRows: Delivery[] = [];
@@ -467,9 +602,9 @@ export async function getCourierPerformance(
     const inCur = d.at >= cur.start && d.at < cur.end;
     const inPrev = d.at >= prev.start && d.at < prev.end;
     if (!inCur && !inPrev) continue;
-    if (d.minutes > MAX_VALID_MIN) {
+    if (d.minutes !== null && d.minutes > MAX_VALID_MIN) {
       if (inCur) excluded++;
-      continue;
+      d.minutes = null;
     }
     (inCur ? curRows : prevRows).push(d);
   }
@@ -484,10 +619,12 @@ export async function getCourierPerformance(
 
   const buildSeries = (ds: Delivery[]): CourierSeriesPoint[] => {
     const m = new Map<number, number[]>();
+    const counts = new Map<number, number>();
     for (const d of ds) {
       const k = seriesKey(d.at);
+      counts.set(k, (counts.get(k) ?? 0) + 1);
       const arr = m.get(k) ?? [];
-      arr.push(d.minutes);
+      if (d.minutes !== null) arr.push(d.minutes);
       m.set(k, arr);
     }
     let keys: number[];
@@ -500,12 +637,12 @@ export async function getCourierPerformance(
     }
     return keys.map((k) => {
       const arr = m.get(k) ?? [];
-      return { label: seriesLabel(k), avg: arr.length ? Math.round(avgOf(arr)) : null, count: arr.length };
+      return { label: seriesLabel(k), avg: arr.length ? Math.round(avgOf(arr)) : null, count: counts.get(k) ?? 0 };
     });
   };
 
   const slowest = (ds: Delivery[], n: number) =>
-    [...ds].sort((a, b) => b.minutes - a.minutes).slice(0, n).map(toSlow);
+    ds.filter(isTimed).sort((a, b) => b.minutes - a.minutes).slice(0, n).map(toSlow);
 
   // Kurye bazında grupla (ad büyük/küçük harf duyarsız).
   const groups = new Map<string, { names: Map<string, number>; cur: Delivery[]; prev: Delivery[] }>();
@@ -527,20 +664,28 @@ export async function getCourierPerformance(
   const rows: CourierPerfRow[] = [];
   for (const [key, g] of groups) {
     if (g.cur.length === 0) continue;
-    const mins = g.cur.map((d) => d.minutes).sort((a, b) => a - b);
+    const mins = g.cur.filter(isTimed).map((d) => d.minutes).sort((a, b) => a - b);
+    const prevMins = g.prev.filter(isTimed).map((d) => d.minutes);
     const displayName = [...g.names.entries()].sort((a, b) => b[1] - a[1])[0][0];
+    const days = activeDays(g.cur);
     rows.push({
       key,
       name: titleCaseTr(displayName),
-      count: mins.length,
+      count: g.cur.length,
+      timed: mins.length,
       own: g.cur.filter((d) => d.channel === "own").length,
       trendyol: g.cur.filter((d) => d.channel === "trendyol").length,
-      avg: avgOf(mins),
-      median: median(mins),
-      fastest: mins[0],
-      slowest: mins[mins.length - 1],
+      activeDays: days,
+      perDay: g.cur.length / Math.max(1, days),
+      revenue: g.cur.reduce((s, d) => s + d.amount, 0),
+      pay: sumPay(g.cur),
+      regions: topRegions(g.cur, 8),
+      avg: mins.length ? avgOf(mins) : null,
+      median: mins.length ? median(mins) : null,
+      fastest: mins.length ? mins[0] : null,
+      slowest: mins.length ? mins[mins.length - 1] : null,
       overTarget: mins.filter((m) => m > target).length,
-      prevAvg: g.prev.length ? avgOf(g.prev.map((d) => d.minutes)) : null,
+      prevAvg: prevMins.length ? avgOf(prevMins) : null,
       prevCount: g.prev.length,
       series: buildSeries(g.cur),
       slowOrders: slowest(g.cur, 8),
@@ -548,11 +693,12 @@ export async function getCourierPerformance(
   }
   rows.sort((a, b) => b.count - a.count);
 
-  const curMins = curRows.map((d) => d.minutes).sort((a, b) => a - b);
-  const prevMins = prevRows.map((d) => d.minutes);
+  const curTimed = curRows.filter(isTimed);
+  const curMins = curTimed.map((d) => d.minutes).sort((a, b) => a - b);
+  const prevMins = prevRows.filter(isTimed).map((d) => d.minutes);
 
   const hourMap = new Map<number, number[]>();
-  for (const d of curRows) {
+  for (const d of curTimed) {
     const h = istHour(d.at);
     const arr = hourMap.get(h) ?? [];
     arr.push(d.minutes);
@@ -572,7 +718,11 @@ export async function getCourierPerformance(
     prevLabel: compareLabels(period).prev,
     seriesUnit,
     totals: {
-      count: curMins.length,
+      count: curRows.length,
+      timed: curMins.length,
+      revenue: curRows.reduce((s, d) => s + d.amount, 0),
+      activeDays: activeDays(curRows),
+      pay: sumPay(curRows),
       avg: curMins.length ? avgOf(curMins) : null,
       median: curMins.length ? median(curMins) : null,
       overTarget: curMins.filter((m) => m > target).length,
@@ -583,7 +733,10 @@ export async function getCourierPerformance(
     },
     rows,
     unassigned: unassignedCur.length
-      ? { count: unassignedCur.length, avg: avgOf(unassignedCur.map((d) => d.minutes)) }
+      ? (() => {
+          const m = unassignedCur.filter(isTimed).map((d) => d.minutes);
+          return { count: unassignedCur.length, avg: m.length ? avgOf(m) : null };
+        })()
       : null,
     hourly,
     buckets,
