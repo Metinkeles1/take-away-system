@@ -1,9 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Bike, Calendar, MapPin, MessageSquareText, Phone, Repeat, Timer, Wallet } from "lucide-react";
+import { Bike, Calendar, MapPin, MessageSquareText, Phone, Repeat, Star, Timer, Wallet } from "lucide-react";
 
-import { getTrendyolOrderDetail, type TrendyolOrderDetail } from "@/actions/trendyolArchive";
+import {
+  getTrendyolOrderDetail,
+  type TrendyolOrderDetail,
+  type TrendyolOrderReview,
+} from "@/actions/trendyolArchive";
 import {
   Sheet,
   SheetContent,
@@ -14,7 +18,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatCurrency } from "@/lib/utils";
+import { cn, formatCurrency } from "@/lib/utils";
 
 const STATUS_LABEL: Record<string, string> = {
   Created: "Yeni",
@@ -100,6 +104,12 @@ export function TrendyolOrderSheet({
                 <Badge variant="outline" className="text-[10px]">
                   {d.deliveryType === "GO" ? "Trendyol Go kuryesi" : "Kendi kuryemiz"}
                 </Badge>
+                {d.review?.average != null && (
+                  <Badge variant="outline" className={cn("gap-1 text-[10px]", scoreClass(d.review.average))}>
+                    <Star className="size-3 fill-current" />
+                    {fmtScore(d.review.average)}
+                  </Badge>
+                )}
               </div>
               <SheetDescription className="text-left">
                 {d.customerName} · {fmtDateTime(d.createdAt)}
@@ -107,6 +117,8 @@ export function TrendyolOrderSheet({
             </SheetHeader>
 
             <div className="space-y-5 p-4 sm:p-6">
+              {d.review && <ReviewCard review={d.review} />}
+
               {/* Para */}
               <section className="rounded-lg border p-3">
                 <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -264,6 +276,78 @@ export function TrendyolOrderSheet({
         )}
       </SheetContent>
     </Sheet>
+  );
+}
+
+// Puan rengi: 4+ iyi, 3–4 orta, altı kötü (Trendyol puanları 1–5).
+function scoreClass(score: number): string {
+  if (score >= 4) return "border-emerald-300 text-emerald-700 dark:border-emerald-800 dark:text-emerald-400";
+  if (score >= 3) return "border-amber-300 text-amber-700 dark:border-amber-800 dark:text-amber-400";
+  return "border-rose-300 text-rose-700 dark:border-rose-800 dark:text-rose-400";
+}
+
+const fmtScore = (n: number) => n.toLocaleString("tr-TR", { maximumFractionDigits: 1 });
+
+const ANSWER_STATUS: Record<string, string> = {
+  WAITING_FOR_APPROVE: "onay bekliyor",
+  APPROVED: "yayında",
+  REJECTED: "reddedildi",
+};
+
+function ReviewCard({ review }: { review: TrendyolOrderReview }) {
+  const scores = [
+    { label: "Lezzet", value: review.flavor },
+    { label: "Servis", value: review.service },
+    { label: "Teslimat", value: review.delivery },
+  ];
+  const bad = review.average != null && review.average < 3;
+  return (
+    <section
+      className={cn(
+        "rounded-lg border p-3",
+        bad && "border-rose-300 bg-rose-50/60 dark:border-rose-900 dark:bg-rose-950/30",
+      )}
+    >
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          <Star className="size-3.5" /> Müşteri değerlendirmesi
+        </span>
+        {review.createdAt && (
+          <span className="text-[11px] text-muted-foreground">{fmtDateTime(review.createdAt)}</span>
+        )}
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        {scores.map((s) => (
+          <div key={s.label} className="rounded-md bg-muted/50 px-2 py-1.5 text-center">
+            <p className="text-[10px] text-muted-foreground">{s.label}</p>
+            <p
+              className={cn(
+                "text-base font-semibold tabular-nums",
+                s.value != null && s.value < 3 && "text-rose-600 dark:text-rose-400",
+              )}
+            >
+              {s.value != null ? fmtScore(s.value) : "—"}
+            </p>
+          </div>
+        ))}
+      </div>
+      {review.comment ? (
+        <p className="mt-3 whitespace-pre-line text-sm wrap-break-word">“{review.comment}”</p>
+      ) : (
+        <p className="mt-2 text-xs text-muted-foreground">Yorum yazmadı, yalnız puan verdi.</p>
+      )}
+      {review.answer && (
+        <div className="mt-2 border-l-2 pl-3 text-sm">
+          <p className="text-[11px] font-medium text-muted-foreground">
+            Senin cevabın
+            {review.answerStatus && ANSWER_STATUS[review.answerStatus]
+              ? ` · ${ANSWER_STATUS[review.answerStatus]}`
+              : ""}
+          </p>
+          <p className="whitespace-pre-line wrap-break-word">{review.answer}</p>
+        </div>
+      )}
+    </section>
   );
 }
 

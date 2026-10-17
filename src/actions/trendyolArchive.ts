@@ -5,6 +5,7 @@
 
 import { connectDB } from "@/lib/mongodb";
 import TrendyolOrderModel from "@/models/TrendyolOrder";
+import { ensureTrendyolReviewsFresh } from "@/lib/trendyol/reviews";
 import { cleanTrendyolField, floorLabel } from "@/lib/integrations/trendyol/address";
 import {
   formatArchivedAddress,
@@ -351,13 +352,38 @@ export interface TrendyolOrderDetail {
   customerOrderCount: number;
   customerTotal: number;
   customerFirstOrderAt: number | null;
+  // Müşterinin bu siparişe verdiği puan/yorum (yoksa null)
+  review: TrendyolOrderReview | null;
 }
+
+export interface TrendyolOrderReview {
+  flavor: number | null;
+  service: number | null;
+  delivery: number | null;
+  average: number | null;
+  comment: string;
+  answer: string;
+  answerStatus: string | null;
+  createdAt: number | null;
+}
+
+// Yorum, siparişten sonraki günlerde gelir; bu kadar eski teslimde artık beklenmez.
+const REVIEW_WAIT_MS = 30 * DAY_MS;
 
 export async function getTrendyolOrderDetail(orderNumber: string): Promise<TrendyolOrderDetail | null> {
   if (!orderNumber) return null;
   await connectDB();
-  const d = await TrendyolOrderModel.findOne({ orderNumber }).lean();
+  let d = await TrendyolOrderModel.findOne({ orderNumber }).lean();
   if (!d) return null;
+
+  // Teslim edilmiş, yorumu henüz gelmemiş yakın tarihli sipariş → yorumları
+  // tazele (rate-gated, en fazla 30 dk'da bir Trendyol'a gider).
+  const created = d.packageCreationDate ? new Date(d.packageCreationDate).getTime() : 0;
+  if (!d.review && d.packageStatus === "Delivered" && Date.now() - created < REVIEW_WAIT_MS) {
+    await ensureTrendyolReviewsFresh();
+    d = (await TrendyolOrderModel.findOne({ orderNumber }).lean()) ?? d;
+  }
+  const rv = d.review;
 
   const { net, estimated } = archivedNet(d);
   const cancelled = NON_REVENUE_STATUSES.has(d.packageStatus ?? "");
@@ -426,6 +452,18 @@ export async function getTrendyolOrderDetail(orderNumber: string): Promise<Trend
     customerOrderCount: history.count,
     customerTotal: history.total,
     customerFirstOrderAt: history.first,
+    review: rv
+      ? {
+          flavor: rv.flavor ?? null,
+          service: rv.service ?? null,
+          delivery: rv.delivery ?? null,
+          average: rv.average ?? null,
+          comment: rv.comment ?? "",
+          answer: rv.answer ?? "",
+          answerStatus: rv.answerStatus ?? null,
+          createdAt: rv.createdAt ? new Date(rv.createdAt).getTime() : null,
+        }
+      : null,
   };
 }
 

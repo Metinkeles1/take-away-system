@@ -52,6 +52,23 @@ const SettlementLineSchema = new Schema(
   { _id: false },
 );
 
+// Müşterinin bu siparişe yaptığı değerlendirme (Trendyol /reviews, orderParentId
+// = orderNumber). Puanlar 1–5. Yorum senkronu yazar; paket senkronu dokunmaz.
+const ReviewSchema = new Schema(
+  {
+    reviewId: { type: String },
+    flavor: { type: Number },
+    service: { type: Number },
+    delivery: { type: Number },
+    average: { type: Number },
+    comment: { type: String },
+    answer: { type: String }, // restoranın cevabı
+    answerStatus: { type: String }, // WAITING_FOR_APPROVE | APPROVED | REJECTED
+    createdAt: { type: Date },
+  },
+  { _id: false },
+);
+
 const TrendyolOrderSchema = new Schema(
   {
     orderNumber: { type: String, required: true, unique: true, index: true },
@@ -116,6 +133,8 @@ const TrendyolOrderSchema = new Schema(
     settlementLines: { type: Map, of: SettlementLineSchema, default: undefined },
     netRevenue: { type: Number },
     commissionAmount: { type: Number },
+
+    review: { type: ReviewSchema, default: undefined },
 
     // Arşiv meta
     lastSeenAt: { type: Date, default: () => new Date() }, // son senkron (TTL YOK)
