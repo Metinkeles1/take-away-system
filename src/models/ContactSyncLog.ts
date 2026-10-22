@@ -30,9 +30,10 @@ const ContactSyncLogSchema = new Schema(
   {
     at: { type: Date, required: true },
     // new-customer: sipariş/yeni müşteri · cron: gece 23:59 · manual-*: Ayarlar butonları
+    // customer-edit: isim/numara düzenlendi · reconnect: bağlantı yeniden kuruldu
     trigger: {
       type: String,
-      enum: ["new-customer", "cron", "manual-new", "manual-all"],
+      enum: ["new-customer", "cron", "manual-new", "manual-all", "customer-edit", "reconnect"],
       required: true,
     },
     ok: { type: Boolean, required: true },

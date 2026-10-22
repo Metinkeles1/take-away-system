@@ -15,6 +15,9 @@
 //     sayısı toplanır, pin olan korunur. Silinen adres id'sine bağlı siparişler
 //     kalan adrese yönlendirilir (sipariş geçmişi/pin bağı kopmasın).
 //   - Sipariş sayısı toplanır.
+//   - Kalan kayıt Google Kişiler'e "gönderilmedi" işaretlenir: birleşik isim/
+//     adresler sonraki senkronda rehbere yazılır (aynı numaralı kopyaların
+//     hepsi aynı bilgiyle yazılır → Google "Birleştir ve düzelt" tek tık).
 //
 // GÜVENLİ: varsayılan KURU ÇALIŞMA — sadece rapor. Yazmak için:
 //   node scripts/merge-duplicate-customers.mjs --apply
@@ -130,7 +133,6 @@ export function planMerge(docs) {
     const def =
       merged.find((a) => a.id === defaultAddressId) ??
       [...merged].sort((a, b) => time(b.lastUsedAt) - time(a.lastUsedAt))[0];
-    const exported = sorted.map((d) => d.contactExportedAt).filter(Boolean);
 
     plans.push({
       key,
@@ -147,9 +149,6 @@ export function planMerge(docs) {
         addressDetail: def?.addressDetail ?? null,
         geo: def?.geo ?? null,
         createdAt: new Date(Math.min(...sorted.map((d) => time(d.createdAt) || Date.now()))),
-        ...(exported.length
-          ? { contactExportedAt: new Date(Math.min(...exported.map(time))) }
-          : {}),
       },
     });
   }
@@ -263,7 +262,10 @@ async function run() {
   }
 
   for (const p of plans) {
-    await customers.updateOne({ _id: p.keep._id }, { $set: p.set });
+    await customers.updateOne(
+      { _id: p.keep._id },
+      { $set: p.set, $unset: { contactExportedAt: 1, contactPreviousPhone: 1 } },
+    );
     await customers.deleteMany({ _id: { $in: p.remove.map((d) => d._id) } });
   }
   if (orderOps.length) await orders.bulkWrite(orderOps, { ordered: false });

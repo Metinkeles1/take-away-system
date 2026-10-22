@@ -271,8 +271,15 @@ export async function updateCustomer(
   await connectDB();
   const doc = await CustomerModel.findOne({ id }).lean();
   if (!doc) return { ok: false, error: "Müşteri bulunamadı" };
+  const cur = doc as {
+    name?: string;
+    phone?: string;
+    contactExportedAt?: Date;
+    contactPreviousPhone?: string;
+  };
+  const phoneChanged = phoneKey(data.phone) !== phoneKey(cur.phone ?? "");
   // Numara değişmediyse kontrol yok — isim düzeltmesi engellenmesin.
-  if (phoneKey(data.phone) !== phoneKey((doc as { phone?: string }).phone ?? "")) {
+  if (phoneChanged) {
     const taken = await phoneTakenBy(data.phone, id);
     if (taken !== null) return { ok: false, error: phoneTakenError(taken) };
   }
@@ -280,6 +287,14 @@ export async function updateCustomer(
     name: data.name,
     phone: toLocalPhone(data.phone),
   };
+  // Rehbere gitmiş müşterinin ismi/numarası değişti → yeniden gönderilsin.
+  // Numara değiştiyse rehberdeki ESKİ numara saklanır: senkron o kişiyi bulup
+  // numarasını değiştirir. Gönderilene kadar birden çok değişiklik olursa
+  // rehberde duran ilk numara korunur.
+  const contactDirty =
+    !!cur.contactExportedAt && (phoneChanged || data.name !== cur.name);
+  if (contactDirty && phoneChanged && !cur.contactPreviousPhone)
+    $set.contactPreviousPhone = cur.phone;
   if (data.address !== undefined) {
     const { addresses, defaultAddressId } = normalizeCustomerAddresses(
       doc as Parameters<typeof normalizeCustomerAddresses>[0],
@@ -299,11 +314,18 @@ export async function updateCustomer(
     Object.assign($set, addressesSetFields(next, defaultAddressId));
   }
   try {
-    await CustomerModel.updateOne({ id }, { $set });
+    await CustomerModel.updateOne(
+      { id },
+      { $set, ...(contactDirty ? { $unset: { contactExportedAt: 1 } } : {}) },
+    );
   } catch (e) {
     if (isDuplicateKey(e)) return { ok: false, error: phoneTakenError("") };
     throw e;
   }
+  // Bağlantı yoksa/koparsa müşteri "gönderilmedi" kalır; sonraki senkron
+  // (yeni müşteri, gece kontrolü, yeniden bağlanma) tekrar dener.
+  if (contactDirty)
+    after(() => syncNewCustomersToGoogleContacts("new", "customer-edit"));
   return { ok: true };
 }
 

@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
+import { syncNewCustomersToGoogleContacts } from "@/lib/customers/googleContactsSync";
 import {
   CALLBACK_PATH,
   exchangeCode,
@@ -42,6 +43,9 @@ export async function GET(req: NextRequest) {
       ["droppedAt"],
     );
     await logConnectionEvent({ event: "connected", email });
+    // Bağlantı kopukken biriken müşteriler (yeni / düzenlenen) hemen gitsin —
+    // gece kontrolünü beklemesin.
+    after(() => syncNewCustomersToGoogleContacts("new", "reconnect"));
     return back("connected");
   } catch (err) {
     console.error("[google-contacts/callback]", err);

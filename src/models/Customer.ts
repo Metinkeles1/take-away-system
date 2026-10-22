@@ -51,6 +51,10 @@ const CustomerSchema = new Schema(
     // Telefon rehberine (Google Contacts CSV) en son aktarıldığı an. Boşsa
     // müşteri henüz rehbere hiç aktarılmamış → "Yeni kişileri indir" onu alır.
     contactExportedAt: Date,
+    // Rehbere aktarıldıktan sonra numarası değişen müşterinin rehberdeki ESKİ
+    // numarası. Senkron o kişiyi bulup numarasını yenisiyle değiştirir (yeni
+    // kişi açılmaz, eski numarayla müşteri adı rehberde kalmaz), sonra silinir.
+    contactPreviousPhone: String,
   },
   { timestamps: true },
 );
@@ -68,7 +72,8 @@ if (
   process.env.NODE_ENV !== "production" &&
   cached &&
   (!cachedAddresses?.schema?.path("streetKey") ||
-    !cached.schema.path("contactExportedAt"))
+    !cached.schema.path("contactExportedAt") ||
+    !cached.schema.path("contactPreviousPhone"))
 ) {
   mongoose.deleteModel("Customer");
 }

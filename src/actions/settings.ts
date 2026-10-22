@@ -354,7 +354,13 @@ export async function disconnectGoogleContacts(): Promise<{ ok: boolean }> {
 }
 
 // ─── Google Kişiler gönderim geçmişi ────────────────────────────────────────
-export type SyncTriggerLabel = "new-customer" | "cron" | "manual-new" | "manual-all";
+export type SyncTriggerLabel =
+  | "new-customer"
+  | "cron"
+  | "manual-new"
+  | "manual-all"
+  | "customer-edit"
+  | "reconnect";
 
 export interface ContactSyncRun {
   id: string;

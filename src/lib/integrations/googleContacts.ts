@@ -45,6 +45,8 @@ export interface GoogleContactsSetting {
 export interface ContactData {
   name: string;
   phone: string; // E.164
+  // Müşterinin rehberdeki eski numarası (numara değişti, rehber henüz değil).
+  previousPhone?: string;
   notes: string;
   addresses: ContactAddress[];
 }
@@ -391,14 +393,29 @@ export async function syncGoogleContacts(
   }
 
   const toCreate: ContactData[] = [];
-  const toUpdate: { person: GooglePerson; data: ContactData }[] = [];
+  // replacePhone: kişideki bu (eski) numara müşterinin yeni numarasıyla değişir.
+  const toUpdate: { person: GooglePerson; data: ContactData; replacePhone?: string }[] = [];
   const touched = new Set<string>(); // bu turdaki müşterilerin sahip olduğu kişiler
   for (const c of contacts) {
     const owned = (byPhone.get(c.phone) ?? []).filter(
       (p) => ownerOf.get(p.resourceName) === c.phone,
     );
     if (owned.length === 0) {
-      toCreate.push(c);
+      // Numarası değişmiş müşteri: eski numaralı kişi (artık başka müşterinin
+      // değilse) yeni numarayla güncellenir — çift kişi açılmaz.
+      const old = c.previousPhone
+        ? (byPhone.get(c.previousPhone) ?? []).filter(
+            (p) => !ownerOf.has(p.resourceName) && !touched.has(p.resourceName),
+          )
+        : [];
+      if (old.length === 0) {
+        toCreate.push(c);
+        continue;
+      }
+      for (const p of old) {
+        touched.add(p.resourceName);
+        toUpdate.push({ person: p, data: c, replacePhone: c.previousPhone });
+      }
       continue;
     }
     stats.duplicates += owned.length - 1;
@@ -456,9 +473,17 @@ export async function syncGoogleContacts(
         updateMask: "names,biographies,addresses,phoneNumbers",
         readMask: "names",
         contacts: Object.fromEntries(
-          batch.map(({ person, data }) => [
+          batch.map(({ person, data, replacePhone }) => [
             person.resourceName,
-            { etag: person.etag, ...personFields(data), phoneNumbers: keptPhones(person) },
+            {
+              etag: person.etag,
+              ...personFields(data),
+              phoneNumbers: keptPhones(person).map((n) =>
+                replacePhone && phoneOf(n) === replacePhone
+                  ? { ...n, value: data.phone }
+                  : n,
+              ),
+            },
           ]),
         ),
       },

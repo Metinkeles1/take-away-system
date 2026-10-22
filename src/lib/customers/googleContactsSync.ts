@@ -51,11 +51,13 @@ function toContacts(docs: Record<string, unknown>[]): ContactData[] {
     const phone = normalizePhone(c.phone);
     if (!phone || seen.has(phone)) continue;
     seen.add(phone);
+    const previousPhone = normalizePhone((doc.contactPreviousPhone as string) ?? "");
     out.push({
       name: buildFirstName(c),
       phone,
       notes: buildNotes(c),
       addresses: buildAddresses(c),
+      ...(previousPhone && previousPhone !== phone ? { previousPhone } : {}),
     });
   }
   const nameKey = (n: string) => n.toLocaleLowerCase("tr").replace(/\s+/g, " ");
@@ -76,7 +78,13 @@ function toContacts(docs: Record<string, unknown>[]): ContactData[] {
 //   Eşzamanlı iki senkron aynı kişiyi iki kez göndermesin diye her müşteri
 //   önce atomik olarak "sahiplenilir"; hata olursa işaret geri alınır.
 // mode "all": tüm müşteriler — eksikleri ekler, farklı/bozuk kayıtları düzeltir.
-export type SyncTrigger = "new-customer" | "cron" | "manual-new" | "manual-all";
+export type SyncTrigger =
+  | "new-customer"
+  | "cron"
+  | "manual-new"
+  | "manual-all"
+  | "customer-edit"
+  | "reconnect";
 
 export async function syncNewCustomersToGoogleContacts(
   mode: "new" | "all" = "new",
@@ -132,6 +140,12 @@ export async function syncNewCustomersToGoogleContacts(
       allContacts.filter((c) => docPhones.has(c.phone)),
       normalizePhone,
       new Set(allContacts.map((c) => c.phone)),
+    );
+    // Numara değişikliği rehbere işlendi → eski numara bilgisi artık gereksiz.
+    await CustomerModel.updateMany(
+      { id: { $in: docs.map((d) => d.id) }, contactPreviousPhone: { $exists: true } },
+      { $unset: { contactPreviousPhone: 1 } },
+      { timestamps: false },
     );
     if (mode === "all") {
       await CustomerModel.updateMany(

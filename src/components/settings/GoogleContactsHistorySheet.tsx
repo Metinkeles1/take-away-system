@@ -26,6 +26,8 @@ const TRIGGER_LABEL: Record<SyncTriggerLabel, string> = {
   cron: "Gece kontrolü",
   "manual-new": "Yenileri Gönder",
   "manual-all": "Rehberi Düzelt",
+  "customer-edit": "Müşteri düzenlendi",
+  reconnect: "Yeniden bağlandı",
 };
 
 const ACTION_STYLE: Record<ContactSyncLogItem["action"], { label: string; cls: string }> = {
