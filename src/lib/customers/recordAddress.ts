@@ -85,13 +85,25 @@ export async function recordCustomerAddress(
       useCount: opts.countOrder ? 1 : 0,
       lastUsedAt: now,
     };
-    await CustomerModel.create({
-      id: `cust-${phone.replace(/\D/g, "")}`,
-      name: customer.name || phone,
-      phone,
-      orderCount: opts.countOrder ? 1 : 0,
-      ...addressesSetFields([addr]),
-    });
+    try {
+      await CustomerModel.create({
+        id: `cust-${phone.replace(/\D/g, "")}`,
+        name: customer.name || phone,
+        phone,
+        orderCount: opts.countOrder ? 1 : 0,
+        ...addressesSetFields([addr]),
+      });
+    } catch (e) {
+      // Aynı numaradan aynı anda iki ilk sipariş: diğeri kaydı az önce açtı
+      // (id çakıştı) → kayıt artık var, adresi ona işle. Numarası sonradan
+      // değiştirilmiş eski bir kayıt aynı id'yi tutuyorsa döngüye girmesin.
+      if (
+        (e as { code?: number }).code === 11000 &&
+        (await findCustomerByPhone(phone))
+      )
+        return recordCustomerAddress(customer, opts);
+      throw e;
+    }
     // Yeni müşteri → yanıt döndükten sonra Google Kişiler'e (env yoksa atlanır).
     after(() => syncNewCustomersToGoogleContacts());
     return addr.id;

@@ -33,7 +33,10 @@ const CustomerSchema = new Schema(
   {
     id: { type: String, required: true, unique: true, index: true },
     name: { type: String, required: true },
-    phone: { type: String, required: true, index: true },
+    // Numara müşterinin kimliği: bir numara = bir kayıt (adresleri altında).
+    // Unique index'i scripts/merge-duplicate-customers.mjs --apply kurar
+    // (eski çift kayıtlar birleşmeden index kurulamaz).
+    phone: { type: String, required: true, unique: true },
     address: { type: String, required: true },
     addressDetail: String,
     orderCount: { type: Number, default: 1 },

@@ -43,3 +43,6 @@ next-env.d.ts
 # AI tooling & personal notes (solo dev — not shared)
 .claude/
 docs/project-log/
+
+# Migration yedekleri (müşteri telefonları içerir)
+/backups/

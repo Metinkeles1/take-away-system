@@ -11,12 +11,13 @@ import {
 import { type SavedCustomer } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Plus, Download, CloudUpload } from "lucide-react";
+import { Search, Plus, Download, CloudUpload, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { CustomerList } from "@/components/customers/CustomerList";
 import { CustomerFormDialog } from "@/components/customers/CustomerFormDialog";
 import { DeleteCustomerDialog } from "@/components/customers/DeleteCustomerDialog";
 import { CustomerHistoryDialog } from "@/components/customers/CustomerHistoryDialog";
+import { CustomerDataCheckDialog } from "@/components/customers/CustomerDataCheckDialog";
 import { exportCustomersToCsv } from "@/components/customers/customerCsv";
 
 export default function CustomersPage() {
@@ -29,6 +30,7 @@ export default function CustomersPage() {
   const [editingCustomer, setEditingCustomer] = useState<SavedCustomer | null>(null);
   const [deletingCustomer, setDeletingCustomer] = useState<SavedCustomer | null>(null);
   const [historyCustomer, setHistoryCustomer] = useState<SavedCustomer | null>(null);
+  const [showDataCheck, setShowDataCheck] = useState(false);
 
   const loadCustomers = useCallback(async () => {
     setIsLoading(true);
@@ -137,6 +139,14 @@ export default function CustomersPage() {
         <div className="flex flex-wrap items-center justify-end gap-2">
           <Button
             variant="outline"
+            onClick={() => setShowDataCheck(true)}
+            title="Aynı numaralı çift kayıtlar, çok adresli müşteriler, ortak adresler"
+          >
+            <ShieldCheck className="mr-2 h-4 w-4" />
+            Kayıt Kontrolü
+          </Button>
+          <Button
+            variant="outline"
             onClick={handleGoogleSync}
             disabled={syncing}
             title="Rehbere aktarılmamış müşterileri doğrudan Google Kişiler'e ekle"
@@ -209,6 +219,10 @@ export default function CustomersPage() {
       <CustomerHistoryDialog
         customer={historyCustomer}
         onClose={() => setHistoryCustomer(null)}
+      />
+      <CustomerDataCheckDialog
+        open={showDataCheck}
+        onClose={() => setShowDataCheck(false)}
       />
     </main>
   );

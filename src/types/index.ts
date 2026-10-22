@@ -302,6 +302,27 @@ export interface SavedCustomer {
   updatedAt: Date;
 }
 
+// ─── Müşteri kayıt kontrolü (Müşteriler → Kayıt Kontrolü) ──────────────────
+// Numara müşterinin kimliğidir (tekil); bir numaranın çok adresi olabilir.
+// Aynı adreste farklı numaralar serbesttir (ev/iş yeri) — sadece bilgi.
+export interface CustomerCheckPerson {
+  id: string;
+  name: string;
+  phone: string;
+  orderCount: number;
+}
+
+export interface CustomerDataCheck {
+  // Aynı numaraya (son 10 hane) açılmış birden fazla kayıt — olmamalı.
+  duplicatePhones: { phone: string; records: (CustomerCheckPerson & { addressCount: number })[] }[];
+  // Birden fazla kayıtlı adresi olan müşteriler.
+  multiAddress: (CustomerCheckPerson & {
+    addresses: { address: string; addressDetail?: string; useCount: number; hasPin: boolean }[];
+  })[];
+  // Farklı numaralarla kayıtlı aynı adres.
+  sharedAddresses: { address: string; addressDetail?: string; customers: CustomerCheckPerson[] }[];
+}
+
 // ─── Müşteri Sipariş Geçmişi Özeti ───────────────────────────────────────────
 // Müşteriler sayfasında "bu müşteri daha önce ne sipariş etmiş" dökümü için
 // hafif satır. Tam Order yerine sadece görüntülenecek alanlar taşınır.

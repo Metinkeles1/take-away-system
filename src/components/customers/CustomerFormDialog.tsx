@@ -50,12 +50,14 @@ function validateCreate(form: CreateFormState): string | null {
   return null;
 }
 
+// Ekleme ve düzenleme farklı state'lere yazar — alanlar hangisine bağlıysa
+// kaydetme de onu okur (onChange ile bağlanır).
 function NamePhoneFields({
   formData,
-  setFormData,
+  onChange,
 }: {
   formData: NamePhoneState;
-  setFormData: React.Dispatch<React.SetStateAction<NamePhoneState>>;
+  onChange: (patch: Partial<NamePhoneState>) => void;
 }) {
   return (
     <div className="grid gap-4">
@@ -65,7 +67,7 @@ function NamePhoneFields({
           id="name"
           placeholder="Müşteri adı"
           value={formData.name}
-          onChange={(e) => setFormData((p) => ({ ...p, name: e.target.value }))}
+          onChange={(e) => onChange({ name: e.target.value })}
         />
       </div>
       <div className="grid gap-2">
@@ -74,7 +76,7 @@ function NamePhoneFields({
           id="phone"
           placeholder="05XX XXX XX XX"
           value={formData.phone}
-          onChange={(e) => setFormData((p) => ({ ...p, phone: e.target.value }))}
+          onChange={(e) => onChange({ phone: e.target.value })}
         />
       </div>
     </div>
@@ -161,10 +163,14 @@ export const CustomerFormDialog = memo(function CustomerFormDialog({
       }
       setIsSaving(true);
       try {
-        await updateCustomer(editing.id, {
+        const res = await updateCustomer(editing.id, {
           name: namePhone.name.trim(),
           phone: namePhone.phone.trim(),
         });
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
         toast.success("Müşteri güncellendi");
         onOpenChange(false);
         onSuccess();
@@ -183,13 +189,17 @@ export const CustomerFormDialog = memo(function CustomerFormDialog({
     }
     setIsSaving(true);
     try {
-      await createCustomer({
+      const res = await createCustomer({
         id: crypto.randomUUID(),
         name: createForm.name.trim(),
         phone: createForm.phone.trim(),
         address: createForm.address.trim(),
         addressDetail: createForm.addressDetail.trim() || undefined,
       });
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
       toast.success("Müşteri eklendi");
       onOpenChange(false);
       onSuccess();
@@ -210,7 +220,17 @@ export const CustomerFormDialog = memo(function CustomerFormDialog({
           <DialogTitle>{isEdit ? "Müşteri Düzenle" : "Yeni Müşteri Ekle"}</DialogTitle>
         </DialogHeader>
         <div className="grid gap-4 py-2">
-          <NamePhoneFields formData={namePhone} setFormData={setNamePhone} />
+          {isEdit ? (
+            <NamePhoneFields
+              formData={namePhone}
+              onChange={(patch) => setNamePhone((p) => ({ ...p, ...patch }))}
+            />
+          ) : (
+            <NamePhoneFields
+              formData={createForm}
+              onChange={(patch) => setCreateForm((p) => ({ ...p, ...patch }))}
+            />
+          )}
           {isEdit && editing ? (
             <CustomerAddressSection
               customerId={editing.id}
