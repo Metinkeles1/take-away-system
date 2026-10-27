@@ -1,6 +1,9 @@
 import mongoose, { Schema } from "mongoose";
 
-export const CLIENT_LOG_RETENTION_DAYS = 30;
+const retentionDaysRaw = Number(process.env.CLIENT_LOG_RETENTION_DAYS ?? "14");
+export const CLIENT_LOG_RETENTION_DAYS = Number.isFinite(retentionDaysRaw)
+  ? Math.min(Math.max(Math.trunc(retentionDaysRaw), 1), 90)
+  : 14;
 
 const ClientRuntimeLogSchema = new Schema(
   {

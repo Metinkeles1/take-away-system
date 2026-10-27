@@ -42,14 +42,22 @@ export default function NetworkHealthGuard() {
       failCountRef.current = 0;
       setDegraded(false);
       degradedRef.current = false;
-      sendClientLog({ kind: "network-online", message: "browser online event" });
+      sendClientLog({
+        kind: "network-online",
+        message: "browser online event",
+        dedupeKey: "network-online",
+      });
     };
 
     const onOffline = () => {
       setOnline(false);
       setDegraded(true);
       degradedRef.current = true;
-      sendClientLog({ kind: "network-offline", message: "browser offline event" });
+      sendClientLog({
+        kind: "network-offline",
+        message: "browser offline event",
+        dedupeKey: "network-offline",
+      });
     };
 
     window.addEventListener("online", onOnline);
@@ -67,6 +75,7 @@ export default function NetworkHealthGuard() {
           sendClientLog({
             kind: "network-recovered",
             message: "health probe recovered",
+            dedupeKey: "network-recovered",
           });
         }
         degradedRef.current = false;
@@ -74,17 +83,19 @@ export default function NetworkHealthGuard() {
       }
 
       failCountRef.current += 1;
-      sendClientLog({
-        kind: "healthz-fail",
-        message: "health probe failed",
-        details: { consecutiveFails: failCountRef.current },
-      });
       if (failCountRef.current >= 2) {
         setDegraded(true);
         if (!degradedRef.current) {
           sendClientLog({
+            kind: "healthz-fail",
+            message: "health probe failed repeatedly",
+            details: { consecutiveFails: failCountRef.current },
+            dedupeKey: "healthz-fail-degraded",
+          });
+          sendClientLog({
             kind: "network-degraded",
             message: "health probe failed 2 times",
+            dedupeKey: "network-degraded",
           });
         }
         degradedRef.current = true;
