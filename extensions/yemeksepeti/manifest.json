@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "Yemeksepeti Köprüsü",
+  "version": "0.4.0",
+  "description": "Yemeksepeti partner panelindeki sipariş verisini işletmenin kendi sistemine aktarır.",
+  "permissions": ["storage", "downloads"],
+  "optional_host_permissions": ["https://*/*", "http://localhost/*"],
+  "background": { "service_worker": "background.js" },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Yemeksepeti Köprüsü"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.yemeksepeti.com/*",
+        "*://*.restaurant-partners.com/*",
+        "*://*.deliveryhero.com/*",
+        "*://*.deliveryhero.io/*"
+      ],
+      "js": ["hook.js"],
+      "run_at": "document_start",
+      "all_frames": true,
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "*://*.yemeksepeti.com/*",
+        "*://*.restaurant-partners.com/*",
+        "*://*.deliveryhero.com/*",
+        "*://*.deliveryhero.io/*"
+      ],
+      "js": ["bridge.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ]
+}

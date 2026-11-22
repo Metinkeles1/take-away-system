@@ -3,6 +3,11 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   // Geliştirme modunda köşede çıkan Next.js dev göstergesini gizle.
   devIndicators: false,
+  // Ayarlar'dan indirilen Yemeksepeti eklentisi bu klasörden zip'lenir;
+  // sunucu paketine dahil edilmezse Vercel'de dosyalar bulunamaz.
+  outputFileTracingIncludes: {
+    "/api/yemeksepeti/extension": ["./extensions/yemeksepeti/**/*"],
+  },
   experimental: {
     // Ürün resmi sunucu eylemiyle yüklenir; varsayılan 1 MB sınırı telefon
     // fotoğraflarını reddediyordu. Resim zaten tarayıcıda küçültülüyor; bu,
