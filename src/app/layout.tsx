@@ -2,8 +2,6 @@ import type { Metadata, Viewport } from "next";
 import { Geist } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
 import AppShell from "@/components/layout/AppShell";
-import NetworkHealthGuard from "@/components/layout/NetworkHealthGuard";
-import RuntimeErrorReporter from "@/components/layout/RuntimeErrorReporter";
 import ServiceWorkerRegister from "@/components/pwa/ServiceWorkerRegister";
 import "./globals.css";
 
@@ -44,8 +42,6 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} font-sans antialiased h-dvh flex flex-col overflow-hidden`}
       >
-        <NetworkHealthGuard />
-        <RuntimeErrorReporter />
         <AppShell>{children}</AppShell>
         <Toaster richColors position="top-right" />
         <ServiceWorkerRegister />
