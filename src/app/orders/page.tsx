@@ -12,12 +12,15 @@ import {
   OrderActiveFilters,
   OrderFilters,
   matchesPayment,
+  matchesCourier,
+  buildCourierOptions,
   isPaidAtDoor,
   dateRangeLabel,
   dateRangeBounds,
   periodCovers,
   periodForDate,
   type ChannelFilter,
+  type CourierFilter,
   type OrderDateRange,
   type OrderFilter,
   type PaymentFilter,
@@ -111,6 +114,7 @@ export default function OrdersPage() {
   }, [channel, ownOrders, tyOrders, dateRange]);
   const [filter, setFilter] = useState<OrderFilter>("all");
   const [payFilter, setPayFilter] = useState<PaymentFilter>("all");
+  const [courierFilter, setCourierFilter] = useState<CourierFilter>("all");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [bootstrapping, setBootstrapping] = useState(orders.length === 0);
@@ -151,16 +155,25 @@ export default function OrdersPage() {
     return acc;
   }, [orders]);
 
+  // Listede görünen kuryeler + seçili kuryenin görünen adı.
+  const courierData = useMemo(() => buildCourierOptions(orders), [orders]);
+  const courierLabel = useMemo(
+    () => courierData.options.find((c) => c.key === courierFilter)?.label,
+    [courierData, courierFilter],
+  );
+
   // Arama indeksi: normalize edilmiş metinler yalnızca orders değişince kurulur.
   // Her tuş vuruşunda 2000 siparişin string'i yeniden üretilmez (hot path).
   const searchIndex = useMemo(() => orders.map(buildHaystack), [orders]);
 
   const deferredFilter = useDeferredValue(filter);
   const deferredPay = useDeferredValue(payFilter);
+  const deferredCourier = useDeferredValue(courierFilter);
   const deferredSearch = useDeferredValue(search);
   const filteredOrders = useMemo(() => {
     const q = deferredSearch.trim().toLocaleLowerCase("tr");
-    if (deferredFilter === "all" && deferredPay === "all" && !q) return orders;
+    if (deferredFilter === "all" && deferredPay === "all" && deferredCourier === "all" && !q)
+      return orders;
 
     // Tek geçiş: durum filtresi + arama indeksi üzerinden includes.
     const result: Order[] = [];
@@ -168,11 +181,12 @@ export default function OrdersPage() {
       const o = orders[i];
       if (deferredFilter !== "all" && o.status !== deferredFilter) continue;
       if (!matchesPayment(o, deferredPay)) continue;
+      if (!matchesCourier(o, deferredCourier)) continue;
       if (q && !searchIndex[i].includes(q)) continue;
       result.push(o);
     }
     return result;
-  }, [orders, searchIndex, deferredFilter, deferredPay, deferredSearch]);
+  }, [orders, searchIndex, deferredFilter, deferredPay, deferredCourier, deferredSearch]);
 
   // Stabil referanslar — memo'lu alt bileşenler (kart/filtre çubukları) hot
   // path'te (arama yazarken) gereksiz yeniden render olmasın.
@@ -204,6 +218,7 @@ export default function OrdersPage() {
     setChannel("all");
     setFilter("all");
     setPayFilter("all");
+    setCourierFilter("all");
     setSearch("");
   }, []);
 
@@ -218,7 +233,7 @@ export default function OrdersPage() {
             {channel === "all" && tyOrders.length > 0 && (
               <> (Kendi {ownOrders.length} · Trendyol {tyOrders.length})</>
             )}
-            {(filter !== "all" || payFilter !== "all" || search.trim()) && (
+            {(filter !== "all" || payFilter !== "all" || courierFilter !== "all" || search.trim()) && (
               <>
                 {" · "}
                 <span className="font-medium">{filteredOrders.length}</span> filtreli
@@ -265,6 +280,9 @@ export default function OrdersPage() {
           channel={channel}
           status={filter}
           payment={payFilter}
+          courier={courierFilter}
+          courierOptions={courierData.options}
+          noCourierCount={courierData.none}
           statusCounts={counts}
           paymentCounts={payCounts}
           resultCount={filteredOrders.length}
@@ -272,6 +290,7 @@ export default function OrdersPage() {
           onChannelChange={setChannel}
           onStatusChange={setFilter}
           onPaymentChange={setPayFilter}
+          onCourierChange={setCourierFilter}
           onReset={handleResetFilter}
         />
       </div>
@@ -296,9 +315,12 @@ export default function OrdersPage() {
         channel={channel}
         status={filter}
         payment={payFilter}
+        courier={courierFilter}
+        courierLabel={courierLabel}
         onChannelChange={setChannel}
         onStatusChange={setFilter}
         onPaymentChange={setPayFilter}
+        onCourierChange={setCourierFilter}
         onReset={handleResetFilter}
       />
 
@@ -307,7 +329,7 @@ export default function OrdersPage() {
           isLoading={isLoading || bootstrapping}
           orders={filteredOrders}
           filter={filter}
-          hasSearch={Boolean(search.trim()) || payFilter !== "all"}
+          hasSearch={Boolean(search.trim()) || payFilter !== "all" || courierFilter !== "all"}
           onResetFilter={handleResetFilter}
           onStatusChange={handleStatusChange}
           onOpenTrendyol={setTyOpen}

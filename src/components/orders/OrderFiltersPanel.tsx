@@ -13,6 +13,44 @@ export type ChannelFilter = "all" | "own" | "trendyol";
 // "open" = açık hesap (ödeme yönteminden bağımsız, paymentStatus'a bakar).
 // "door" = kapıda ödeme (para kuryeye verildi; yöntemden bağımsız).
 export type PaymentFilter = "all" | PaymentMethod | "open" | "door";
+// Kurye filtresi: "all" | "none" (kurye atanmamış) | kurye anahtarı (courierKey).
+export type CourierFilter = string;
+
+// Kurye adı karşılaştırma anahtarı — büyük/küçük harf ve boşluk farkı yok sayılır.
+export const courierKey = (name: string) => `c:${name.trim().toLocaleLowerCase("tr")}`;
+
+export function matchesCourier(o: Order, filter: CourierFilter): boolean {
+  if (filter === "all") return true;
+  const c = o.courier?.trim();
+  if (filter === "none") return !c;
+  return !!c && courierKey(c) === filter;
+}
+
+// Listede görünen kuryeler (sipariş sayısına göre çoktan aza).
+export interface CourierOption {
+  key: string;
+  label: string;
+  count: number;
+}
+export function buildCourierOptions(orders: Order[]): { options: CourierOption[]; none: number } {
+  const map = new Map<string, CourierOption>();
+  let none = 0;
+  for (const o of orders) {
+    const c = o.courier?.trim();
+    if (!c) {
+      none += 1;
+      continue;
+    }
+    const k = courierKey(c);
+    const cur = map.get(k);
+    if (cur) cur.count += 1;
+    else map.set(k, { key: k, label: c, count: 1 });
+  }
+  const options = [...map.values()].sort(
+    (a, b) => b.count - a.count || a.label.localeCompare(b.label, "tr"),
+  );
+  return { options, none };
+}
 
 // Para kapıda mı alındı? Trendyol'da eşlemedeki prepaid işaretine bakılır
 // (kapıda yemek kartı da "meal_card"); kendi siparişlerde online/IBAN hariç hepsi.
@@ -193,6 +231,9 @@ interface OrderFiltersProps {
   channel: ChannelFilter;
   status: OrderFilter;
   payment: PaymentFilter;
+  courier: CourierFilter;
+  courierOptions: CourierOption[];
+  noCourierCount: number;
   statusCounts: Record<OrderFilter, number>;
   paymentCounts: Record<PaymentFilter, number>;
   resultCount: number;
@@ -200,6 +241,7 @@ interface OrderFiltersProps {
   onChannelChange: (c: ChannelFilter) => void;
   onStatusChange: (s: OrderFilter) => void;
   onPaymentChange: (p: PaymentFilter) => void;
+  onCourierChange: (c: CourierFilter) => void;
   onReset: () => void;
 }
 
@@ -208,8 +250,15 @@ export function countActiveFilters(
   s: OrderFilter,
   p: PaymentFilter,
   d: OrderDateRange | null,
+  k: CourierFilter = "all",
 ) {
-  return (c !== "all" ? 1 : 0) + (s !== "all" ? 1 : 0) + (p !== "all" ? 1 : 0) + (d ? 1 : 0);
+  return (
+    (c !== "all" ? 1 : 0) +
+    (s !== "all" ? 1 : 0) +
+    (p !== "all" ? 1 : 0) +
+    (d ? 1 : 0) +
+    (k !== "all" ? 1 : 0)
+  );
 }
 
 // "Filtrele" tuşu + açılır filtre menüsü. memo + stabil handler'lar: arama
@@ -223,6 +272,9 @@ function OrderFiltersImpl({
   channel,
   status,
   payment,
+  courier,
+  courierOptions,
+  noCourierCount,
   statusCounts,
   paymentCounts,
   resultCount,
@@ -230,9 +282,11 @@ function OrderFiltersImpl({
   onChannelChange,
   onStatusChange,
   onPaymentChange,
+  onCourierChange,
   onReset,
 }: OrderFiltersProps) {
-  const activeCount = countActiveFilters(channel, status, payment, dateRange);
+  const activeCount = countActiveFilters(channel, status, payment, dateRange, courier);
+  const courierTotal = courierOptions.reduce((n, c) => n + c.count, 0) + noCourierCount;
   const [calendarOpen, setCalendarOpen] = useState(false);
   const today = startOfDay(new Date());
   // Sıfır sayılı ödeme yöntemleri gizlenir (seçili olan hariç).
@@ -379,6 +433,37 @@ function OrderFiltersImpl({
               ))}
             </div>
           </div>
+
+          {(courierOptions.length > 0 || courier !== "all") && (
+            <div>
+              <Label>Kurye</Label>
+              <div className="grid grid-cols-2 gap-0.5">
+                <OptionRow
+                  active={courier === "all"}
+                  label="Tümü"
+                  count={courierTotal}
+                  onClick={() => onCourierChange("all")}
+                />
+                {courierOptions.map((c) => (
+                  <OptionRow
+                    key={c.key}
+                    active={courier === c.key}
+                    label={c.label}
+                    count={c.count}
+                    onClick={() => onCourierChange(c.key)}
+                  />
+                ))}
+                {(noCourierCount > 0 || courier === "none") && (
+                  <OptionRow
+                    active={courier === "none"}
+                    label="Kurye yok"
+                    count={noCourierCount}
+                    onClick={() => onCourierChange("none")}
+                  />
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="border-t p-3">
@@ -403,9 +488,12 @@ interface OrderActiveFiltersProps {
   channel: ChannelFilter;
   status: OrderFilter;
   payment: PaymentFilter;
+  courier: CourierFilter;
+  courierLabel?: string;
   onChannelChange: (c: ChannelFilter) => void;
   onStatusChange: (s: OrderFilter) => void;
   onPaymentChange: (p: PaymentFilter) => void;
+  onCourierChange: (c: CourierFilter) => void;
   onReset: () => void;
 }
 
@@ -417,9 +505,12 @@ function OrderActiveFiltersImpl({
   channel,
   status,
   payment,
+  courier,
+  courierLabel,
   onChannelChange,
   onStatusChange,
   onPaymentChange,
+  onCourierChange,
   onReset,
 }: OrderActiveFiltersProps) {
   const active: { key: string; group: string; label: string; clear: () => void }[] = [];
@@ -450,6 +541,13 @@ function OrderActiveFiltersImpl({
       group: "Ödeme",
       label: PAYMENT_TABS.find((t) => t.key === payment)!.label,
       clear: () => onPaymentChange("all"),
+    });
+  if (courier !== "all")
+    active.push({
+      key: "courier",
+      group: "Kurye",
+      label: courier === "none" ? "Kurye yok" : (courierLabel ?? courier),
+      clear: () => onCourierChange("all"),
     });
   if (active.length === 0) return null;
 
