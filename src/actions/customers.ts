@@ -18,6 +18,7 @@ import { phoneMatchRegex } from "@/lib/customers/geoByPhone";
 import { customerSearchRegex } from "@/lib/customers/searchPattern";
 import {
   type ContactSyncResult,
+  resyncContactIfChanged,
   syncNewCustomersToGoogleContacts,
 } from "@/lib/customers/googleContactsSync";
 import {
@@ -326,6 +327,8 @@ export async function updateCustomer(
   // (yeni müşteri, gece kontrolü, yeniden bağlanma) tekrar dener.
   if (contactDirty)
     after(() => syncNewCustomersToGoogleContacts("new", "customer-edit"));
+  // İsim/numara aynı ama adres değiştiyse de rehber güncellenmeli.
+  else after(() => resyncContactIfChanged(id, doc as Record<string, unknown>));
   return { ok: true };
 }
 
@@ -387,6 +390,7 @@ async function mutateAddresses(
     { id: customerId },
     { $set: addressesSetFields(res.addresses, res.defaultAddressId) },
   );
+  after(() => resyncContactIfChanged(customerId, doc as Record<string, unknown>));
   return { ok: true };
 }
 

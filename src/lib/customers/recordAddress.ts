@@ -9,7 +9,10 @@ import {
   pickDefaultAddress,
 } from "@/lib/customers/addresses";
 import { streetFields } from "@/lib/customers/streetKey";
-import { syncNewCustomersToGoogleContacts } from "@/lib/customers/googleContactsSync";
+import {
+  resyncContactIfChanged,
+  syncNewCustomersToGoogleContacts,
+} from "@/lib/customers/googleContactsSync";
 import type { CustomerAddress, CustomerInfo, GeoPoint } from "@/types";
 
 type CustomerDoc = Record<string, unknown> & { _id: unknown };
@@ -181,6 +184,9 @@ export async function recordCustomerAddress(
       ...(opts.countOrder ? { $inc: { orderCount: 1 } } : {}),
     },
   );
+  // Yeni adres / başka adrese sipariş (varsayılan değişir) / isim düzeltmesi
+  // rehberdeki görünümü değiştirebilir.
+  after(() => resyncContactIfChanged(existing.id as string, existing));
   return addressId;
 }
 

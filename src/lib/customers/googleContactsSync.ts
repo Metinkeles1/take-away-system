@@ -195,6 +195,42 @@ export async function syncNewCustomersToGoogleContacts(
   }
 }
 
+// Müşterinin rehberde görünen hali (isim / not / adresler). İsim varsayılan
+// adresle başladığından adres eklemek, düzeltmek, varsayılanı değiştirmek ya da
+// başka adrese sipariş vermek (varsayılan = son kullanılan) de rehberi değiştirir.
+function contactFingerprint(doc: Record<string, unknown>): string {
+  const c = toSavedCustomer(doc);
+  return JSON.stringify([buildFirstName(c), buildNotes(c), buildAddresses(c)]);
+}
+
+// Kayıt değişikliği rehberdeki görünümü değiştirdiyse müşteriyi "gönderilmedi"
+// yapıp senkronu başlatır. `before`: değişiklikten ÖNCEKİ kayıt. Rehbere hiç
+// gitmemiş müşteriye dokunulmaz — "new" senkronu onu zaten alacak.
+// after() içinde çağrılmalı (yanıtı bekletmesin); hata fırlatmaz.
+export async function resyncContactIfChanged(
+  customerId: string,
+  before: Record<string, unknown>,
+): Promise<void> {
+  try {
+    if (!before.contactExportedAt) return;
+    await connectDB();
+    const now = (await CustomerModel.findOne({ id: customerId }).lean()) as Record<
+      string,
+      unknown
+    > | null;
+    if (!now || !now.contactExportedAt) return; // silinmiş ya da zaten bekliyor
+    if (contactFingerprint(before) === contactFingerprint(now)) return;
+    await CustomerModel.updateOne(
+      { id: customerId },
+      { $unset: { contactExportedAt: 1 } },
+      { timestamps: false },
+    );
+    await syncNewCustomersToGoogleContacts("new", "customer-edit");
+  } catch (err) {
+    console.error("[googleContactsSync] yeniden gönderim", err);
+  }
+}
+
 // Geçmiş yazımı senkronu asla bozmasın.
 async function writeLog(entry: Record<string, unknown>): Promise<void> {
   try {
