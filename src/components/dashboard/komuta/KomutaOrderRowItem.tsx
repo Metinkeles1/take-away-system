@@ -4,6 +4,7 @@ import Link from "next/link";
 
 import { type KomutaOrderRow } from "@/actions/komutaOverview";
 import { cn, formatCurrencyShort } from "@/lib/utils";
+import { ACCOUNT_BADGE_CLASS, accountColor } from "@/lib/integrations/trendyol/accountColors";
 
 interface Props {
   row: KomutaOrderRow;
@@ -31,14 +32,17 @@ export function KomutaOrderRowItem({ row: r, showDate, variant, onTrendyolClick 
         {r.time}
       </span>
       <span
+        title={r.account ? `Trendyol · ${r.account.name}` : undefined}
         className={cn(
-          "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold",
-          isTy
-            ? "bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300"
-            : "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300",
+          "max-w-20 shrink-0 truncate rounded px-1.5 py-0.5 text-[10px] font-semibold",
+          r.account
+            ? ACCOUNT_BADGE_CLASS[accountColor(r.account.color)]
+            : isTy
+              ? "bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300"
+              : "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300",
         )}
       >
-        {isTy ? "TY" : "Kendi"}
+        {r.account ? r.account.name : isTy ? "TY" : "Kendi"}
       </span>
       {variant === "line" ? (
         <>

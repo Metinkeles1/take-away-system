@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { formatCurrencyShort } from "@/lib/utils";
 import { KomutaOrderRowItem } from "./KomutaOrderRowItem";
 import { TrendyolOrderSheet } from "./TrendyolOrderSheet";
+import { useKomutaFilters } from "./KomutaShell";
 import {
   getKomutaPeriodOrders,
   type KomutaOrderRow,
@@ -67,16 +68,17 @@ function Body({
   paymentMethod,
 }: Omit<Props, "open" | "onOpenChange">) {
   const [rows, setRows] = useState<KomutaOrderRow[] | null>(null);
+  const { account } = useKomutaFilters();
 
   useEffect(() => {
     let alive = true;
-    getKomutaPeriodOrders(period, channel, dayOffset, { method: paymentMethod }).then((r) => {
+    getKomutaPeriodOrders(period, channel, dayOffset, { method: paymentMethod, account }).then((r) => {
       if (alive) setRows(r);
     });
     return () => {
       alive = false;
     };
-  }, [period, channel, dayOffset, paymentMethod]);
+  }, [period, channel, dayOffset, paymentMethod, account]);
 
   const active = (rows ?? []).filter((r) => !r.status.toLowerCase().includes("cancel"));
   const totalSum = active.reduce((s, r) => s + r.total, 0);

@@ -21,21 +21,18 @@ import { after } from "next/server";
 import { notifyOrdersChanged } from "@/lib/pusher/server";
 import type { Order } from "@/types";
 
-// Trendyol entegrasyonu env'i tanımlı mı? Tanımlı değilse özellik sessizce devre
-// dışı kalır (kurye kendi siparişleriyle çalışmaya devam eder, hata gösterilmez).
-function trendyolConfigured(): boolean {
-  return Boolean(
-    process.env.TRENDYOL_SUPPLIER_ID &&
-      (process.env.TRENDYOL_API_TOKEN ||
-        (process.env.TRENDYOL_API_KEY && process.env.TRENDYOL_API_SECRET)),
-  );
-}
+// Trendyol hesabı tanımlı mı? Tanımlı değilse özellik sessizce devre dışı kalır
+// (kurye kendi siparişleriyle çalışmaya devam eder, hata gösterilmez).
+import {
+  isTrendyolConfigured as trendyolConfigured,
+  trendyolAccountLabeler,
+} from "@/lib/integrations/trendyol/accounts";
 
 // Paylaşımlı depodaki Trendyol siparişleri — API'ye DOKUNMAZ, sadece Mongo okur.
 // getCourierBoard bunu her poll'da çağırır (ucuz sorgu); böylece tüm kuryeler
 // aynı listeyi görür, kimse ayrıca "çek"e basmak zorunda kalmaz.
 export async function getStoredTrendyolCourierOrders(): Promise<Order[]> {
-  if (!trendyolConfigured()) return [];
+  if (!(await trendyolConfigured())) return [];
   try {
     await connectDB();
     const docs = await TrendyolCourierPackageModel.find()
@@ -67,7 +64,7 @@ export async function syncTrendyolCourierPackages(): Promise<{
   configured: boolean;
   error?: string;
 }> {
-  if (!trendyolConfigured()) {
+  if (!(await trendyolConfigured())) {
     return { ok: true, orders: [], configured: false };
   }
 
@@ -80,9 +77,14 @@ export async function syncTrendyolCourierPackages(): Promise<{
       return { ok: false, orders: [], configured: true, error: res.error };
     }
 
+    const label = await trendyolAccountLabeler();
     const orders = res.data.content
       .filter((p) => p.deliveryType === "STORE")
-      .map(mapTrendyolPackageToOrder);
+      .map((p) => {
+        const o = mapTrendyolPackageToOrder(p);
+        const account = label(p.supplierId);
+        return account ? { ...o, trendyolAccount: account } : o;
+      });
 
     // Paylaşımlı depoyu aktif setle senkronla: aktifleri upsert et, artık aktif
     // olmayanları (teslim/iptal edildi ya da listeden düştü) sil.
@@ -205,7 +207,7 @@ export async function autoSyncTrendyolCourierPackages(): Promise<{
   ran: boolean;
   ok: boolean;
 }> {
-  if (!trendyolConfigured()) return { ran: false, ok: true };
+  if (!(await trendyolConfigured())) return { ran: false, ok: true };
   await connectDB();
   if (!(await claimAutoSyncSlot())) return { ran: false, ok: true };
   const res = await syncTrendyolCourierPackages();

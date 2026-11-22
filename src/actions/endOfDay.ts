@@ -708,7 +708,7 @@ export async function getEndOfDayOrders(dateStr?: string): Promise<EndOfDayOrder
   // sonraki açılışlarda bu adım atlanır. Kurye/teslim alanlarına dokunmaz.
   let ty = tyFirst;
   const missingSource = ty.some((o) => o.paymentKey === "meal_card" && !o.mealCardSource);
-  if (missingSource && trendyolConfigured() && Date.now() - start.getTime() < TY_REFETCH_MAX_AGE_MS) {
+  if (missingSource && (await trendyolConfigured()) && Date.now() - start.getTime() < TY_REFETCH_MAX_AGE_MS) {
     try {
       await syncTrendyolPackagesRange(start.getTime(), Math.min(Date.now(), end.getTime() + TY_REFETCH_TAIL_MS));
       ty = await tyDayOrders(start, end);

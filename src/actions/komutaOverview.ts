@@ -36,6 +36,8 @@ import {
 import { periodWindows, type DashboardPeriod } from "@/lib/dashboardPeriods";
 import TrendyolOrderModel from "@/models/TrendyolOrder";
 import { ensureTrendyolArchiveFresh, LIVE_MAX_AGE_MS } from "@/lib/trendyol/archive";
+import { runWithTrendyolScope } from "@/lib/integrations/trendyol/scope";
+import { trendyolAccountLabeler } from "@/lib/integrations/trendyol/accounts";
 import { archivedNet, archivedPaymentLabel } from "@/lib/integrations/trendyol/packageUtils";
 
 type Channel = OrderSource | "all";
@@ -114,6 +116,7 @@ export interface KomutaOrderRow {
   paymentLabel: string;
   district: string | null;
   status: string;
+  account?: { name: string; color: string }; // Trendyol işletmesi (2+ hesapta)
 }
 
 const PAYMENT_LABELS: Record<PaymentKey, string> = {
@@ -481,6 +484,9 @@ export interface OrdersFilter {
   district?: string;
   phone?: string; // kendi müşteri (telefon)
   trendyolId?: string; // Trendyol müşteri (grup id)
+  // Trendyol işletmesi (satıcı ID) — Komuta işletme filtresi. Doğrudan çağrılarda
+  // (sipariş listesi pencereleri) kapsam buradan kurulur; /api/komuta zaten kurar.
+  account?: string | null;
 }
 
 function istDateLabel(ms: number): string {
@@ -532,6 +538,7 @@ interface TyArchiveRow {
   mealCardBrand?: string | null;
   mealCardSource?: string | null;
   packageCreationDate?: Date | null;
+  supplierId?: number | null;
 }
 
 async function tyArchiveOrders(period: DashboardPeriod, dayOffset: number): Promise<TyArchiveRow[]> {
@@ -556,6 +563,7 @@ async function tyArchiveOrders(period: DashboardPeriod, dayOffset: number): Prom
       mealCardBrand: 1,
       mealCardSource: 1,
       packageCreationDate: 1,
+      supplierId: 1,
     })
     .sort({ packageCreationDate: -1 })
     .lean()) as unknown as TyArchiveRow[];
@@ -574,7 +582,11 @@ function tyPaymentLabel(d: TyArchiveRow): string {
 }
 
 // Filtre eşlemesi çubuk kategorileriyle BİREBİR aynı (ham anahtar → TY_PAYMENT_MAP).
-function mapTyArchiveOrders(orders: TyArchiveRow[], f: OrdersFilter): KomutaOrderRow[] {
+function mapTyArchiveOrders(
+  orders: TyArchiveRow[],
+  f: OrdersFilter,
+  label: Awaited<ReturnType<typeof trendyolAccountLabeler>>,
+): KomutaOrderRow[] {
   return orders
     .filter((o) => {
       if (f.method && (TY_PAYMENT_MAP[o.paymentKey ?? "online"] ?? "online") !== f.method) return false;
@@ -604,6 +616,7 @@ function mapTyArchiveOrders(orders: TyArchiveRow[], f: OrdersFilter): KomutaOrde
         paymentLabel: tyPaymentLabel(o),
         district: tyRegion(o),
         status: o.packageStatus ?? "",
+        account: label(o.supplierId),
       };
     });
 }
@@ -699,6 +712,18 @@ export async function getKomutaPeriodOrders(
   dayOffset = 0,
   opts: OrdersFilter = {},
 ): Promise<KomutaOrderRow[]> {
+  const account = opts.account && /^\d{1,20}$/.test(opts.account) ? opts.account : null;
+  return runWithTrendyolScope(account, () =>
+    komutaPeriodOrders(period, channel, dayOffset, opts),
+  );
+}
+
+async function komutaPeriodOrders(
+  period: DashboardPeriod,
+  channel: Channel,
+  dayOffset: number,
+  opts: OrdersFilter,
+): Promise<KomutaOrderRow[]> {
   const wantOwn = channel !== "trendyol";
   const wantTy = channel === "all" || channel === "trendyol";
 
@@ -728,7 +753,7 @@ export async function getKomutaPeriodOrders(
   const tyP = !wantTy ? Promise.resolve([] as TyArchiveRow[]) : tyArchiveOrders(period, dayOffset);
 
   const [own, tyOrders] = await Promise.all([ownP, tyP]);
-  const ty = mapTyArchiveOrders(tyOrders, opts);
+  const ty = mapTyArchiveOrders(tyOrders, opts, await trendyolAccountLabeler());
 
   return [...own, ...ty].sort((a, b) => b.createdAt - a.createdAt);
 }

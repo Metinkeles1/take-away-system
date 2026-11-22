@@ -5,6 +5,7 @@
 // üzerinden ciro/sipariş/ödeme/saatlik dağılım hesaplanır.
 
 import { unstable_cache } from "next/cache";
+import { trendyolScopeKey } from "@/lib/integrations/trendyol/scope";
 import {
   listTrendyolPackages,
   type TrendyolPackage,
@@ -479,7 +480,7 @@ export async function getTrendyolPeriodOrders(
   period: TrendyolPeriod = "today",
   referenceDate?: number,
 ): Promise<TrendyolPeriodOrder[]> {
-  const key = dateKey(referenceDate);
+  const key = `${dateKey(referenceDate)}:${trendyolScopeKey()}`;
   const refTs = istanbulDayStart(referenceDate ?? Date.now()).getTime();
   const fn = isReferenceToday(referenceDate) ? cachedPeriodOrdersToday : cachedPeriodOrdersPast;
   return fn(period, key, refTs);
@@ -526,7 +527,7 @@ export async function getTrendyolDashboardStats(
   period: TrendyolPeriod = "today",
   referenceDate?: number,
 ): Promise<TrendyolDashboardStats> {
-  const key = dateKey(referenceDate);
+  const key = `${dateKey(referenceDate)}:${trendyolScopeKey()}`;
   // refTs'i Istanbul gün başına normalize et. unstable_cache key'i TÜM
   // argümanlardan türetir; ham `Date.now()` (veya ms farklı referenceDate)
   // geçilirse key her çağrıda değişir ve cache hiç tutmaz. Gün başına

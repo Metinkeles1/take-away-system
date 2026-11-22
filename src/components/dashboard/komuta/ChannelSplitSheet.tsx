@@ -12,6 +12,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { KomutaOrderRowItem } from "./KomutaOrderRowItem";
 import { TrendyolOrderSheet } from "./TrendyolOrderSheet";
+import { useKomutaFilters } from "./KomutaShell";
 import {
   getKomutaPeriodOrders,
   type KomutaOrderRow,
@@ -140,8 +141,10 @@ export function ChannelSplitSheet({
 }
 
 function OrdersList({ query }: { query: OrdersQuery }) {
+  const { account } = useKomutaFilters();
   // Veriyi anahtarla sakla; rows'u render'da türet (efektte senkron setState yok).
   const key = [
+    account ?? "",
     query.period,
     query.channel,
     query.dayOffset,
@@ -164,6 +167,7 @@ function OrdersList({ query }: { query: OrdersQuery }) {
       district: query.district,
       phone: query.phone,
       trendyolId: query.trendyolId,
+      account,
     }).then((r) => {
       if (alive)
         setFetched({
@@ -174,7 +178,7 @@ function OrdersList({ query }: { query: OrdersQuery }) {
     return () => {
       alive = false;
     };
-  }, [query.period, query.channel, query.dayOffset, query.method, query.productName, query.district, query.phone, query.trendyolId, key]);
+  }, [query.period, query.channel, query.dayOffset, query.method, query.productName, query.district, query.phone, query.trendyolId, account, key]);
 
   const rows = fetched?.key === key ? fetched.rows : null;
   const [tyOrder, setTyOrder] = useState<string | null>(null);

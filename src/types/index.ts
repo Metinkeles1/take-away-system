@@ -206,6 +206,11 @@ export interface OrderDiscount extends DiscountInput {
 }
 
 // ─── Sipariş ─────────────────────────────────────────────────────────────────
+export interface TrendyolAccountLabel {
+  name: string;
+  color: string;
+}
+
 export interface Order {
   id: string;
   orderNumber: number;
@@ -222,6 +227,8 @@ export interface Order {
   updatedAt: Date;
   // Pazaryeri entegrasyonu — manuel siparişler için boş
   source?: OrderSource;
+  // Trendyol işletmesi (2+ Trendyol hesabı varken dolar) — kartta renkli etiket.
+  trendyolAccount?: TrendyolAccountLabel;
   externalRef?: string; // pazaryeri paket/işlem kimliği (örn. Trendyol packageId — teslim çağrısı bununla)
   // İnsan-okur pazaryeri sipariş numarası (Trendyol string olup çok uzun/alfanümerik
   // olabildiği için number'a sığmaz). Kartta bu gösterilir; yoksa orderNumber kullanılır.

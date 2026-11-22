@@ -57,7 +57,13 @@ import {
 } from "./pricing";
 
 type StatusFilter = "all" | "on" | "off";
-type Change = { productId: number; name: string; oldPrice: number; newPrice: number };
+type Change = {
+  productId: number;
+  storeId: number;
+  name: string;
+  oldPrice: number;
+  newPrice: number;
+};
 
 const OTHER_GROUP = -1; // hiçbir kategoride olmayan ürünler
 
@@ -203,6 +209,7 @@ export function MenuTab() {
       .filter((i) => drafts[i.productId] !== undefined)
       .map((i) => ({
         productId: i.productId,
+        storeId: i.storeId,
         name: i.name,
         oldPrice: i.price,
         newPrice: drafts[i.productId],
@@ -230,7 +237,11 @@ export function MenuTab() {
     const t = toast.loading(`${changes.length} fiyat Trendyol'a gönderiliyor…`);
     try {
       const res = await updateTrendyolPrices(
-        changes.map((c) => ({ productId: c.productId, sellingPrice: c.newPrice })),
+        changes.map((c) => ({
+          productId: c.productId,
+          sellingPrice: c.newPrice,
+          storeId: c.storeId || undefined,
+        })),
       );
       if (!res.ok) {
         toast.error(res.error ?? "Fiyatlar gönderilemedi.", { id: t });

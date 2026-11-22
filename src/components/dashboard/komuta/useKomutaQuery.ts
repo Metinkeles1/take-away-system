@@ -24,7 +24,7 @@ interface Entry {
 }
 
 const store = new Map<string, Entry>();
-const requests = new Map<string, { query: KomutaQuery; args: unknown[] }>();
+const requests = new Map<string, { query: KomutaQuery; args: unknown[]; account: string | null }>();
 const mounted = new Map<string, number>();
 const listeners = new Set<() => void>();
 let lastSuccessAt: number | null = null;
@@ -45,10 +45,16 @@ function set(key: string, patch: Partial<Entry>) {
   emit();
 }
 
-async function request(query: KomutaQuery, args: unknown[]): Promise<unknown> {
-  const res = await fetch(`/api/komuta/${query}?args=${encodeURIComponent(JSON.stringify(args))}`, {
-    cache: "no-store",
-  });
+async function request(
+  query: KomutaQuery,
+  args: unknown[],
+  account: string | null,
+): Promise<unknown> {
+  const isletme = account ? `&isletme=${encodeURIComponent(account)}` : "";
+  const res = await fetch(
+    `/api/komuta/${query}?args=${encodeURIComponent(JSON.stringify(args))}${isletme}`,
+    { cache: "no-store" },
+  );
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
@@ -61,7 +67,7 @@ function load(key: string, force: boolean) {
 
   set(key, { inflight: true, error: undefined });
   const attempt = (n: number): Promise<void> =>
-    request(req.query, req.args).then(
+    request(req.query, req.args, req.account).then(
       (data) => {
         lastSuccessAt = Date.now();
         set(key, { data, at: lastSuccessAt, inflight: false, error: undefined });
@@ -74,13 +80,23 @@ function load(key: string, force: boolean) {
   void attempt(0);
 }
 
+// Seçili Trendyol işletmesi (satıcı ID) — KomutaShell ayarlar. Tüm Komuta
+// sorguları bu işletmeye daralır; null = tüm işletmeler.
+let komutaAccount: string | null = null;
+
+export function setKomutaAccount(account: string | null) {
+  komutaAccount = account;
+}
+
 export function useKomutaQuery<T>(
   query: KomutaQuery,
   args: unknown[],
-  opts: { refreshKey?: number | string; enabled?: boolean } = {},
+  opts: { refreshKey?: number | string; enabled?: boolean; global?: boolean } = {},
 ): { data: T | null; isLoading: boolean; isFetching: boolean; error: string | null } {
-  const { refreshKey = 0, enabled = true } = opts;
-  const key = `${query}:${JSON.stringify(args)}`;
+  const { refreshKey = 0, enabled = true, global = false } = opts;
+  // global: işletme filtresinden bağımsız sorgu (ör. işletme listesinin kendisi).
+  const account = global ? null : komutaAccount;
+  const key = `${query}:${JSON.stringify(args)}${account ? `@${account}` : ""}`;
 
   const entry = useSyncExternalStore(
     subscribe,
@@ -92,7 +108,7 @@ export function useKomutaQuery<T>(
   const lastRefresh = useRef(refreshKey);
   useEffect(() => {
     if (!enabled) return;
-    if (!requests.has(key)) requests.set(key, { query, args });
+    if (!requests.has(key)) requests.set(key, { query, args, account });
     const force = lastRefresh.current !== refreshKey;
     lastRefresh.current = refreshKey;
     load(key, force);

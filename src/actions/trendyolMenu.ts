@@ -15,6 +15,11 @@ import {
   type TrendyolMenuProduct,
   type TrendyolPriceUpdateItem,
 } from "@/lib/integrations/trendyol/client";
+import { resolveTrendyolStoreIds } from "@/lib/integrations/trendyol/stores";
+import {
+  accountForStore,
+  type TrendyolCreds,
+} from "@/lib/integrations/trendyol/accounts";
 
 export interface TrendyolMenuItem {
   productId: number;
@@ -197,51 +202,13 @@ function normalize(
   };
 }
 
-// Env'den ya da son siparişlerden mağaza ID'lerini bul.
-async function resolveStoreIds(): Promise<number[]> {
-  // 1) Env'de tanımlıysa onu kullan (virgüllü liste destekli)
-  const envStores = process.env.TRENDYOL_STORE_ID;
-  if (envStores) {
-    const ids = envStores
-      .split(",")
-      .map((s) => parseInt(s.trim(), 10))
-      .filter((n) => Number.isFinite(n) && n > 0);
-    // Aynı mağaza iki kez yazılmışsa ürünler ikilenmesin diye tekilleştir.
-    return [...new Set(ids)];
-  }
-
-  // 2) Son 30 günün paketlerinden çıkar
-  try {
-    const end = Date.now();
-    const start = end - 30 * 24 * 60 * 60 * 1000;
-    const stores = new Set<number>();
-    let page = 0;
-    while (page < 5 && stores.size === 0) {
-      const res = await listTrendyolPackages({
-        modificationStartDate: start,
-        modificationEndDate: end,
-        page,
-        size: 50,
-      });
-      if (!res.ok) break;
-      for (const p of res.data.content ?? []) {
-        if (p.storeId) stores.add(p.storeId);
-      }
-      if (page + 1 >= (res.data.totalPages ?? 1)) break;
-      page++;
-    }
-    return [...stores];
-  } catch {
-    return [];
-  }
-}
 
 export async function getTrendyolMenu(): Promise<TrendyolMenuResult> {
-  const storeIds = await resolveStoreIds();
+  const storeIds = await resolveTrendyolStoreIds();
 
   if (storeIds.length === 0) {
     return await fallbackFromPackages(
-      "Mağaza ID'si bulunamadı. TRENDYOL_STORE_ID env değişkenini ekleyin ya da en az 1 sipariş geçmişi gerekli.",
+      "Mağaza ID'si bulunamadı. Ayarlar > Trendyol Hesapları'ndan mağaza ID'si girin ya da en az 1 sipariş geçmişi gerekli.",
     );
   }
 
@@ -397,12 +364,16 @@ async function fallbackFromPackages(reason: string): Promise<TrendyolMenuResult>
 // ─── Fiyat güncelleme ──────────────────────────────────────────────────
 // Sadece DEĞİŞEN fiyatlar gönderilmeli (Trendyol aynı body'yi tekrarlarsa
 // "tekrarlı fiyat güncelleme" hatası verir). restaurantId göndermiyoruz →
-// fiyat tüm restoranlara uygulanır (tek mağazalı satıcı için doğru davranış).
+// fiyat o hesabın tüm restoranlarına uygulanır. Çoklu işletmede ürünler
+// mağazalarına göre hesaplara bölünüp ayrı ayrı gönderilir.
 // Trendyol kuyruğa alır; sonucu sunucuda bekleyip tek seferde döneriz.
 
 export interface PriceUpdateInput {
   productId: number;
   sellingPrice: number;
+  // Ürünün mağazası — çoklu işletmede fiyat doğru hesaba gitsin diye. Yoksa
+  // varsayılan hesap kullanılır.
+  storeId?: number;
 }
 
 export interface PriceUpdateResult {
@@ -413,20 +384,64 @@ export interface PriceUpdateResult {
   error?: string;
 }
 
+// Tek hesaba fiyat gönder + kuyruk sonucunu bekle.
+async function pushPrices(
+  payload: TrendyolPriceUpdateItem[],
+  account: TrendyolCreds | undefined,
+): Promise<PriceUpdateResult> {
+  const fail = (error: string): PriceUpdateResult => ({
+    ok: false,
+    succeeded: [],
+    failed: [],
+    error,
+  });
+  const prefix = account ? `${account.name}: ` : "";
+  const res = await updateTrendyolMealPrices(payload, account);
+  if (!res.ok) return fail(`${prefix}Trendyol: ${res.status} ${res.error}`);
+  const batchRequestId = res.data?.batchRequestId;
+  if (!batchRequestId) return fail(`${prefix}Trendyol işlem numarası döndürmedi.`);
+
+  // Kuyruk genelde birkaç saniyede işlenir; en fazla ~20 sn bekle.
+  for (let i = 0; i < 10; i++) {
+    await new Promise((r) => setTimeout(r, 2000));
+    const r = await getTrendyolBatchRequestResult(batchRequestId, account);
+    if (!r.ok || (r.data?.status ?? "").toUpperCase() !== "COMPLETED") continue;
+
+    const succeeded: number[] = [];
+    const failed: { productId: number; reason: string }[] = [];
+    for (const it of r.data.items ?? []) {
+      const productId =
+        it.requestItem?.productId ?? it.requestItem?.request?.productId;
+      if (!productId) continue;
+      if ((it.status ?? "").toUpperCase() === "SUCCESS") succeeded.push(productId);
+      else
+        failed.push({
+          productId,
+          reason: it.failureReasons?.[0] ?? "Bilinmeyen hata",
+        });
+    }
+    // Kalem detayı yoksa ve hata sayısı 0 ise hepsini başarılı say.
+    if (succeeded.length + failed.length === 0 && !r.data.failedItemCount) {
+      succeeded.push(...payload.map((p) => p.productId));
+    }
+    return { ok: true, succeeded, failed };
+  }
+  return { ok: true, pending: true, succeeded: [], failed: [] };
+}
+
 export async function updateTrendyolPrices(
   items: PriceUpdateInput[],
 ): Promise<PriceUpdateResult> {
   // Aynı ürün birden fazla kez geldiyse sonuncuyu al (duplicate productId'yi önle).
-  const byId = new Map<number, number>();
+  const byId = new Map<number, { sellingPrice: number; storeId?: number }>();
   for (const it of items) {
     if (!Number.isFinite(it.productId) || it.productId <= 0) continue;
     if (!Number.isFinite(it.sellingPrice) || it.sellingPrice <= 0) continue;
-    byId.set(it.productId, Math.round(it.sellingPrice * 100) / 100);
+    byId.set(it.productId, {
+      sellingPrice: Math.round(it.sellingPrice * 100) / 100,
+      storeId: it.storeId,
+    });
   }
-
-  const payload: TrendyolPriceUpdateItem[] = [...byId.entries()].map(
-    ([productId, sellingPrice]) => ({ productId, sellingPrice }),
-  );
   const fail = (error: string): PriceUpdateResult => ({
     ok: false,
     succeeded: [],
@@ -434,41 +449,33 @@ export async function updateTrendyolPrices(
     error,
   });
 
-  if (payload.length === 0) return fail("Geçerli fiyat değişikliği yok.");
-  if (payload.length > 1000) return fail("Tek seferde en fazla 1000 ürün güncellenebilir.");
+  if (byId.size === 0) return fail("Geçerli fiyat değişikliği yok.");
+  if (byId.size > 1000) return fail("Tek seferde en fazla 1000 ürün güncellenebilir.");
 
   try {
-    const res = await updateTrendyolMealPrices(payload);
-    if (!res.ok) return fail(`Trendyol: ${res.status} ${res.error}`);
-    const batchRequestId = res.data?.batchRequestId;
-    if (!batchRequestId) return fail("Trendyol işlem numarası döndürmedi.");
-
-    // Kuyruk genelde birkaç saniyede işlenir; en fazla ~20 sn bekle.
-    for (let i = 0; i < 10; i++) {
-      await new Promise((r) => setTimeout(r, 2000));
-      const r = await getTrendyolBatchRequestResult(batchRequestId);
-      if (!r.ok || (r.data?.status ?? "").toUpperCase() !== "COMPLETED") continue;
-
-      const succeeded: number[] = [];
-      const failed: { productId: number; reason: string }[] = [];
-      for (const it of r.data.items ?? []) {
-        const productId =
-          it.requestItem?.productId ?? it.requestItem?.request?.productId;
-        if (!productId) continue;
-        if ((it.status ?? "").toUpperCase() === "SUCCESS") succeeded.push(productId);
-        else
-          failed.push({
-            productId,
-            reason: it.failureReasons?.[0] ?? "Bilinmeyen hata",
-          });
-      }
-      // Kalem detayı yoksa ve hata sayısı 0 ise hepsini başarılı say.
-      if (succeeded.length + failed.length === 0 && !r.data.failedItemCount) {
-        succeeded.push(...byId.keys());
-      }
-      return { ok: true, succeeded, failed };
+    // Ürünleri hesaplarına göre grupla (mağaza → hesap). Bilinmeyen → varsayılan.
+    const groups = new Map<string, { account?: TrendyolCreds; payload: TrendyolPriceUpdateItem[] }>();
+    for (const [productId, { sellingPrice, storeId }] of byId) {
+      const account = storeId ? (await accountForStore(storeId)) ?? undefined : undefined;
+      const key = account?.id ?? "default";
+      const g = groups.get(key) ?? { account, payload: [] };
+      g.payload.push({ productId, sellingPrice });
+      groups.set(key, g);
     }
-    return { ok: true, pending: true, succeeded: [], failed: [] };
+
+    const results = await Promise.all(
+      [...groups.values()].map((g) => pushPrices(g.payload, g.account)),
+    );
+    const errors = results.filter((r) => !r.ok).map((r) => r.error);
+    const oks = results.filter((r) => r.ok);
+    if (oks.length === 0) return fail(errors.join(" · "));
+    return {
+      ok: true,
+      pending: oks.some((r) => r.pending) || undefined,
+      succeeded: oks.flatMap((r) => r.succeeded),
+      failed: oks.flatMap((r) => r.failed),
+      error: errors.length ? errors.join(" · ") : undefined,
+    };
   } catch (err) {
     return fail(err instanceof Error ? err.message : "Trendyol API'sına ulaşılamadı");
   }

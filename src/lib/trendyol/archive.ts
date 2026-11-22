@@ -16,6 +16,8 @@ import {
   listTrendyolPackages,
   type TrendyolPackage,
 } from "@/lib/integrations/trendyol/client";
+import { runUnscoped, trendyolScope } from "@/lib/integrations/trendyol/scope";
+import { isTrendyolConfigured } from "@/lib/integrations/trendyol/accounts";
 import {
   lineCustomization,
   mealCardInfo,
@@ -47,12 +49,9 @@ const MAX_CATCHUP_MS = 15 * DAY_MS;
 const MIN_TY_DURATION_MIN = 5;
 const MAX_TY_DURATION_MIN = 240;
 
-export function trendyolConfigured(): boolean {
-  return Boolean(
-    process.env.TRENDYOL_SUPPLIER_ID &&
-      (process.env.TRENDYOL_API_TOKEN ||
-        (process.env.TRENDYOL_API_KEY && process.env.TRENDYOL_API_SECRET)),
-  );
+// En az bir Trendyol hesabı (Ayarlar ya da .env) tanımlı mı?
+export async function trendyolConfigured(): Promise<boolean> {
+  return isTrendyolConfigured();
 }
 
 // ─── Meta (son senkron zamanları) ────────────────────────────────────────────
@@ -191,6 +190,7 @@ function packageToArchive(p: TrendyolPackage, now: number): Record<string, unkno
   const doc: Record<string, unknown> = {
     orderNumber: p.orderNumber,
     packageId: p.id,
+    supplierId: p.supplierId,
     storeId: p.storeId,
     deliveryType: p.deliveryType,
     packageStatus: p.packageStatus ?? "",
@@ -571,7 +571,9 @@ let inflight: Promise<void> | null = null;
 export async function ensureTrendyolArchiveFresh(
   opts: { force?: boolean; maxAgeMs?: number } = {},
 ): Promise<void> {
-  if (!trendyolConfigured()) return;
+  // Tek işletme filtresi seçiliyken bile tüm hesaplar senkronlanır.
+  if (trendyolScope()) return runUnscoped(() => ensureTrendyolArchiveFresh(opts));
+  if (!(await trendyolConfigured())) return;
   // Süren senkron varsa: normal çağrı ona bağlanır; zorlama (gün sonu /
   // "Güncelle") onun bitmesini bekleyip kendi senkronunu yapar.
   if (inflight) {

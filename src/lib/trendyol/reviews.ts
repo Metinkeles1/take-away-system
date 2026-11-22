@@ -16,49 +16,18 @@ import TrendyolOrderModel from "@/models/TrendyolOrder";
 import SettingModel from "@/models/Setting";
 import { trendyolConfigured } from "@/lib/trendyol/archive";
 import {
-  listTrendyolPackages,
   listTrendyolReviews,
   type TrendyolReview,
   type TrendyolReviewAnswerStatus,
 } from "@/lib/integrations/trendyol/client";
+import { runUnscoped, trendyolScope } from "@/lib/integrations/trendyol/scope";
+import { resolveTrendyolStoreIds } from "@/lib/integrations/trendyol/stores";
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+// Tüm hesapların mağaza ID'leri (bkz. integrations/trendyol/stores).
+export { resolveTrendyolStoreIds };
+
 const META_KEY = "trendyolReviewSync";
 const REVIEW_MAX_AGE_MS = 30 * 60 * 1000;
-
-// Env veya son paketlerden mağaza ID'lerini çıkar.
-export async function resolveTrendyolStoreIds(): Promise<number[]> {
-  const envStores = process.env.TRENDYOL_STORE_ID;
-  if (envStores) {
-    return envStores
-      .split(",")
-      .map((s) => parseInt(s.trim(), 10))
-      .filter((n) => Number.isFinite(n) && n > 0);
-  }
-  try {
-    const end = Date.now();
-    const start = end - 30 * DAY_MS;
-    const stores = new Set<number>();
-    let page = 0;
-    while (page < 5 && stores.size === 0) {
-      const res = await listTrendyolPackages({
-        modificationStartDate: start,
-        modificationEndDate: end,
-        page,
-        size: 50,
-      });
-      if (!res.ok) break;
-      for (const p of res.data.content ?? []) {
-        if (p.storeId) stores.add(p.storeId);
-      }
-      if (page + 1 >= (res.data.totalPages ?? 1)) break;
-      page++;
-    }
-    return [...stores];
-  } catch {
-    return [];
-  }
-}
 
 export interface ReviewFetchFilters {
   deliveryType?: "STORE" | "GO";
@@ -164,7 +133,9 @@ async function writeMeta(set: Record<string, number>): Promise<void> {
 let inflight: Promise<void> | null = null;
 
 export async function ensureTrendyolReviewsFresh(opts: { force?: boolean } = {}): Promise<void> {
-  if (!trendyolConfigured()) return;
+  // Tek işletme filtresi seçiliyken bile tüm hesaplar senkronlanır.
+  if (trendyolScope()) return runUnscoped(() => ensureTrendyolReviewsFresh(opts));
+  if (!(await trendyolConfigured())) return;
   if (inflight) return inflight;
   inflight = (async () => {
     try {

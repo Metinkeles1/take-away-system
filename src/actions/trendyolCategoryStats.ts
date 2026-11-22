@@ -12,6 +12,7 @@ import {
   type TrendyolPackage,
   type TrendyolMenuSection,
 } from "@/lib/integrations/trendyol/client";
+import { getAllTrendyolStores } from "@/lib/integrations/trendyol/accounts";
 import { istanbulDayStart } from "@/lib/datetime";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -101,14 +102,14 @@ async function fetchAllPackages(
 async function buildProductCategoryMap(
   packages: TrendyolPackage[],
 ): Promise<{ map: Map<number, string>; ok: boolean; error?: string }> {
-  const envStores = process.env.TRENDYOL_STORE_ID
-    ?.split(",")
-    .map((s) => parseInt(s.trim(), 10))
-    .filter((n) => Number.isFinite(n) && n > 0);
-
-  const storeIds = envStores && envStores.length > 0
-    ? envStores
-    : [...new Set(packages.map((p) => p.storeId).filter((id): id is number => !!id))];
+  // Ayarlar'da kayıtlı mağazalar + bu paketlerde görülen mağazalar (tüm hesaplar).
+  const configured = await getAllTrendyolStores().catch(() => []);
+  const storeIds = [
+    ...new Set([
+      ...configured.map((s) => s.storeId),
+      ...packages.map((p) => p.storeId).filter((id): id is number => !!id),
+    ]),
+  ];
 
   if (storeIds.length === 0) {
     return { map: new Map(), ok: false, error: "Mağaza ID'si bulunamadı" };

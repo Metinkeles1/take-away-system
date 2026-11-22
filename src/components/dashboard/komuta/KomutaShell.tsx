@@ -19,12 +19,21 @@ import { cn } from "@/lib/utils";
 import { OverviewRegionMap } from "@/components/dashboard/overview/OverviewRegionMap";
 import { Segmented } from "./KomutaUI";
 import { KomutaDatePicker, komutaPeriodLabel } from "./KomutaDatePicker";
-import { retryFailedKomutaQueries, useKomutaQueryStatus } from "./useKomutaQuery";
+import {
+  retryFailedKomutaQueries,
+  setKomutaAccount,
+  useKomutaQuery,
+  useKomutaQueryStatus,
+} from "./useKomutaQuery";
+import type { TrendyolAccountOption } from "@/actions/trendyolAccounts";
+import { ACCOUNT_DOT_CLASS, accountColor } from "@/lib/integrations/trendyol/accountColors";
 
 // Komuta Merkezi çerçevesi: başlık + ortak filtreler (kanal, dönem, gün). Layout
 // seviyesinde durduğu için Genel Bakış / Performans / Müşteri arasında geçerken
 // filtre korunur; ayrıca adrese yazılır (?kanal=trendyol&donem=hafta&once=1) ki
 // yenileme ve paylaşılan bağlantı aynı görünümü açsın.
+// Birden çok Trendyol işletmesi varsa "Trendyol" kanalında işletme seçici çıkar
+// (?isletme=<satıcı ID>); seçilince tüm sorgular o işletmeye daralır.
 
 export type KomutaChannel = OrderSource | "all";
 
@@ -51,6 +60,8 @@ const SECTIONS: { href: string; title: string }[] = [
 
 interface KomutaFilters {
   channel: KomutaChannel;
+  /** Seçili Trendyol işletmesi (satıcı ID); null = tümü. */
+  account: string | null;
   period: DashboardPeriod;
   dayOffset: number;
   /** Seçili dönemin kısa adı ("Bugün · 28 Eyl", "Bu Hafta"). */
@@ -84,7 +95,16 @@ export function KomutaShell({ children }: { children: React.ReactNode }) {
     const n = Number(params.get("once"));
     return Number.isInteger(n) && n > 0 ? n : 0;
   });
+  const [account, setAccount] = useState<string | null>(() => params.get("isletme"));
   const [refreshKey, setRefreshKey] = useState(0);
+  const accountsQ = useKomutaQuery<TrendyolAccountOption[]>("tyAccounts", [], { global: true });
+  const accounts = accountsQ.data ?? [];
+  // İşletme filtresi yalnız Trendyol kanalında ve 2+ işletme varken geçerli.
+  const showAccounts = channel === "trendyol" && accounts.length > 1;
+  const effectiveAccount =
+    showAccounts && account && accounts.some((a) => a.supplierId === account) ? account : null;
+  // Sorgu katmanı çocuklar render olmadan önce seçimi bilmeli (anahtar + URL).
+  setKomutaAccount(effectiveAccount);
   const [mapOpen, setMapOpen] = useState(false);
   const { busy, failed, lastSuccessAt } = useKomutaQueryStatus();
 
@@ -109,13 +129,14 @@ export function KomutaShell({ children }: { children: React.ReactNode }) {
     set("kanal", channel === "all" ? null : CHANNELS.find((c) => c.id === channel)!.param);
     set("donem", period === "day" ? null : PERIODS.find((p) => p.id === period)!.param);
     set("once", dayOffset > 0 ? String(dayOffset) : null);
+    set("isletme", effectiveAccount);
     const qs = next.toString();
     // Sayfa geçişi başlatmadan adresi güncelle (Next useSearchParams'ı senkronlar);
     // router.replace, sidebar'dan yapılan geçişle yarışıp parametreyi düşürebiliyor.
     if (qs !== params.toString()) {
       window.history.replaceState(null, "", `${pathname}${qs ? `?${qs}` : ""}`);
     }
-  }, [channel, period, dayOffset, pathname, params]);
+  }, [channel, period, dayOffset, effectiveAccount, pathname, params]);
 
   const label = komutaPeriodLabel(period, dayOffset);
   // Güncel dönem (bugün / son 7 / son 30 gün) şu anı kapsar → canlı.
@@ -129,8 +150,8 @@ export function KomutaShell({ children }: { children: React.ReactNode }) {
   }, [title]);
 
   const value = useMemo<KomutaFilters>(
-    () => ({ channel, period, dayOffset, label, refreshKey }),
-    [channel, period, dayOffset, label, refreshKey],
+    () => ({ channel, account: effectiveAccount, period, dayOffset, label, refreshKey }),
+    [channel, effectiveAccount, period, dayOffset, label, refreshKey],
   );
 
   return (
@@ -188,6 +209,22 @@ export function KomutaShell({ children }: { children: React.ReactNode }) {
                 onChange={setChannel}
                 options={CHANNELS}
               />
+              {showAccounts && (
+                <Segmented
+                  ariaLabel="Trendyol işletmesi"
+                  value={effectiveAccount ?? "all"}
+                  onChange={(v) => setAccount(v === "all" ? null : v)}
+                  options={[
+                    { id: "all", label: "Tüm işletmeler" },
+                    ...accounts.map((a) => ({
+                      id: a.supplierId,
+                      label: a.name,
+                      dot: ACCOUNT_DOT_CLASS[accountColor(a.color)],
+                    })),
+                  ]}
+                  className="max-w-full overflow-x-auto"
+                />
+              )}
               <span className="mx-1 hidden h-5 w-px bg-border sm:block" aria-hidden />
               <Segmented
                 ariaLabel="Dönem"
@@ -266,7 +303,10 @@ export function KomutaShell({ children }: { children: React.ReactNode }) {
           <DialogHeader>
             <DialogTitle>Siparişler Nereden Geldi</DialogTitle>
             <DialogDescription>
-              {label} · {CHANNELS.find((c) => c.id === channel)?.label} · pinli sipariş konumları
+              {label} · {CHANNELS.find((c) => c.id === channel)?.label}
+              {effectiveAccount &&
+                ` · ${accounts.find((a) => a.supplierId === effectiveAccount)?.name ?? ""}`}{" "}
+              · pinli sipariş konumları
             </DialogDescription>
           </DialogHeader>
           {mapOpen && <OverviewRegionMap period={period} source={channel} dayOffset={dayOffset} />}

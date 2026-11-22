@@ -22,6 +22,13 @@
 //      PUT /integrator/order/meal/suppliers/{supplierId}/packages/unsupplied
 
 import { normalizeTrendyolAddress } from "./address";
+import {
+  accountForPackage,
+  accountForStore,
+  getDefaultTrendyolAccount,
+  getTrendyolAccounts,
+  type TrendyolCreds,
+} from "./accounts";
 
 // HTTP header'ları ASCII (ByteString) olmak zorunda — Türkçe karakterleri çevir.
 function toAsciiHeader(value: string): string {
@@ -35,31 +42,27 @@ function toAsciiHeader(value: string): string {
     .replace(/[^\x20-\x7E]/g, "?");
 }
 
-function readEnv() {
-  const supplierId = process.env.TRENDYOL_SUPPLIER_ID;
+// Hesaptan bağımsız (entegratör) başlıklar — tüm işletmeler için aynı.
+function readGlobals() {
   const baseUrl = process.env.TRENDYOL_API_BASE_URL ?? "https://api.tgoapis.com";
-  const token =
-    process.env.TRENDYOL_API_TOKEN ??
-    (process.env.TRENDYOL_API_KEY && process.env.TRENDYOL_API_SECRET
-      ? Buffer.from(
-          `${process.env.TRENDYOL_API_KEY}:${process.env.TRENDYOL_API_SECRET}`,
-        ).toString("base64")
-      : undefined);
-  const agentName = toAsciiHeader(process.env.TRENDYOL_AGENT_NAME ?? "PaketSiparis");
-  const executorUser = process.env.TRENDYOL_EXECUTOR_USER ?? "system@local";
-
-  if (!supplierId || !token) {
-    throw new Error(
-      "Trendyol env eksik: TRENDYOL_SUPPLIER_ID ve TRENDYOL_API_TOKEN (veya API_KEY+API_SECRET) gerekli.",
-    );
-  }
   return {
-    supplierId,
     baseUrl: baseUrl.replace(/\/$/, ""),
-    token,
-    agentName,
-    executorUser,
+    agentName: toAsciiHeader(process.env.TRENDYOL_AGENT_NAME ?? "PaketSiparis"),
+    executorUser: process.env.TRENDYOL_EXECUTOR_USER ?? "system@local",
   };
+}
+
+// Çağrının hangi hesapla gideceği. Verilmezse varsayılan (ilk) hesap.
+export type AccountArg = { account?: TrendyolCreds };
+
+async function acct(a?: TrendyolCreds): Promise<TrendyolCreds> {
+  return a ?? getDefaultTrendyolAccount();
+}
+
+// Mağazaya bağlı çağrılar (menü, yorum, ürün aç/kapa) mağazanın hesabıyla gider.
+async function acctForStore(storeId: string | number, a?: TrendyolCreds) {
+  if (a) return a;
+  return (await accountForStore(storeId)) ?? getDefaultTrendyolAccount();
 }
 
 export type TrendyolResponse<T = unknown> =
@@ -81,12 +84,16 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function trendyolRequest<T = unknown>(init: {
-  method: "GET" | "POST" | "PUT" | "DELETE";
-  path: string;
-  body?: unknown;
-}): Promise<TrendyolResponse<T>> {
-  const { baseUrl, token, supplierId, agentName, executorUser } = readEnv();
+async function trendyolRequest<T = unknown>(
+  account: TrendyolCreds,
+  init: {
+    method: "GET" | "POST" | "PUT" | "DELETE";
+    path: string;
+    body?: unknown;
+  },
+): Promise<TrendyolResponse<T>> {
+  const { baseUrl, agentName, executorUser } = readGlobals();
+  const { token, supplierId } = account;
 
   let last: TrendyolResponse<T> = { ok: false, status: 0, error: "no attempt" };
 
@@ -140,9 +147,60 @@ async function trendyolRequest<T = unknown>(init: {
   return last; // tüm denemeler tükendi
 }
 
-function supplierPath(suffix: string) {
-  const supplierId = process.env.TRENDYOL_SUPPLIER_ID!;
-  return `/integrator/order/meal/suppliers/${supplierId}${suffix}`;
+function supplierPath(account: TrendyolCreds, suffix: string) {
+  return `/integrator/order/meal/suppliers/${account.supplierId}${suffix}`;
+}
+
+// Sayfalı liste uçlarını TÜM hesaplara aynı sayfa numarasıyla sorar ve birleştirir:
+// content uç uca eklenir, totalPages = en büyük, toplam sayılar toplanır. Böylece
+// "ilk sayfa → totalPages kadar dön" yazan mevcut kod hiç değişmeden tüm
+// işletmeleri okur (sayfası bitmiş hesap boş sayfa döner). Bir hesap hata verirse
+// diğerleri yine döner (loglanır); hepsi hata verirse ilk hata döner.
+type Paged<T> = { totalPages?: number; content?: T[] } & Record<string, unknown>;
+
+async function fanOut<R extends Paged<unknown>>(
+  accounts: TrendyolCreds[],
+  call: (a: TrendyolCreds) => Promise<TrendyolResponse<R>>,
+  sumKeys: string[],
+): Promise<TrendyolResponse<R>> {
+  if (accounts.length === 0) {
+    return { ok: false, status: 0, error: "Trendyol hesabı yok: Ayarlar > Trendyol Hesapları'ndan ekleyin." };
+  }
+  if (accounts.length === 1) return call(accounts[0]);
+  const results = await Promise.all(accounts.map((a) => call(a)));
+  const oks = results.filter((r): r is { ok: true; status: number; data: R } => r.ok);
+  if (oks.length === 0) return results[0];
+  results.forEach((r, i) => {
+    if (!r.ok) console.warn(`[trendyol ${accounts[i].name}]`, r.status, r.error);
+  });
+  const merged = { ...oks[0].data } as Record<string, unknown>;
+  merged.content = oks.flatMap((r) => r.data.content ?? []);
+  merged.totalPages = Math.max(...oks.map((r) => r.data.totalPages ?? 1));
+  for (const k of sumKeys) {
+    merged[k] = oks.reduce((sum, r) => sum + (Number(r.data[k]) || 0), 0);
+  }
+  return { ok: true, status: 200, data: merged as R };
+}
+
+// Paket işlemleri (kabul/hazır/yola çıktı/teslim/iptal) paketin hesabıyla gider.
+// Hesap arşivden bulunamazsa hesaplar sırayla denenir; ilk başarılı döner.
+async function withPackageAccount<T>(
+  packageId: string,
+  call: (a: TrendyolCreds) => Promise<TrendyolResponse<T>>,
+): Promise<TrendyolResponse<T>> {
+  const known = await accountForPackage(packageId);
+  if (known) return call(known);
+  const list = await getTrendyolAccounts();
+  let last: TrendyolResponse<T> = {
+    ok: false,
+    status: 0,
+    error: "Trendyol hesabı yok: Ayarlar > Trendyol Hesapları'ndan ekleyin.",
+  };
+  for (const a of list) {
+    last = await call(a);
+    if (last.ok) return last;
+  }
+  return last;
 }
 
 // ─── 0) Paket listesi çek (polling) ─────────────────────────────────────
@@ -254,7 +312,7 @@ export async function listTrendyolPackages(params: {
   modificationEndDate?: number;
   page?: number;
   size?: number;
-} = {}) {
+} & AccountArg = {}) {
   const qs = new URLSearchParams();
   if (params.storeId) qs.set("storeId", String(params.storeId));
   if (params.packageStatuses) qs.set("packageStatuses", params.packageStatuses);
@@ -265,10 +323,21 @@ export async function listTrendyolPackages(params: {
   if (params.page !== undefined) qs.set("page", String(params.page));
   if (params.size !== undefined) qs.set("size", String(params.size));
   const query = qs.toString();
-  const res = await trendyolRequest<TrendyolPackagesResponse>({
-    method: "GET",
-    path: supplierPath(`/packages${query ? `?${query}` : ""}`),
-  });
+  // Hesap verilmediyse: mağaza verildiyse onun hesabı, yoksa tüm hesaplar.
+  const accounts = params.account
+    ? [params.account]
+    : params.storeId
+      ? [await acctForStore(params.storeId)]
+      : await getTrendyolAccounts();
+  const res = await fanOut<TrendyolPackagesResponse & Paged<TrendyolPackage>>(
+    accounts,
+    (a) =>
+      trendyolRequest<TrendyolPackagesResponse & Paged<TrendyolPackage>>(a, {
+        method: "GET",
+        path: supplierPath(a, `/packages${query ? `?${query}` : ""}`),
+      }),
+    ["totalCount"],
+  );
   // Adres biçimi tüm tüketiciler için burada düzeltilir (bkz. address.ts).
   if (res.ok && Array.isArray(res.data?.content)) {
     for (const p of res.data.content) {
@@ -340,28 +409,34 @@ export interface TrendyolSettlementsResponse {
   content: TrendyolSettlement[];
 }
 
-function sellerSettlementPath(suffix: string) {
-  const supplierId = process.env.TRENDYOL_SUPPLIER_ID!;
-  return `/integrator/settlement/meal/sellers/${supplierId}${suffix}`;
+function sellerSettlementPath(account: TrendyolCreds, suffix: string) {
+  return `/integrator/settlement/meal/sellers/${account.supplierId}${suffix}`;
 }
 
-export function listTrendyolSettlements(params: {
+// Hesap verilmezse tüm hesapların kayıtları birleşik döner (bkz. fanOut).
+export async function listTrendyolSettlements(params: {
   transactionType: TrendyolSettlementTransactionType;
   startDate: number; // ms epoch
   endDate: number;   // ms epoch (max 15 gün aralık)
   page?: number;
   size?: 500 | 1000;
-}) {
+} & AccountArg) {
   const qs = new URLSearchParams();
   qs.set("transactionType", params.transactionType);
   qs.set("startDate", String(params.startDate));
   qs.set("endDate", String(params.endDate));
   qs.set("page", String(params.page ?? 0));
   qs.set("size", String(params.size ?? 500));
-  return trendyolRequest<TrendyolSettlementsResponse>({
-    method: "GET",
-    path: sellerSettlementPath(`/settlements?${qs.toString()}`),
-  });
+  const accounts = params.account ? [params.account] : await getTrendyolAccounts();
+  return fanOut<TrendyolSettlementsResponse & Paged<TrendyolSettlement>>(
+    accounts,
+    (a) =>
+      trendyolRequest<TrendyolSettlementsResponse & Paged<TrendyolSettlement>>(a, {
+        method: "GET",
+        path: sellerSettlementPath(a, `/settlements?${qs.toString()}`),
+      }),
+    ["totalElements"],
+  );
 }
 
 // ─── Menü / Ürün listesi ───────────────────────────────────────────────
@@ -416,13 +491,13 @@ export interface TrendyolMenuResponse {
   modifierGroups?: TrendyolMenuModifierGroup[];
 }
 
-export function listTrendyolMenuProducts(params: {
+export async function listTrendyolMenuProducts(params: {
   storeId: string | number;
-}) {
-  const supplierId = process.env.TRENDYOL_SUPPLIER_ID!;
-  return trendyolRequest<TrendyolMenuResponse>({
+} & AccountArg) {
+  const a = await acctForStore(params.storeId, params.account);
+  return trendyolRequest<TrendyolMenuResponse>(a, {
     method: "GET",
-    path: `/integrator/product/meal/suppliers/${supplierId}/stores/${params.storeId}/products`,
+    path: `/integrator/product/meal/suppliers/${a.supplierId}/stores/${params.storeId}/products`,
   });
 }
 
@@ -445,11 +520,14 @@ export interface TrendyolBatchRequestRef {
   batchRequestId: string;
 }
 
-export function updateTrendyolMealPrices(items: TrendyolPriceUpdateItem[]) {
-  const supplierId = process.env.TRENDYOL_SUPPLIER_ID!;
-  return trendyolRequest<TrendyolBatchRequestRef>({
+export async function updateTrendyolMealPrices(
+  items: TrendyolPriceUpdateItem[],
+  account?: TrendyolCreds,
+) {
+  const a = await acct(account);
+  return trendyolRequest<TrendyolBatchRequestRef>(a, {
     method: "POST",
-    path: `/integrator/product/meal/suppliers/${supplierId}/products/price`,
+    path: `/integrator/product/meal/suppliers/${a.supplierId}/products/price`,
     body: { items },
   });
 }
@@ -480,41 +558,44 @@ export interface TrendyolBatchRequestResult {
   batchRequestType?: string;
 }
 
-export function getTrendyolBatchRequestResult(batchRequestId: string) {
-  const supplierId = process.env.TRENDYOL_SUPPLIER_ID!;
-  return trendyolRequest<TrendyolBatchRequestResult>({
+export async function getTrendyolBatchRequestResult(
+  batchRequestId: string,
+  account?: TrendyolCreds,
+) {
+  const a = await acct(account);
+  return trendyolRequest<TrendyolBatchRequestResult>(a, {
     method: "GET",
-    path: `/integrator/product/meal/suppliers/${supplierId}/batch-requests/${batchRequestId}`,
+    path: `/integrator/product/meal/suppliers/${a.supplierId}/batch-requests/${batchRequestId}`,
   });
 }
 
 // ─── Ürün satışa aç/kapa ───────────────────────────────────────────────
 // Doküman: PUT /integrator/product/meal/suppliers/{supplierId}/stores/{storeId}/products/{productId}/status
 // body { status: "ACTIVE" | "PASSIVE" }. Senkron (200). 409 = eşzamanlı değişiklik, tekrar dene.
-export function updateTrendyolProductStatus(params: {
+export async function updateTrendyolProductStatus(params: {
   storeId: string | number;
   productId: string | number;
   status: "ACTIVE" | "PASSIVE";
-}) {
-  const supplierId = process.env.TRENDYOL_SUPPLIER_ID!;
-  return trendyolRequest({
+} & AccountArg) {
+  const a = await acctForStore(params.storeId, params.account);
+  return trendyolRequest(a, {
     method: "PUT",
-    path: `/integrator/product/meal/suppliers/${supplierId}/stores/${params.storeId}/products/${params.productId}/status`,
+    path: `/integrator/product/meal/suppliers/${a.supplierId}/stores/${params.storeId}/products/${params.productId}/status`,
     body: { status: params.status },
   });
 }
 
 // ─── Kategori (section) satışa aç/kapa ──────────────────────────────────
 // Doküman: PUT /integrator/product/meal/suppliers/{supplierId}/stores/{storeId}/sections/{sectionId}/status
-export function updateTrendyolSectionStatus(params: {
+export async function updateTrendyolSectionStatus(params: {
   storeId: string | number;
   sectionId: string | number;
   status: "ACTIVE" | "PASSIVE";
-}) {
-  const supplierId = process.env.TRENDYOL_SUPPLIER_ID!;
-  return trendyolRequest({
+} & AccountArg) {
+  const a = await acctForStore(params.storeId, params.account);
+  return trendyolRequest(a, {
     method: "PUT",
-    path: `/integrator/product/meal/suppliers/${supplierId}/stores/${params.storeId}/sections/${params.sectionId}/status`,
+    path: `/integrator/product/meal/suppliers/${a.supplierId}/stores/${params.storeId}/sections/${params.sectionId}/status`,
     body: { status: params.status },
   });
 }
@@ -522,38 +603,46 @@ export function updateTrendyolSectionStatus(params: {
 // ─── 1) Siparişi kabul et (picked) ──────────────────────────────────────
 // preparationTime: dakika cinsinden hazırlık tahmini
 export function acceptTrendyolPackage(packageId: string, preparationTime = 20) {
-  return trendyolRequest({
-    method: "PUT",
-    path: supplierPath("/packages/picked"),
-    body: { packageId, preparationTime },
-  });
+  return withPackageAccount(packageId, (a) =>
+    trendyolRequest(a, {
+      method: "PUT",
+      path: supplierPath(a, "/packages/picked"),
+      body: { packageId, preparationTime },
+    }),
+  );
 }
 
 // ─── 2) Hazırlık bitti (invoiced) ───────────────────────────────────────
 export function markTrendyolPackageInvoiced(packageId: string) {
-  return trendyolRequest({
-    method: "PUT",
-    path: supplierPath("/packages/invoiced"),
-    body: { packageId, actualDate: Date.now() },
-  });
+  return withPackageAccount(packageId, (a) =>
+    trendyolRequest(a, {
+      method: "PUT",
+      path: supplierPath(a, "/packages/invoiced"),
+      body: { packageId, actualDate: Date.now() },
+    }),
+  );
 }
 
 // ─── 3) Yola çıktı (manual-shipped) — sadece kendi kuryesi olanlar ─────
 export function shipTrendyolPackage(packageId: string) {
-  return trendyolRequest({
-    method: "PUT",
-    path: supplierPath(`/packages/${packageId}/manual-shipped`),
-    body: { actualDate: Date.now() },
-  });
+  return withPackageAccount(packageId, (a) =>
+    trendyolRequest(a, {
+      method: "PUT",
+      path: supplierPath(a, `/packages/${packageId}/manual-shipped`),
+      body: { actualDate: Date.now() },
+    }),
+  );
 }
 
 // ─── 4) Teslim edildi (manual-delivered) ────────────────────────────────
 export function deliverTrendyolPackage(packageId: string) {
-  return trendyolRequest({
-    method: "PUT",
-    path: supplierPath(`/packages/${packageId}/manual-delivered`),
-    body: { actualDate: Date.now() },
-  });
+  return withPackageAccount(packageId, (a) =>
+    trendyolRequest(a, {
+      method: "PUT",
+      path: supplierPath(a, `/packages/${packageId}/manual-delivered`),
+      body: { actualDate: Date.now() },
+    }),
+  );
 }
 
 // ─── 5) İptal (unsupplied) ──────────────────────────────────────────────
@@ -564,15 +653,17 @@ export function cancelTrendyolPackage(
   packageId: string,
   options: { itemIdList?: string[]; reasonId?: number } = {},
 ) {
-  return trendyolRequest({
-    method: "PUT",
-    path: supplierPath("/packages/unsupplied"),
-    body: {
-      packageId,
-      itemIdList: options.itemIdList ?? [],
-      reasonId: options.reasonId ?? 621,
-    },
-  });
+  return withPackageAccount(packageId, (a) =>
+    trendyolRequest(a, {
+      method: "PUT",
+      path: supplierPath(a, "/packages/unsupplied"),
+      body: {
+        packageId,
+        itemIdList: options.itemIdList ?? [],
+        reasonId: options.reasonId ?? 621,
+      },
+    }),
+  );
 }
 
 // ─── Test ortamı: sipariş oluştur ───────────────────────────────────────
@@ -605,8 +696,10 @@ export interface CreateTestMealOrderInput {
   };
 }
 
-export function createTestMealOrder(input: CreateTestMealOrderInput) {
-  const supplierId = input.supplierId ?? Number(process.env.TRENDYOL_SUPPLIER_ID);
+export async function createTestMealOrder(input: CreateTestMealOrderInput) {
+  const a =
+    (await accountForStore(input.storeId)) ?? (await getDefaultTrendyolAccount());
+  const supplierId = input.supplierId ?? Number(a.supplierId);
   const body = {
     address: {
       addressText: input.address?.addressText ?? "Test Adres No: 1",
@@ -648,7 +741,7 @@ export function createTestMealOrder(input: CreateTestMealOrderInput) {
     },
   };
 
-  return trendyolRequest<{ orderNumber?: string }>({
+  return trendyolRequest<{ orderNumber?: string }>(a, {
     method: "POST",
     path: "/integrator/meal-test-order/orders/meal",
     body,
@@ -670,11 +763,11 @@ export interface TrendyolReviewStats {
   ratingCount: number;
 }
 
-export function listTrendyolReviewStats(params: { storeId: string | number }) {
-  const supplierId = process.env.TRENDYOL_SUPPLIER_ID!;
-  return trendyolRequest<TrendyolReviewStats>({
+export async function listTrendyolReviewStats(params: { storeId: string | number } & AccountArg) {
+  const a = await acctForStore(params.storeId, params.account);
+  return trendyolRequest<TrendyolReviewStats>(a, {
     method: "GET",
-    path: `/integrator/review/meal/suppliers/${supplierId}/stores/${params.storeId}/reviews/stats`,
+    path: `/integrator/review/meal/suppliers/${a.supplierId}/stores/${params.storeId}/reviews/stats`,
   });
 }
 
@@ -733,7 +826,7 @@ export interface TrendyolReviewsResponse {
   content?: TrendyolReview[];
 }
 
-export function listTrendyolReviews(params: {
+export async function listTrendyolReviews(params: {
   storeId: string | number;
   page?: number;
   size?: number;
@@ -744,8 +837,8 @@ export function listTrendyolReviews(params: {
   hasComment?: boolean;
   hasRestaurantAnswer?: boolean;
   restaurantAnswerStatus?: TrendyolReviewAnswerStatus;
-}) {
-  const supplierId = process.env.TRENDYOL_SUPPLIER_ID!;
+} & AccountArg) {
+  const a = await acctForStore(params.storeId, params.account);
   const qs = new URLSearchParams();
   if (params.page !== undefined) qs.set("page", String(params.page));
   if (params.size !== undefined) qs.set("size", String(params.size));
@@ -760,9 +853,9 @@ export function listTrendyolReviews(params: {
     qs.set("restaurantAnswerStatus", params.restaurantAnswerStatus);
 
   const query = qs.toString();
-  return trendyolRequest<TrendyolReviewsResponse>({
+  return trendyolRequest<TrendyolReviewsResponse>(a, {
     method: "GET",
-    path: `/integrator/review/meal/suppliers/${supplierId}/stores/${params.storeId}/reviews/filter${query ? `?${query}` : ""}`,
+    path: `/integrator/review/meal/suppliers/${a.supplierId}/stores/${params.storeId}/reviews/filter${query ? `?${query}` : ""}`,
   });
 }
 
@@ -906,70 +999,85 @@ export type UpdateTrendyolPromotionBody = Omit<
   "idempotencyKey"
 >;
 
-function promotionPath(suffix: string) {
-  const supplierId = process.env.TRENDYOL_SUPPLIER_ID!;
-  return `/integrator/promotion/suppliers/${supplierId}/promotions${suffix}`;
+function promotionPath(account: TrendyolCreds, suffix: string) {
+  return `/integrator/promotion/suppliers/${account.supplierId}/promotions${suffix}`;
 }
 
 // Listele. channel zorunlu. status/storeId/page/size opsiyonel.
-export function listTrendyolPromotions(params: {
+// Kampanya uçları hesaba özeldir; hesap verilmezse varsayılan (ilk) hesap kullanılır.
+export async function listTrendyolPromotions(params: {
   channel?: TrendyolPromotionChannel | string;
   status?: TrendyolPromotionStatus | string;
   storeId?: string | number;
   page?: number;
   size?: number;
-}) {
+} & AccountArg) {
   const qs = new URLSearchParams();
   qs.set("channel", params.channel ?? "GROCERY");
   if (params.status) qs.set("status", params.status);
   if (params.storeId) qs.set("storeId", String(params.storeId));
   if (params.page !== undefined) qs.set("page", String(params.page));
   if (params.size !== undefined) qs.set("size", String(params.size));
-  return trendyolRequest<TrendyolPromotionsResponse>({
+  const a = params.storeId
+    ? await acctForStore(params.storeId, params.account)
+    : await acct(params.account);
+  return trendyolRequest<TrendyolPromotionsResponse>(a, {
     method: "GET",
-    path: promotionPath(`?${qs.toString()}`),
+    path: promotionPath(a, `?${qs.toString()}`),
   });
 }
 
 // Tek kampanya detayı.
-export function getTrendyolPromotion(promotionId: string | number) {
-  return trendyolRequest<TrendyolPromotion>({
+export async function getTrendyolPromotion(
+  promotionId: string | number,
+  account?: TrendyolCreds,
+) {
+  const a = await acct(account);
+  return trendyolRequest<TrendyolPromotion>(a, {
     method: "GET",
-    path: promotionPath(`/${promotionId}`),
+    path: promotionPath(a, `/${promotionId}`),
   });
 }
 
 // Oluştur → 201 { id }.
-export function createTrendyolPromotion(body: CreateTrendyolPromotionBody) {
-  return trendyolRequest<{ id: string }>({
+export async function createTrendyolPromotion(
+  body: CreateTrendyolPromotionBody,
+  account?: TrendyolCreds,
+) {
+  const a = await acct(account);
+  return trendyolRequest<{ id: string }>(a, {
     method: "POST",
-    path: promotionPath(""),
+    path: promotionPath(a, ""),
     body,
   });
 }
 
 // Güncelle → 204 (gövdesiz).
-export function updateTrendyolPromotion(
+export async function updateTrendyolPromotion(
   promotionId: string | number,
   body: UpdateTrendyolPromotionBody,
+  account?: TrendyolCreds,
 ) {
-  return trendyolRequest({
+  const a = await acct(account);
+  return trendyolRequest(a, {
     method: "PUT",
-    path: promotionPath(`/${promotionId}`),
+    path: promotionPath(a, `/${promotionId}`),
     body,
   });
 }
 
 // İptal → 204. updatedBy opsiyonel (kimin iptal ettiği).
-export function cancelTrendyolPromotion(
+export async function cancelTrendyolPromotion(
   promotionId: string | number,
   updatedBy?: string,
+  account?: TrendyolCreds,
 ) {
   const qs = updatedBy
     ? `?updatedBy=${encodeURIComponent(updatedBy)}`
     : "";
-  return trendyolRequest({
+  const a = await acct(account);
+  return trendyolRequest(a, {
     method: "DELETE",
-    path: promotionPath(`/${promotionId}${qs}`),
+    path: promotionPath(a, `/${promotionId}${qs}`),
   });
 }

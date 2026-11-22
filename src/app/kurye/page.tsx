@@ -81,6 +81,7 @@ import {
   toWhatsAppPhone,
   cn,
 } from "@/lib/utils";
+import { TrendyolAccountBadge } from "@/components/orders/TrendyolAccountBadge";
 import { LocationPicker, type LatLng } from "@/components/kurye/LocationPicker";
 import { PoolMapSelect } from "@/components/kurye/PoolMapSelect";
 import { PortionBadge } from "@/components/orders/PortionBadge";
@@ -2458,6 +2459,7 @@ function OrderCard({
             <Store className="h-3.5 w-3.5" />
           </span>
         )}
+        <TrendyolAccountBadge account={o.trendyolAccount} />
         {pay && (
           <span
             className={cn(

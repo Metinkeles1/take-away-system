@@ -14,6 +14,7 @@ import {
   listTrendyolReviews,
   type TrendyolReview,
 } from "@/lib/integrations/trendyol/client";
+import { getAllTrendyolStores } from "@/lib/integrations/trendyol/accounts";
 import { ensureTrendyolArchiveFresh } from "@/lib/trendyol/archive";
 import { FALLBACK_COMMISSION_RATE } from "@/lib/integrations/trendyol/packageUtils";
 
@@ -428,12 +429,8 @@ async function fetchReviewsForOrders(
   // storeId resolve
   let resolvedStore = storeId;
   if (!resolvedStore) {
-    const envStore = process.env.TRENDYOL_STORE_ID;
-    if (envStore) {
-      const first = envStore.split(",")[0]?.trim();
-      const n = first ? parseInt(first, 10) : NaN;
-      if (Number.isFinite(n)) resolvedStore = n;
-    }
+    const stores = await getAllTrendyolStores().catch(() => []);
+    if (stores[0]) resolvedStore = stores[0].storeId;
   }
   if (!resolvedStore) return [];
 

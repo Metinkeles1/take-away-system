@@ -25,6 +25,7 @@ import {
 import { LocationPicker, type LatLng } from "@/components/kurye/LocationPicker";
 import { GoogleContactsCard } from "@/components/settings/GoogleContactsCard";
 import { CashAlertCard } from "@/components/settings/CashAlertCard";
+import { TrendyolAccountsCard } from "@/components/settings/TrendyolAccountsCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -439,6 +440,9 @@ export default function SettingsPage() {
 
         {/* Kuryedeki nakit uyarısı — Komuta "Kuryelerdeki para" eşikleri */}
         <CashAlertCard />
+
+        {/* Trendyol hesapları — çoklu işletme (Satıcı ID + API anahtarı) */}
+        <TrendyolAccountsCard />
 
         {/* Google Kişiler — müşteriler telefon rehberine otomatik */}
         <GoogleContactsCard />

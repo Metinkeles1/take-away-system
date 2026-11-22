@@ -1,4 +1,5 @@
 import mongoose, { Schema, type InferSchemaType } from "mongoose";
+import { trendyolScope } from "@/lib/integrations/trendyol/scope";
 
 // Trendyol siparişlerinin KALICI arşivi — sipariş başına tek kayıt (orderNumber).
 //
@@ -73,6 +74,8 @@ const TrendyolOrderSchema = new Schema(
   {
     orderNumber: { type: String, required: true, unique: true, index: true },
     packageId: { type: String, index: true, sparse: true },
+    // Satıcı hesabı (çoklu işletme) — eski kayıtlarda yok; storeId'den çözülür.
+    supplierId: { type: Number, index: true, sparse: true },
     storeId: { type: Number },
     deliveryType: { type: String }, // STORE (bizim kurye) / GO (Trendyol kuryesi)
     packageStatus: { type: String, default: "", index: true },
@@ -147,6 +150,20 @@ const TrendyolOrderSchema = new Schema(
 TrendyolOrderSchema.index({ customerId: 1, packageCreationDate: -1 });
 TrendyolOrderSchema.index({ courier: 1, packageCreationDate: -1 });
 TrendyolOrderSchema.index({ streetKey: 1 }, { sparse: true });
+
+// İşletme kapsamı (bkz. lib/integrations/trendyol/scope): Komuta'da tek işletme
+// seçiliyken tüm OKUMA sorguları yalnız o hesabın siparişlerini görür. Yazmalar
+// (update/bulkWrite) etkilenmez.
+for (const op of ["find", "findOne", "countDocuments", "distinct"] as const) {
+  TrendyolOrderSchema.pre(op, function () {
+    const scope = trendyolScope();
+    if (scope) this.where({ supplierId: Number(scope) });
+  });
+}
+TrendyolOrderSchema.pre("aggregate", function () {
+  const scope = trendyolScope();
+  if (scope) this.pipeline().unshift({ $match: { supplierId: Number(scope) } });
+});
 
 export type TrendyolOrderDocument = InferSchemaType<typeof TrendyolOrderSchema>;
 

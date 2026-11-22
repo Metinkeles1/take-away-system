@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn, formatCurrencyShort } from "@/lib/utils";
 import type { Order } from "@/types";
+import { TrendyolAccountBadge } from "@/components/orders/TrendyolAccountBadge";
 import { assignCourier, canDeliver, deliverOrder, releaseCourier } from "./orderActions";
 
 const PAY_LABEL: Record<string, string> = {
@@ -128,6 +129,7 @@ export function PanelOrderCard({
               title={ty ? "Trendyol" : "Telefon"}
             />
             <span className="font-semibold tabular-nums">#{no}</span>
+            <TrendyolAccountBadge account={order.trendyolAccount} />
             <span className="truncate">{order.customer?.name || "—"}</span>
             {isNew && (
               <span className="shrink-0 rounded bg-sky-500 px-1.5 text-xs font-semibold leading-5 text-white">Yeni</span>

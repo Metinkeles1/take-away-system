@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/select";
 import { type Order, type OrderStatus } from "@/types";
 import { cn, formatCurrency, formatDate, phoneKey, toLocalPhone } from "@/lib/utils";
+import { TrendyolAccountBadge } from "@/components/orders/TrendyolAccountBadge";
 import { RelativeTime } from "@/components/RelativeTime";
 import { CustomerOpenAccountsBadge } from "@/components/orders/CustomerOpenAccountsBadge";
 import { ORDER_STATUS_CONFIG, ORDER_STATUS_ORDER } from "@/lib/orderStatus";
@@ -148,6 +149,8 @@ function OrderListCardImpl({
               <Icon className="h-3 w-3" />
               {config.label}
             </span>
+            {/* Trendyol işletmesi (2+ hesap varken). */}
+            <TrendyolAccountBadge account={order.trendyolAccount} />
             {/* Trendyol köşe şeridiyle zaten belli; diğer pazaryerleri rozetle. */}
             {sourceBadge && !isTrendyol && (
               <span

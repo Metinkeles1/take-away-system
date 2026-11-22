@@ -6,6 +6,7 @@
 import { connectDB } from "@/lib/mongodb";
 import TrendyolOrderModel from "@/models/TrendyolOrder";
 import { ensureTrendyolReviewsFresh } from "@/lib/trendyol/reviews";
+import { trendyolAccountLabeler } from "@/lib/integrations/trendyol/accounts";
 import { cleanTrendyolField, floorLabel } from "@/lib/integrations/trendyol/address";
 import {
   formatArchivedAddress,
@@ -37,7 +38,7 @@ export interface TrendyolArchiveStatus {
 }
 
 export async function getTrendyolArchiveStatus(): Promise<TrendyolArchiveStatus> {
-  if (!trendyolConfigured()) {
+  if (!(await trendyolConfigured())) {
     return { configured: false, orderCount: 0, oldestOrderAt: null, lastSyncAt: null, lastSettlementAt: null };
   }
   await connectDB();
@@ -60,7 +61,7 @@ export async function getTrendyolArchiveStatus(): Promise<TrendyolArchiveStatus>
 
 // "Güncelle" butonu: son değişen paketler + settlement'ı hemen çeker.
 export async function syncTrendyolArchiveNow(): Promise<{ ok: boolean; error?: string }> {
-  if (!trendyolConfigured()) return { ok: false, error: "Trendyol entegrasyonu tanımlı değil" };
+  if (!(await trendyolConfigured())) return { ok: false, error: "Trendyol entegrasyonu tanımlı değil" };
   try {
     await ensureTrendyolArchiveFresh({ force: true });
     return { ok: true };
@@ -89,7 +90,7 @@ export async function backfillTrendyolArchiveChunk(
   const todayEnd = istanbulDayStart().getTime() + DAY_MS;
   const end = todayEnd - chunkIndex * BACKFILL_CHUNK_DAYS * DAY_MS;
   const start = end - BACKFILL_CHUNK_DAYS * DAY_MS;
-  if (!trendyolConfigured()) {
+  if (!(await trendyolConfigured())) {
     return { ok: false, packages: 0, settled: 0, from: start, error: "Trendyol entegrasyonu tanımlı değil" };
   }
   try {
@@ -222,7 +223,7 @@ export async function getTrendyolLoyalty(
     lost: 0,
     archiveSince: null,
   };
-  if (!trendyolConfigured()) return empty;
+  if (!(await trendyolConfigured())) return empty;
 
   try {
     await ensureTrendyolArchiveFresh();
@@ -501,7 +502,7 @@ function lineNote(l: {
 }
 
 export async function getTrendyolOrdersForList(period: TrendyolListPeriod = "week"): Promise<Order[]> {
-  if (!trendyolConfigured()) return [];
+  if (!(await trendyolConfigured())) return [];
   try {
     await ensureTrendyolArchiveFresh(period === "all" ? {} : { maxAgeMs: 60 * 1000 });
     await connectDB();
@@ -544,11 +545,13 @@ export async function getTrendyolOrdersForList(period: TrendyolListPeriod = "wee
         deliveredAt: 1,
         deliveryDurationMin: 1,
         packageId: 1,
+        supplierId: 1,
       })
       .sort({ packageCreationDate: -1 })
       .limit(2000)
       .lean();
 
+    const label = await trendyolAccountLabeler();
     return docs.map((d): Order => {
       const created = d.packageCreationDate ? new Date(d.packageCreationDate) : new Date(0);
       const brand = (d.mealCardBrand ?? "").toLowerCase().split(" ")[0];
@@ -561,6 +564,7 @@ export async function getTrendyolOrdersForList(period: TrendyolListPeriod = "wee
           .join(" — ");
       return {
         id: `tyarch-${d.orderNumber}`,
+        ...(label(d.supplierId) ? { trendyolAccount: label(d.supplierId) } : {}),
         orderNumber: Number(d.orderNumber) || 0,
         items: (d.lines ?? []).map((l, i) => ({
           product: {
