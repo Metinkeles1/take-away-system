@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Chrome eklentisi — Next.js'ten bağımsız, tarayıcı API'si (chrome.*) kullanır.
+    "extensions/**",
   ]),
 ]);
 
