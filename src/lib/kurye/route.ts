@@ -37,9 +37,8 @@ export function orderStopsByProximity(
   return route;
 }
 
-// Sıralı durakları tek Google Maps yol-tarifi linkine çevirir. Son durak
-// "destination", aradakiler "waypoints" (verilen sırayı korur).
-// Parametreler URL-encode'lu (virgül %2C, ayraç %7C) — Google Maps URL API kabul eder.
+// Sıralı durakları tek Google Maps yol-tarifi linkine çevirir (verilen sırayı
+// korur; son durak varış noktası).
 //
 // pinlessTextStops: koordinatı olmayan (pinsiz) durakların metin adresleri.
 // Verilirse pinli durakların SONUNA eklenir; Google bunları geocode eder.
@@ -58,9 +57,22 @@ export function orderStopsByProximity(
 // alanda/GPS henüz sabitlenmemişken bu, rotanın kuryenin GERÇEK yerinden
 // FARKLI bir noktadan başlamasına yol açabiliyordu.
 //
-// Google'ın URL API'si en fazla 9 "waypoints" + 1 "destination" destekler;
-// üstü sessizce bozulabiliyor. MAX_GOOGLE_STOPS bunu garanti altına alır.
+// En fazla 10 durak (Google'ın çok duraklı yol tarifi sınırı); üstü bozuluyor.
+//
+// BİÇİM: "?api=1&waypoints=a|b" yerine YOL biçimi (/maps/dir/başlangıç/a/b/c).
+// api=1 biçiminde Google ara durakları bazen yok sayıp yalnızca son adresi
+// gösteriyordu (özellikle link uygulama yerine mobil tarayıcıda açılınca —
+// orada en fazla 3 waypoint kabul ediliyor). Yol biçimi, Google'ın kendisinin
+// çok duraklı rota paylaşırken ürettiği biçim; uygulama da tarayıcı da aynı okur.
+// Başlangıç boş bırakılırsa ("dir//a/b") Google "Konumunuz"dan başlatır.
 const MAX_GOOGLE_STOPS = 10;
+
+const coord = (c: { lat: number; lng: number }) =>
+  `${c.lat.toFixed(6)},${c.lng.toFixed(6)}`;
+
+// Metin adres yol parçası olacağı için "/" (ör. "No:12/4") yolu böler → boşluk.
+const textSegment = (s: string) =>
+  encodeURIComponent(s.replace(/\//g, " ").replace(/\s{2,}/g, " ").trim());
 
 export function buildGoogleRouteUrl(
   orderedStops: Order[],
@@ -69,20 +81,15 @@ export function buildGoogleRouteUrl(
   origin?: { lat: number; lng: number } | null,
 ): string {
   const pts = [
-    ...orderedStops.map((o) => `${o.customer.geo!.lat},${o.customer.geo!.lng}`),
-    ...extraCoordStops.map((c) => `${c.lat},${c.lng}`),
-    ...pinlessTextStops.filter((s) => s.trim().length > 0),
+    ...orderedStops.map((o) => coord(o.customer.geo!)),
+    ...extraCoordStops.map(coord),
+    ...pinlessTextStops
+      .filter((s) => s.trim().length > 0)
+      .map(textSegment),
   ].slice(0, MAX_GOOGLE_STOPS);
   if (pts.length === 0) return "https://www.google.com/maps";
-  const params = new URLSearchParams({
-    api: "1",
-    destination: pts[pts.length - 1],
-    travelmode: "driving",
-  });
-  if (origin) params.set("origin", `${origin.lat},${origin.lng}`);
-  const waypoints = pts.slice(0, -1).join("|");
-  if (waypoints) params.set("waypoints", waypoints);
-  return `https://www.google.com/maps/dir/?${params.toString()}`;
+  const start = origin ? coord(origin) : "";
+  return `https://www.google.com/maps/dir/${start}/${pts.join("/")}`;
 }
 
 // Rota linkini tıklama içinde SENKRON açar (araya await girerse mobil tarayıcı
