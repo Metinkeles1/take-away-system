@@ -404,7 +404,10 @@ export function PoolMapSelect({
     list: Order[],
     approxSource?: Record<string, ApproxHit> | null,
   ) => {
-    openRouteUrl(routeUrlFor(list, getRecentDeviceLocation(), approxSource));
+    // GPS yoksa dükkandan başlat — boş başlangıçlı linki Google tek durağa indiriyor.
+    openRouteUrl(
+      routeUrlFor(list, getRecentDeviceLocation() ?? shopLocation, approxSource),
+    );
     warmDeviceLocation();
   };
 

@@ -808,13 +808,23 @@ export default function KuryePage() {
   // koordinat + düz metnin KARIŞIK gitmesi Google Maps uygulamasında bazen
   // bozulup tek durağa düşmesine yol açıyordu; mümkün olanı koordinata çeviriyoruz.
   const [unpinnedGeo, setUnpinnedGeo] = useState<Record<string, ApproxHit>>({});
+  // Pinsizler konumlanırken "Tüm rotaya yol tarifi" bekletilir: hazır olmadan
+  // basılınca link koordinat + metin KARIŞIK gidiyor, Google uygulaması bunu
+  // bozup tek durağa düşürüyordu ("ilk seferde 1 adres, ikincide hepsi" hatası).
+  // Konumlama takılırsa kurye sonsuza dek beklemesin diye 8 sn üst sınır.
+  const [unpinnedLocating, setUnpinnedLocating] = useState(false);
   const unpinnedKey = unpinnedStops.map((o) => o.id).join(",");
   useEffect(() => {
     if (unpinnedStops.length === 0) {
       setUnpinnedGeo({});
+      setUnpinnedLocating(false);
       return;
     }
     let cancelled = false;
+    setUnpinnedLocating(true);
+    const giveUp = setTimeout(() => {
+      if (!cancelled) setUnpinnedLocating(false);
+    }, 8000);
     (async () => {
       const found = await locateOrders(unpinnedStops, {
         near: shopLocation
@@ -822,10 +832,14 @@ export default function KuryePage() {
           : undefined,
         isCancelled: () => cancelled,
       });
-      if (!cancelled) setUnpinnedGeo(found);
+      if (!cancelled) {
+        setUnpinnedGeo(found);
+        setUnpinnedLocating(false);
+      }
     })();
     return () => {
       cancelled = true;
+      clearTimeout(giveUp);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [unpinnedKey]);
@@ -838,19 +852,24 @@ export default function KuryePage() {
     .map((o) => unpinnedGeo[o.id]);
   const unpinnedUnresolved = unpinnedStops.filter((o) => !unpinnedGeo[o.id]);
   const openFullRoute = () => {
+    if (unpinnedLocating) return;
     setRouteSheetOpen(false);
     openRouteUrl(
       buildGoogleRouteUrl(
         orderedRoute,
         unpinnedResolved,
         unpinnedUnresolved.map(fullAddress),
-        getRecentDeviceLocation(),
+        // GPS henüz gelmediyse dükkandan başlat: başlangıç boş giden linki
+        // ("dir//a/b/c") Google uygulaması ilk seferde tek durağa indiriyordu.
+        getRecentDeviceLocation() ?? shopLocation,
       ),
     );
   };
+  // Konumu sheet açılınca değil, rota mümkün olur olmaz ısıt — sheet'i açıp
+  // hemen basan kuryede GPS ilk tıklamaya yetişmiyordu.
   useEffect(() => {
-    if (routeSheetOpen) warmDeviceLocation();
-  }, [routeSheetOpen]);
+    if (canRoute || routeSheetOpen) warmDeviceLocation();
+  }, [canRoute, routeSheetOpen]);
 
   const go = (i: number) => {
     setConfirming(false);
@@ -1842,10 +1861,20 @@ export default function KuryePage() {
             <div className="space-y-2.5">
               <button
                 onClick={openFullRoute}
-                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-indigo-600 py-4 text-base font-bold text-white shadow-sm shadow-indigo-600/25 transition active:scale-[0.98]"
+                disabled={unpinnedLocating}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-indigo-600 py-4 text-base font-bold text-white shadow-sm shadow-indigo-600/25 transition active:scale-[0.98] disabled:opacity-70"
               >
-                <Navigation className="h-5 w-5 fill-white" />
-                Tüm rotaya yol tarifi ({routableCount})
+                {unpinnedLocating ? (
+                  <>
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    Adresler hazırlanıyor…
+                  </>
+                ) : (
+                  <>
+                    <Navigation className="h-5 w-5 fill-white" />
+                    Tüm rotaya yol tarifi ({routableCount})
+                  </>
+                )}
               </button>
               <button
                 onClick={() => {
