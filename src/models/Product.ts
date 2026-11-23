@@ -5,11 +5,7 @@ const ProductSchema = new Schema(
     id: { type: String, required: true, unique: true, index: true },
     name: { type: String, required: true },
     price: { type: Number, required: true },
-    category: {
-      type: String,
-      required: true,
-      enum: ["kebap", "pide", "lahmacun", "durum", "kilo", "corba", "tatli", "icecek"],
-    },
+    category: { type: String, required: true }, // Setting "menuCategories" içindeki value
     description: { type: String },
     available: { type: Boolean, default: true },
     sortOrder: { type: Number, default: 0 },
@@ -22,7 +18,12 @@ const ProductSchema = new Schema(
 
 // Dev hot-reload'da eski şemalı model kalırsa yeni alan atılır — yeniden derle.
 const cachedProduct = mongoose.models.Product as mongoose.Model<unknown> | undefined;
-if (process.env.NODE_ENV !== "production" && cachedProduct && !cachedProduct.schema.path("hiddenOptions")) {
+if (
+  process.env.NODE_ENV !== "production" &&
+  cachedProduct &&
+  (!cachedProduct.schema.path("hiddenOptions") ||
+    (cachedProduct.schema.path("category") as { enumValues?: string[] } | undefined)?.enumValues?.length)
+) {
   mongoose.deleteModel("Product");
 }
 

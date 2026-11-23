@@ -17,6 +17,7 @@ import {
   type ProductFormState,
 } from "./ProductFormFields";
 import type { CategoryOptions } from "@/types";
+import { useMenuCategories } from "@/store/categoryStore";
 
 const emptyForm: ProductFormState = {
   name: "",
@@ -35,6 +36,8 @@ interface AddProductDialogProps {
   onOpenChange: (open: boolean) => void;
   onSuccess: () => void;
   categoryOptions: CategoryOptions | null;
+  /** Açılışta seçili gelecek kategori (Menü'de o an açık olan). */
+  defaultCategory?: string;
 }
 
 export const AddProductDialog = memo(function AddProductDialog({
@@ -42,13 +45,19 @@ export const AddProductDialog = memo(function AddProductDialog({
   onOpenChange,
   onSuccess,
   categoryOptions,
+  defaultCategory,
 }: AddProductDialogProps) {
+  const categories = useMenuCategories();
   const [formData, setFormData] = useState<ProductFormState>(emptyForm);
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    if (open) setFormData(emptyForm);
-  }, [open]);
+    if (!open) return;
+    const valid = categories.some((c) => c.value === defaultCategory);
+    setFormData({ ...emptyForm, category: valid ? defaultCategory! : (categories[0]?.value ?? emptyForm.category) });
+    // categories bilinçli olarak dışarıda: dialog açıkken liste tazelenirse form sıfırlanmasın
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, defaultCategory]);
 
   const handleAdd = async () => {
     if (!formData.name.trim() || !formData.price) {

@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { Download, Plus, SlidersHorizontal } from "lucide-react";
+import { Download, LayoutGrid, Plus, SlidersHorizontal } from "lucide-react";
 
 interface ProductsHeaderProps {
   totalProducts: number;
@@ -7,6 +7,7 @@ interface ProductsHeaderProps {
   onExportCSV: () => void;
   onAddProduct: () => void;
   onEditOptions: () => void;
+  onEditCategories: () => void;
 }
 
 export function ProductsHeader({
@@ -15,6 +16,7 @@ export function ProductsHeader({
   onExportCSV,
   onAddProduct,
   onEditOptions,
+  onEditCategories,
 }: ProductsHeaderProps) {
   return (
     <div className="mb-3 flex items-start justify-between gap-3 shrink-0">
@@ -35,6 +37,16 @@ export function ProductsHeader({
         >
           <Download className="sm:mr-2 h-4 w-4" />
           <span className="hidden sm:inline">CSV</span>
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="sm:h-9 sm:px-4"
+          onClick={onEditCategories}
+          title="Kategori ekle, adını değiştir, sırala"
+        >
+          <LayoutGrid className="sm:mr-2 h-4 w-4" />
+          <span className="hidden sm:inline">Kategoriler</span>
         </Button>
         <Button
           variant="outline"

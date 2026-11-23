@@ -9,7 +9,7 @@ import {
 } from "@/actions/products";
 import { type CategoryOptions, type Product, type ProductCategory } from "@/types";
 import { getCategoryOptions } from "@/actions/menuOptions";
-import { MENU_CATEGORIES } from "@/data/menu";
+import { useMenuCategories } from "@/store/categoryStore";
 import { toast } from "sonner";
 import { ProductsHeader } from "@/components/products/ProductsHeader";
 import { ProductsFilters } from "@/components/products/ProductsFilters";
@@ -18,12 +18,14 @@ import { AddProductDialog } from "@/components/products/AddProductDialog";
 import { EditProductDialog } from "@/components/products/EditProductDialog";
 import { DeleteProductDialog } from "@/components/products/DeleteProductDialog";
 import { CategoryOptionsDialog } from "@/components/products/CategoryOptionsDialog";
+import { CategoriesDialog } from "@/components/products/CategoriesDialog";
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState<ProductCategory | "all">("all");
+  const categories = useMenuCategories();
 
   // Yazarken her keystroke filter/group/render tetiklemesin — React deferred
   // value, input'u öncelikli render eder, ağır listeyi arkada günceller.
@@ -33,6 +35,7 @@ export default function ProductsPage() {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [deletingProduct, setDeletingProduct] = useState<Product | null>(null);
   const [showOptionsDialog, setShowOptionsDialog] = useState(false);
+  const [showCategoriesDialog, setShowCategoriesDialog] = useState(false);
   const [categoryOptions, setCategoryOptions] = useState<CategoryOptions | null>(null);
 
   useEffect(() => {
@@ -108,11 +111,11 @@ export default function ProductsPage() {
       if (arr) arr.push(p);
       else byCategory.set(p.category, [p]);
     }
-    return MENU_CATEGORIES.flatMap((cat) => {
+    return categories.flatMap((cat) => {
       const items = byCategory.get(cat.value);
       return items && items.length > 0 ? [{ ...cat, items }] : [];
     });
-  }, [filteredProducts, activeCategory, deferredSearch]);
+  }, [filteredProducts, activeCategory, deferredSearch, categories]);
 
   const activeProductsCount = useMemo(
     () => products.filter((p) => p.available).length,
@@ -125,6 +128,7 @@ export default function ProductsPage() {
   const handleCloseDelete = useCallback(() => setDeletingProduct(null), []);
   const handleOpenAdd = useCallback(() => setShowAddDialog(true), []);
   const handleOpenOptions = useCallback(() => setShowOptionsDialog(true), []);
+  const handleOpenCategories = useCallback(() => setShowCategoriesDialog(true), []);
 
   // Optimistic toggle: anında UI patch, hata olursa geri al.
   const handleToggle = useCallback(async (product: Product) => {
@@ -155,7 +159,7 @@ export default function ProductsPage() {
     const header = "Ürün Adı,Fiyat,Kategori,Durum,Açıklama";
     const rows = products.map((p) => {
       const escape = (v: string) => `"${v.replace(/"/g, '""')}"`;
-      const cat = MENU_CATEGORIES.find((c) => c.value === p.category);
+      const cat = categories.find((c) => c.value === p.category);
       return [
         escape(p.name),
         p.price,
@@ -173,7 +177,7 @@ export default function ProductsPage() {
     a.click();
     URL.revokeObjectURL(url);
     toast.success(`${products.length} ürün CSV olarak indirildi`);
-  }, [products]);
+  }, [products, categories]);
 
   return (
     <main className="h-full flex flex-col px-3 pt-3 pb-6 sm:px-4 sm:pt-4 md:px-6 md:pt-5 lg:px-8 lg:pt-6 lg:pb-8 overflow-y-auto lg:overflow-hidden">
@@ -183,6 +187,7 @@ export default function ProductsPage() {
         onExportCSV={handleExportCSV}
         onAddProduct={handleOpenAdd}
         onEditOptions={handleOpenOptions}
+        onEditCategories={handleOpenCategories}
       />
 
       <ProductsFilters
@@ -212,6 +217,7 @@ export default function ProductsPage() {
         onOpenChange={setShowAddDialog}
         onSuccess={handleSilentReload}
         categoryOptions={categoryOptions}
+        defaultCategory={activeCategory === "all" ? undefined : activeCategory}
       />
       <EditProductDialog
         product={editingProduct}
@@ -224,6 +230,11 @@ export default function ProductsPage() {
         onOpenChange={setShowOptionsDialog}
         options={categoryOptions}
         onSaved={setCategoryOptions}
+      />
+      <CategoriesDialog
+        open={showCategoriesDialog}
+        onOpenChange={setShowCategoriesDialog}
+        products={products}
       />
       <DeleteProductDialog
         product={deletingProduct}

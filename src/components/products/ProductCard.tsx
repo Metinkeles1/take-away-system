@@ -1,16 +1,12 @@
 import { memo } from "react";
 import { type Product } from "@/types";
-import { MENU_CATEGORIES } from "@/data/menu";
+import { useMenuCategories } from "@/store/categoryStore";
 import { formatCurrency, cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Pencil, Trash2, Eye, EyeOff } from "lucide-react";
 import { ProductImage } from "./ProductImage";
 import { productImage, fallbackProductUrl } from "@/lib/images";
-
-const CATEGORY_MAP = Object.fromEntries(
-  MENU_CATEGORIES.map((c) => [c.value, c]),
-) as Record<string, (typeof MENU_CATEGORIES)[number]>;
 
 interface ProductCardProps {
   product: Product;
@@ -25,7 +21,7 @@ export const ProductCard = memo(function ProductCard({
   onDelete,
   onToggle,
 }: ProductCardProps) {
-  const cat = CATEGORY_MAP[product.category];
+  const cat = useMenuCategories().find((c) => c.value === product.category);
   return (
     <div
       className={cn(

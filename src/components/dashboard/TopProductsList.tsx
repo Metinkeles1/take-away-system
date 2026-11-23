@@ -83,7 +83,7 @@ export function TopProductsList({
           rows.map((p, i) => {
             const sharePct = (p.revenue / maxRevenue) * 100;
             const categoryLabel =
-              CATEGORY_LABELS[p.category] ?? p.categoryLabel ?? p.category;
+              p.categoryLabel ?? CATEGORY_LABELS[p.category] ?? p.category;
             return (
               <div
                 key={p.name}

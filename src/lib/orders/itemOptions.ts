@@ -4,7 +4,6 @@ import type {
   ItemOptionGroup,
   OrderItem,
   Product,
-  ProductCategory,
 } from "@/types";
 
 // Sepette ürün satırına tek dokunuşla eklenen hazır istekler ("Soğansız" vb.).
@@ -17,7 +16,7 @@ type Seed = [name: string, mode: ItemOptionGroup["mode"], options: (string | [st
 const ACI: Seed = ["Acı", "single", ["Acısız", "Acılı"]];
 const PISME: Seed = ["Pişme", "single", ["Az pişmiş", "İyi pişmiş"]];
 
-const SEED: Record<ProductCategory, Seed[]> = {
+const SEED: Record<string, Seed[]> = {
   durum: [ACI, ["İstekler", "multi", ["Soğansız", "Maydanozsuz", "Domatessiz", "Bol soslu"]]],
   kebap: [ACI, ["İstekler", "multi", ["Soğansız", "Maydanozsuz", "Salatasız", "Pilavsız"]]],
   pide: [

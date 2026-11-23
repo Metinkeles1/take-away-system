@@ -1,7 +1,7 @@
 import { type CategoryOptions, type ProductCategory } from "@/types";
 import { DEFAULT_CATEGORY_OPTIONS } from "@/lib/orders/itemOptions";
 import { cn } from "@/lib/utils";
-import { MENU_CATEGORIES } from "@/data/menu";
+import { useMenuCategories } from "@/store/categoryStore";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -48,6 +48,7 @@ export function ProductFormFields({
   setFormData,
   categoryOptions,
 }: ProductFormFieldsProps) {
+  const categories = useMenuCategories();
   const groups = (categoryOptions ?? DEFAULT_CATEGORY_OPTIONS)[formData.category] ?? [];
   const hidden = new Set(formData.hiddenOptions);
   const toggleHidden = (id: string) =>
@@ -103,7 +104,7 @@ export function ProductFormFields({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {MENU_CATEGORIES.map((cat) => (
+              {categories.map((cat) => (
                 <SelectItem key={cat.value} value={cat.value}>
                   {cat.emoji} {cat.label}
                 </SelectItem>

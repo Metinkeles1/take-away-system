@@ -14,6 +14,8 @@ import {
 } from "@/lib/datetime";
 import { estimateOrderNet } from "@/lib/commission";
 import { slaLevel, type SlaLevel } from "@/lib/operations";
+import { getMenuCategories } from "./menuCategories";
+import { MENU_CATEGORIES } from "@/data/menu";
 
 // "all" = filtre yok; OrderSource = sadece o kaynak.
 // "manual" filtresi eski (source alanı olmayan) kayıtları da kapsar.
@@ -123,16 +125,12 @@ export interface DashboardStats {
   };
 }
 
-const CATEGORY_LABELS: Record<string, string> = {
-  kebap: "Kebap",
-  pide: "Pide",
-  lahmacun: "Lahmacun",
-  durum: "Dürüm",
-  kilo: "Kilo İşi",
-  corba: "Çorba",
-  tatli: "Tatlı",
-  icecek: "İçecek",
-};
+// Kategori adları: varsayılanlar + Menü Yönetimi'nden eklenen/yeniden adlandırılanlar.
+// Silinmiş varsayılan kategorinin eski siparişleri de adıyla görünsün diye ikisi birleşir.
+async function loadCategoryLabels(): Promise<Record<string, string>> {
+  const list = await getMenuCategories().catch(() => MENU_CATEGORIES);
+  return Object.fromEntries([...MENU_CATEGORIES, ...list].map((c) => [c.value, c.label]));
+}
 
 const MONTH_LABELS = [
   "Oca", "Şub", "Mar", "Nis", "May", "Haz",
@@ -441,6 +439,7 @@ export async function getDashboardStats(
     .sort((a, b) => b.quantity - a.quantity)
     .slice(0, 10);
 
+  const CATEGORY_LABELS = await loadCategoryLabels();
   const categoryBreakdown = [...catMap.entries()]
     .map(([category, d]) => ({
       category,
@@ -671,6 +670,7 @@ export async function getDaySales(
     }
   }
 
+  const CATEGORY_LABELS = await loadCategoryLabels();
   const products = [...productMap.entries()]
     .map(([name, d]) => ({
       name,

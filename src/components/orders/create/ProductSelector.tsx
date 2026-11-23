@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useOrderStore } from "@/store/orderStore";
 import { useMenuStore } from "@/store/menuStore";
-import { MENU_CATEGORIES } from "@/data/menu";
+import { useMenuCategories } from "@/store/categoryStore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -58,6 +58,7 @@ export default function ProductSelector() {
   const [activeCategory, setActiveCategory] = useState<ProductCategory | "all">("all");
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<SortOption>("popular");
+  const menuCategories = useMenuCategories();
   const menuItems = useMenuStore((s) => s.items);
   const salesRank = useMenuStore((s) => s.salesRank);
   const loadMenu = useMenuStore((s) => s.loadMenu);
@@ -105,7 +106,7 @@ export default function ProductSelector() {
   const categories = useMemo<CategoryEntry[]>(
     () => [
       { value: "all", label: "Tümü", emoji: "🍽️", count: menuItems.length },
-      ...MENU_CATEGORIES.map((cat) => ({
+      ...menuCategories.map((cat) => ({
         value: cat.value,
         label: cat.label,
         emoji: cat.emoji,
@@ -114,7 +115,7 @@ export default function ProductSelector() {
         count: menuItems.filter((p) => p.category === cat.value).length,
       })).filter((c) => c.count > 0),
     ],
-    [menuItems],
+    [menuItems, menuCategories],
   );
 
   return (

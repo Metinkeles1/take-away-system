@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { saveCategoryOptions } from "@/actions/menuOptions";
 import type { CategoryOptions, ItemOptionGroup, ProductCategory } from "@/types";
-import { MENU_CATEGORIES } from "@/data/menu";
+import { useMenuCategories } from "@/store/categoryStore";
 import { newOptionId } from "@/lib/orders/itemOptions";
 import { useMenuStore } from "@/store/menuStore";
 import { cn } from "@/lib/utils";
@@ -35,7 +35,8 @@ export function CategoryOptionsDialog({
   onSaved,
 }: CategoryOptionsDialogProps) {
   const [draft, setDraft] = useState<CategoryOptions | null>(options);
-  const [active, setActive] = useState<ProductCategory>("kebap");
+  const categories = useMenuCategories();
+  const [active, setActive] = useState<ProductCategory>(categories[0]?.value ?? "kebap");
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
@@ -44,10 +45,10 @@ export function CategoryOptionsDialog({
 
   const dirty = useMemo(() => {
     if (!draft || !options) return [] as ProductCategory[];
-    return MENU_CATEGORIES.map((c) => c.value).filter(
-      (c) => JSON.stringify(draft[c]) !== JSON.stringify(options[c]),
+    return categories.map((c) => c.value).filter(
+      (c) => JSON.stringify(draft[c] ?? []) !== JSON.stringify(options[c] ?? []),
     );
-  }, [draft, options]);
+  }, [draft, options, categories]);
 
   const groups = draft?.[active] ?? [];
   const setGroups = (fn: (g: ItemOptionGroup[]) => ItemOptionGroup[]) =>
@@ -68,7 +69,7 @@ export function CategoryOptionsDialog({
     setIsSaving(true);
     try {
       const next = { ...draft };
-      for (const c of dirty) next[c] = await saveCategoryOptions(c, draft[c]);
+      for (const c of dirty) next[c] = await saveCategoryOptions(c, draft[c] ?? []);
       // Sipariş ekranı menü önbelleğinden okur — anında güncel olsun
       useMenuStore.setState({ categoryOptions: next });
       onSaved(next);
@@ -93,7 +94,7 @@ export function CategoryOptionsDialog({
         </DialogHeader>
 
         <div className="flex gap-1.5 overflow-x-auto scrollbar-hide -mx-1 px-1 pb-1 shrink-0">
-          {MENU_CATEGORIES.map((c) => (
+          {categories.map((c) => (
             <button
               key={c.value}
               type="button"

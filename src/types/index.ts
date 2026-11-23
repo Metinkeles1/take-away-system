@@ -1,13 +1,13 @@
 // ─── Ürün Kategorileri ───────────────────────────────────────────────
-export type ProductCategory =
-  | "kebap"
-  | "pide"
-  | "lahmacun"
-  | "durum"
-  | "kilo"
-  | "corba"
-  | "tatli"
-  | "icecek";
+// Kategoriler Menü Yönetimi > Kategoriler'den eklenir (DB: Setting "menuCategories").
+// Değer kalıcı anahtardır (ör. "kebap"); ad/emoji sonradan değişse de ürünler bağlı kalır.
+export type ProductCategory = string;
+
+export interface MenuCategory {
+  value: ProductCategory;
+  label: string;
+  emoji: string;
+}
 
 // ─── Porsiyon ────────────────────────────────────────────────────────────────
 export type PortionSize = "half" | "full" | "one_and_half";
@@ -58,7 +58,7 @@ export interface ItemOptionGroup {
   options: ItemOptionChoice[];
 }
 
-export type CategoryOptions = Record<ProductCategory, ItemOptionGroup[]>;
+export type CategoryOptions = Record<string, ItemOptionGroup[]>;
 
 // Siparişe kopyalanan ücretli seçenek. Fiyat sipariş anındaki değerdir;
 // seçenek fiyatı sonradan değişse de eski siparişin tutarı değişmez.

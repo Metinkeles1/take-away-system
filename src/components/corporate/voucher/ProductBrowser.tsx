@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { MENU_CATEGORIES } from "@/data/menu";
+import { useMenuCategories } from "@/store/categoryStore";
 import {
   type Product,
   type ProductCategory,
@@ -40,6 +40,7 @@ export function ProductBrowser({
   onDecrement,
   onPortion,
 }: ProductBrowserProps) {
+  const categories = useMenuCategories();
   const filteredItems = useMemo(() => {
     return menuItems.filter((item) => {
       const matchesCategory = activeCategory === "all" || item.category === activeCategory;
@@ -83,7 +84,7 @@ export function ProductBrowser({
               isActive={activeCategory === "all"}
               onClick={() => setActiveCategory("all")}
             />
-            {MENU_CATEGORIES.map((cat) => {
+            {categories.map((cat) => {
               const count = menuItems.filter((p) => p.category === cat.value).length;
               if (count === 0) return null;
               return (

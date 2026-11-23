@@ -1,6 +1,8 @@
-import { type Product, type ProductCategory } from "@/types";
+import { type MenuCategory, type Product } from "@/types";
 
-export const MENU_CATEGORIES: { value: ProductCategory; label: string; emoji: string }[] =
+// Varsayılan kategoriler — DB'de kayıt yoksa (ilk kurulum) ve liste yüklenmeden
+// önce kullanılır. Asıl liste Menü Yönetimi > Kategoriler'den yönetilir.
+export const MENU_CATEGORIES: MenuCategory[] =
   [
     { value: "kebap", label: "Kebap", emoji: "🥩" },
     { value: "pide", label: "Pide", emoji: "🍕" },

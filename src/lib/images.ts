@@ -50,7 +50,7 @@ export function fallbackProductUrl(
   category?: ProductCategory,
   name?: string,
 ): string {
-  const palette = category ? CATEGORY_PALETTES[category] : CATEGORY_PALETTES.default;
+  const palette = (category && CATEGORY_PALETTES[category]) || CATEGORY_PALETTES.default;
   const initials = name ? abbreviate(name) : "•";
   return generateTileSvg({
     size: 400,
@@ -63,7 +63,7 @@ export function fallbackProductUrl(
 
 export function fallbackCategoryUrl(category: ProductCategory): string {
   const palette = CATEGORY_PALETTES[category] ?? CATEGORY_PALETTES.default;
-  const label = CATEGORY_INITIALS[category] ?? "•";
+  const label = CATEGORY_INITIALS[category] ?? initialsOf(category);
   return generateTileSvg({
     size: 200,
     bg: palette[0],
@@ -77,7 +77,7 @@ export function fallbackCategoryUrl(category: ProductCategory): string {
 // Her kategori için 2-3 ton — ürünlere ID'ye göre dağıtılır, böylece tek tip değil.
 type Tone = { from: string; to: string; ink: string };
 
-const CATEGORY_PALETTES: Record<ProductCategory | "default", Tone[]> = {
+const CATEGORY_PALETTES: Record<string, Tone[]> = {
   kebap: [
     { from: "#7c2d12", to: "#dc2626", ink: "#fff7ed" },
     { from: "#9a3412", to: "#ea580c", ink: "#fff7ed" },
@@ -116,7 +116,7 @@ const CATEGORY_PALETTES: Record<ProductCategory | "default", Tone[]> = {
   default: [{ from: "#374151", to: "#6b7280", ink: "#f9fafb" }],
 };
 
-const CATEGORY_INITIALS: Record<ProductCategory, string> = {
+const CATEGORY_INITIALS: Record<string, string> = {
   kebap: "Kb",
   pide: "Pd",
   lahmacun: "Lh",
@@ -128,6 +128,12 @@ const CATEGORY_INITIALS: Record<ProductCategory, string> = {
 };
 
 // ─── Yardımcılar ──────────────────────────────────────────────────────────────
+
+// Sonradan eklenen kategoride anahtardan iki harf: "salata" → "Sa"
+function initialsOf(category: string): string {
+  const s = category.replace(/[^a-z0-9]/gi, "");
+  return s ? s.charAt(0).toUpperCase() + s.charAt(1) : "•";
+}
 
 function hashSeed(seed: string): number {
   let hash = 0;

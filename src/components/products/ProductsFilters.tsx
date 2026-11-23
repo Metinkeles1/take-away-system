@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { type ProductCategory } from "@/types";
-import { MENU_CATEGORIES } from "@/data/menu";
+import { useMenuCategories } from "@/store/categoryStore";
 import { Input } from "@/components/ui/input";
 import { Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,7 @@ export function ProductsFilters({
   onCategoryChange,
   products,
 }: ProductsFiltersProps) {
+  const categories = useMenuCategories();
   // Her CategoryChip ayrı ayrı filter() çağırmasın — tek geçişte sayıları topla.
   const categoryCounts = useMemo(() => {
     const map = new Map<ProductCategory, number>();
@@ -68,7 +69,7 @@ export function ProductsFilters({
             isActive={activeCategory === "all"}
             onClick={() => onCategoryChange("all")}
           />
-          {MENU_CATEGORIES.map((cat) => {
+          {categories.map((cat) => {
             const count = categoryCounts.get(cat.value) ?? 0;
             return (
               <CategoryChip
