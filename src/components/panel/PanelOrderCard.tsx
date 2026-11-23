@@ -10,6 +10,7 @@ import { cn, formatCurrencyShort } from "@/lib/utils";
 import type { Order } from "@/types";
 import { TrendyolAccountBadge } from "@/components/orders/TrendyolAccountBadge";
 import { assignCourier, canDeliver, deliverOrder, releaseCourier } from "./orderActions";
+import { isPlatformOrder, PLATFORM_NAME } from "@/lib/orders/platform";
 
 const PAY_LABEL: Record<string, string> = {
   cash: "Nakit",
@@ -74,8 +75,11 @@ export function PanelOrderCard({
 
   const min = ageMinutes(order, now);
   const tone = ageTone(min, target);
-  const ty = order.source === "trendyol";
+  // Pazaryeri siparişi (Trendyol / Yemeksepeti): detay sayfası yok → kurye ekranına.
+  const ty = isPlatformOrder(order);
   const no = ty ? (order.orderCode ?? String(order.orderNumber)).slice(-5) : order.orderNumber;
+  const dot =
+    order.source === "trendyol" ? "bg-orange-500" : order.source === "yemeksepeti" ? "bg-red-500" : "bg-sky-500";
 
   const run = async (fn: () => Promise<{ ok: boolean; error?: string }>, okMsg: string) => {
     setBusy(true);
@@ -99,7 +103,7 @@ export function PanelOrderCard({
   };
 
   const deliverable = !!order.courier && canDeliver(order);
-  const waitsShipping = !!order.courier && !deliverable; // Trendyol, yola çıkmamış
+  const waitsShipping = !!order.courier && !deliverable; // pazaryeri, yola çıkmamış
 
   return (
     <div
@@ -125,8 +129,8 @@ export function PanelOrderCard({
         >
           <p className="flex items-center gap-1.5 text-sm leading-5">
             <span
-              className={cn("size-2 shrink-0 rounded-full", ty ? "bg-orange-500" : "bg-sky-500")}
-              title={ty ? "Trendyol" : "Telefon"}
+              className={cn("size-2 shrink-0 rounded-full", dot)}
+              title={ty ? PLATFORM_NAME[order.source] : "Telefon"}
             />
             <span className="font-semibold tabular-nums">#{no}</span>
             <TrendyolAccountBadge account={order.trendyolAccount} />

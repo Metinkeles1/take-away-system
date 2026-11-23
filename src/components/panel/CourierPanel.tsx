@@ -102,7 +102,7 @@ export function CourierPanel({
                 <p className="truncate text-xs text-muted-foreground">
                   {r.onRoad > 0 ? (
                     <>
-                      {r.carrying.map((o) => `#${o.source === "trendyol" ? (o.orderCode ?? String(o.orderNumber)).slice(-5) : o.orderNumber}`).join(" ")}
+                      {r.carrying.map((o) => `#${o.source === "trendyol" || o.source === "yemeksepeti" ? (o.orderCode ?? String(o.orderNumber)).slice(-5) : o.orderNumber}`).join(" ")}
                       <span className="text-muted-foreground/70">
                         {" "}· en eski {Math.max(0, Math.floor((now - new Date(r.carrying[0].createdAt).getTime()) / 60000))} dk
                       </span>

@@ -81,6 +81,41 @@ async function send(captures) {
   await chrome.storage.local.set(update);
 }
 
-chrome.runtime.onMessage.addListener((msg) => {
-  if (msg?.type === "ys-captures" && Array.isArray(msg.captures)) send(msg.captures);
+// ── Otomatik "yola çıktı" (v0.5) ─────────────────────────────────────────────
+async function api(path, init) {
+  const { serverUrl, token } = await chrome.storage.local.get(["serverUrl", "token"]);
+  if (!serverUrl || !token) return null;
+  const res = await fetch(`${serverUrl.replace(/\/+$/, "")}${path}`, {
+    ...init,
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+  });
+  return res.ok ? res.json().catch(() => ({})) : null;
+}
+
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.type === "ys-captures" && Array.isArray(msg.captures)) {
+    send(msg.captures);
+    return false;
+  }
+  if (msg?.type === "ys-dispatch-poll") {
+    api("/api/yemeksepeti/dispatch", { method: "GET" })
+      .then((json) => sendResponse({ jobs: json?.jobs ?? [] }))
+      .catch(() => sendResponse({ jobs: [] }));
+    return true; // yanıt asenkron
+  }
+  if (msg?.type === "ys-dispatch-result" && msg.result) {
+    api("/api/yemeksepeti/dispatch", {
+      method: "POST",
+      body: JSON.stringify({ type: "result", ...msg.result }),
+    }).catch(() => {});
+    return false;
+  }
+  if (msg?.type === "ys-learned" && msg.entry) {
+    api("/api/yemeksepeti/dispatch", {
+      method: "POST",
+      body: JSON.stringify({ type: "learned", ...msg.entry }),
+    }).catch(() => {});
+    return false;
+  }
+  return false;
 });

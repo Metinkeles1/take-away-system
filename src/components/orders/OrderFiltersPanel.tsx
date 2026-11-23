@@ -9,7 +9,7 @@ import { ORDER_STATUS_CONFIG } from "@/lib/orderStatus";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 export type OrderFilter = "all" | OrderStatus;
-export type ChannelFilter = "all" | "own" | "trendyol";
+export type ChannelFilter = "all" | "own" | "trendyol" | "yemeksepeti";
 // "open" = açık hesap (ödeme yönteminden bağımsız, paymentStatus'a bakar).
 // "door" = kapıda ödeme (para kuryeye verildi; yöntemden bağımsız).
 export type PaymentFilter = "all" | PaymentMethod | "open" | "door";
@@ -55,7 +55,8 @@ export function buildCourierOptions(orders: Order[]): { options: CourierOption[]
 // Para kapıda mı alındı? Trendyol'da eşlemedeki prepaid işaretine bakılır
 // (kapıda yemek kartı da "meal_card"); kendi siparişlerde online/IBAN hariç hepsi.
 export function isPaidAtDoor(o: Order): boolean {
-  if (o.source === "trendyol") return !(o.payment.prepaid ?? o.payment.method === "online");
+  if (o.source === "trendyol" || o.source === "yemeksepeti")
+    return !(o.payment.prepaid ?? o.payment.method === "online");
   return o.payment.method !== "online" && o.payment.method !== "iban";
 }
 
@@ -125,6 +126,7 @@ const CHANNEL_TABS: { key: ChannelFilter; label: string }[] = [
   { key: "all", label: "Hepsi" },
   { key: "own", label: "Kendi" },
   { key: "trendyol", label: "Trendyol" },
+  { key: "yemeksepeti", label: "Yemeksepeti" },
 ];
 const STATUS_TABS: { key: OrderFilter; label: string }[] = [
   { key: "all", label: "Tümü" },

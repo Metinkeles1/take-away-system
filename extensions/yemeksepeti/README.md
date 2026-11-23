@@ -1,8 +1,13 @@
 # Yemeksepeti Köprüsü (Chrome eklentisi)
 
 Kasadaki bilgisayarda Yemeksepeti partner paneli açıkken, panelin ekrana getirdiği
-sipariş verisini işletmenin kendi sistemine aktarır. Yemeksepeti'ye ek istek atmaz,
-şifre saklamaz, paneldeki hiçbir şeye tıklamaz (sadece okur).
+sipariş verisini işletmenin kendi sistemine aktarır. Şifre saklamaz.
+
+**Tek yazma işi (v0.5):** kurye sistemde "Yola çıktım" deyince, panelin kendi
+oturumuyla Yemeksepeti'ye "yola çıktı" bildirir (panelin butonunun yaptığı istek).
+Giriş anahtarı sadece sekmenin hafızasında kalır, hiçbir yere gönderilmez.
+Ayarlar → Yemeksepeti Köprüsü'nden kapatılabilir; denemeler orada kayıtlıdır.
+Kasada elle "yola çıktı"ya basıldığında panelin gönderdiği içerik öğrenilir.
 
 ## Gerekenler
 - Kasada Google Chrome (veya Edge).

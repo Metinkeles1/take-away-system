@@ -24,7 +24,7 @@ import { useNewOrderAlert } from "./useNewOrderAlert";
 // Uzun listeler yalnız kendi kutusunda kayar. Dar ekranda sekmelere bölünür.
 // Veri sayfadan (src/app/page.tsx) gelir; bu bileşen yalnız ekranı çizer.
 
-type Channel = "all" | "manual" | "trendyol";
+type Channel = "all" | "manual" | "trendyol" | "yemeksepeti";
 type MobileTab = "waiting" | "assigned" | "couriers";
 
 const DEFAULT_TARGET = 35;
@@ -55,18 +55,23 @@ export function PanelView({
 
   const all = useMemo<Order[]>(() => {
     if (!board) return [];
-    return [...board.orders, ...board.trendyolOrders]
+    return [...board.orders, ...board.trendyolOrders, ...(board.yemeksepetiOrders ?? [])]
       .filter((o) => o.status === "pending" || o.status === "preparing" || o.status === "on-the-way")
       .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()); // en eski üstte
   }, [board]);
 
   const filtered = all.filter((o) =>
-    channel === "all" ? true : channel === "trendyol" ? o.source === "trendyol" : o.source !== "trendyol",
+    channel === "all"
+      ? true
+      : channel === "manual"
+        ? o.source !== "trendyol" && o.source !== "yemeksepeti"
+        : o.source === channel,
   );
   const waiting = filtered.filter((o) => !o.courier && o.status !== "on-the-way");
   const assigned = filtered.filter((o) => o.courier || o.status === "on-the-way");
   const lateCount = all.filter((o) => ageTone(ageMinutes(o, now), target) === "late").length;
   const tyCount = all.filter((o) => o.source === "trendyol").length;
+  const ysCount = all.filter((o) => o.source === "yemeksepeti").length;
 
   const syncTrendyol = async () => {
     setSyncing(true);
@@ -206,6 +211,7 @@ export function PanelView({
                   ["all", "Hepsi"],
                   ["manual", "Telefon"],
                   ["trendyol", `Trendyol${tyCount ? ` ${tyCount}` : ""}`],
+                  ["yemeksepeti", `Yemeksepeti${ysCount ? ` ${ysCount}` : ""}`],
                 ] as const
               ).map(([k, l]) => (
                 <button

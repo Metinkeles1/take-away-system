@@ -66,6 +66,8 @@ const SOURCE_BADGE: Record<
 
 // Trendyol arşiv siparişi (getTrendyolOrdersForList) — salt okunur.
 export const TRENDYOL_ARCHIVE_ID_PREFIX = "tyarch-";
+// Yemeksepeti siparişi (getYemeksepetiOrdersForList) — salt okunur, detay sayfası yok.
+export const YEMEKSEPETI_ARCHIVE_ID_PREFIX = "ysarch-";
 
 interface OrderListCardProps {
   order: Order;
@@ -88,8 +90,12 @@ function OrderListCardImpl({
   const isNavigating = isPending && navigating;
   const sourceBadge = order.source ? SOURCE_BADGE[order.source] : null;
   const isTrendyol = order.source === "trendyol";
-  // Arşivden gelen Trendyol siparişi: durum Trendyol'da yönetilir → menü yok.
-  const isArchived = order.id.startsWith(TRENDYOL_ARCHIVE_ID_PREFIX);
+  const isYs = order.source === "yemeksepeti";
+  // Köşe şeritli pazaryeri kartı (Trendyol turuncu, Yemeksepeti kırmızı).
+  const isMarket = isTrendyol || isYs;
+  // Arşivden gelen pazaryeri siparişi: durum platformda yönetilir → menü yok.
+  const isYsArchived = order.id.startsWith(YEMEKSEPETI_ARCHIVE_ID_PREFIX);
+  const isArchived = order.id.startsWith(TRENDYOL_ARCHIVE_ID_PREFIX) || isYsArchived;
   const isActive =
     order.status === "pending" ||
     order.status === "preparing" ||
@@ -109,14 +115,15 @@ function OrderListCardImpl({
         "py-0 transition-all hover:shadow-md hover:border-foreground/20 overflow-hidden relative",
         isTrendyol &&
           "bg-linear-to-r from-orange-50/70 via-white to-white border-orange-200/80",
+        isYs && "bg-linear-to-r from-red-50/70 via-white to-white border-red-200/80",
       )}
     >
       {/* Sol kenar şeridi — Trendyol için kalın yeşil, diğerleri için status rengi */}
       <div
         className={cn(
           "absolute left-0 top-0 bottom-0",
-          isTrendyol ? "w-1.5 bg-orange-600" : "w-1",
-          !isTrendyol && config.accent,
+          isTrendyol ? "w-1.5 bg-orange-600" : isYs ? "w-1.5 bg-red-600" : "w-1",
+          !isMarket && config.accent,
         )}
       />
 
@@ -134,6 +141,17 @@ function OrderListCardImpl({
           </span>
         </div>
       )}
+      {isYs && (
+        <div
+          className="absolute top-0 right-0 z-10 flex items-center gap-1.5 rounded-bl-xl bg-red-600 px-2.5 py-1 text-white shadow-sm"
+          title="Yemeksepeti siparişi"
+        >
+          <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-white text-[10px] font-black text-red-700">
+            Y
+          </span>
+          <span className="text-[10px] font-bold uppercase tracking-wider">Yemeksepeti</span>
+        </div>
+      )}
 
       <CardContent className="flex flex-col md:flex-row md:items-stretch gap-3 md:gap-4 p-4 pl-5">
         {/* Sol: sipariş + müşteri. Üst satırda yalnız kimlik + uyarılar (renkli);
@@ -141,7 +159,7 @@ function OrderListCardImpl({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-bold text-lg leading-none tabular-nums">
-              #{order.orderNumber}
+              #{isYs ? (order.orderCode ?? order.orderNumber) : order.orderNumber}
             </span>
             <span
               className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${config.color}`}
@@ -152,7 +170,7 @@ function OrderListCardImpl({
             {/* Trendyol işletmesi (2+ hesap varken). */}
             <TrendyolAccountBadge account={order.trendyolAccount} />
             {/* Trendyol köşe şeridiyle zaten belli; diğer pazaryerleri rozetle. */}
-            {sourceBadge && !isTrendyol && (
+            {sourceBadge && !isMarket && (
               <span
                 className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${sourceBadge.className}`}
               >
@@ -210,7 +228,7 @@ function OrderListCardImpl({
                 <span className="capitalize">· {order.payment.mealCardBrand}</span>
               )}
               {/* Trendyol: para kapıda mı alındı, online mı ödendi — tek bakışta. */}
-              {order.source === "trendyol" && (
+              {isMarket && (
                 <span
                   className={cn(
                     "rounded px-1.5 py-0.5 text-[10px] font-bold",
@@ -304,7 +322,7 @@ function OrderListCardImpl({
           className={cn(
             "flex md:flex-col items-end justify-between md:justify-center gap-2 md:gap-2 md:border-l md:pl-4 md:min-w-45",
             // Köşe şeridi tutarın üstüne binmesin.
-            isTrendyol && "md:pt-5",
+            isMarket && "md:pt-5",
           )}
         >
           <div className="flex flex-col md:items-end">
@@ -342,6 +360,7 @@ function OrderListCardImpl({
                 </SelectContent>
               </Select>
             )}
+            {!isYsArchived && (
             <Button
               variant="outline"
               size="sm"
@@ -369,6 +388,7 @@ function OrderListCardImpl({
                 </>
               )}
             </Button>
+            )}
           </div>
         </div>
       </CardContent>

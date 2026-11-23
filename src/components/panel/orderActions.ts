@@ -1,42 +1,39 @@
 import { handOverCourierCash, type CourierCashOrder } from "@/actions/courierCash";
 import { setOrderCourier } from "@/actions/courier";
 import { updateOrderStatus } from "@/actions/orders";
-import {
-  claimTrendyolPackage,
-  deliverTrendyolCourierPackage,
-  takeOverTrendyolPackage,
-  unclaimTrendyolPackage,
-} from "@/actions/trendyolCourier";
+import { platformOps } from "@/lib/orders/platform";
 import type { Order } from "@/types";
 
-// Panelden sipariş işlemleri — kendi siparişimiz ile Trendyol paketi farklı
-// action'lara gider; kart bu ayrımı bilmesin diye burada toplanır.
+// Panelden sipariş işlemleri — kendi siparişimiz ile pazaryeri (Trendyol /
+// Yemeksepeti) siparişi farklı action'lara gider; kart bu ayrımı bilmesin diye
+// burada toplanır.
 type Result = { ok: boolean; error?: string };
 
-const isTy = (o: Order) => o.source === "trendyol" && !!o.externalRef;
+const opsOf = (o: Order) => (o.externalRef ? platformOps(o) : null);
 
 export async function assignCourier(o: Order, name: string): Promise<Result> {
-  if (isTy(o)) {
-    return o.courier
-      ? takeOverTrendyolPackage(o.externalRef!, name, o.courier)
-      : claimTrendyolPackage(o.externalRef!, name);
+  const ops = opsOf(o);
+  if (ops) {
+    return o.courier ? ops.takeOver(o.externalRef!, name, o.courier) : ops.claim(o.externalRef!, name);
   }
   // Kendi siparişimizde son söz yöneticide — doğrudan yazılır.
   return setOrderCourier(o.id, name);
 }
 
 export async function releaseCourier(o: Order): Promise<Result> {
-  if (isTy(o)) return o.courier ? unclaimTrendyolPackage(o.externalRef!, o.courier) : { ok: true };
+  const ops = opsOf(o);
+  if (ops) return o.courier ? ops.unclaim(o.externalRef!, o.courier) : { ok: true };
   return setOrderCourier(o.id, null);
 }
 
-// Trendyol paketi ancak kurye "yola çıktım" dedikten sonra teslim edilebilir.
+// Pazaryeri siparişi ancak kurye "yola çıktım" dedikten sonra teslim edilebilir.
 export function canDeliver(o: Order): boolean {
-  return !isTy(o) || o.status === "on-the-way";
+  return !opsOf(o) || o.status === "on-the-way";
 }
 
 export async function deliverOrder(o: Order): Promise<Result> {
-  if (isTy(o)) return deliverTrendyolCourierPackage(o.externalRef!, o.courier);
+  const ops = opsOf(o);
+  if (ops) return ops.deliver(o.externalRef!, o.courier);
   return updateOrderStatus(o.id, "delivered", o.courier);
 }
 

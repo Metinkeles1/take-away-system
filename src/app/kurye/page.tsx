@@ -39,15 +39,13 @@ import {
   claimManyOrders,
   takeOverOrder,
 } from "@/actions/courier";
+import { syncTrendyolCourierPackages } from "@/actions/trendyolCourier";
 import {
-  syncTrendyolCourierPackages,
-  deliverTrendyolCourierPackage,
-  claimTrendyolPackage,
-  unclaimTrendyolPackage,
-  claimManyTrendyolPackages,
-  shipTrendyolCourierPackage,
-  takeOverTrendyolPackage,
-} from "@/actions/trendyolCourier";
+  isPlatformOrder,
+  platformOps,
+  splitByPlatform,
+  PLATFORM_NAME,
+} from "@/lib/orders/platform";
 import { getActiveCouriers, type Courier } from "@/actions/couriers";
 import { type ShopLocation, type ShopIban } from "@/actions/settings";
 import { setOrderPaymentMethod, setOrderPaymentSplit } from "@/actions/orders";
@@ -148,18 +146,18 @@ const PAYMENT_LABEL: Record<
   },
 };
 
-// Trendyol siparişi online ödenmiş mi (kurye tahsilat yapmaz)? Kapıda yemek
-// kartı da "meal_card" olduğundan yönteme değil eşlemedeki prepaid işaretine
-// bakılır. İşaretsiz eski kayıtta yalnızca "online" ön ödemeli sayılır.
+// Pazaryeri (Trendyol / Yemeksepeti) siparişi online ödenmiş mi (kurye tahsilat
+// yapmaz)? Kapıda yemek kartı da "meal_card" olduğundan yönteme değil eşlemedeki
+// prepaid işaretine bakılır. İşaretsiz eski kayıtta yalnızca "online" ön ödemeli.
 function isTrendyolPrepaid(o: Order): boolean {
-  return o.source === "trendyol" && (o.payment.prepaid ?? o.payment.method === "online");
+  return isPlatformOrder(o) && (o.payment.prepaid ?? o.payment.method === "online");
 }
 
-// Trendyol'da yöntem adının yanına kanal: "Kapıda Nakit" / "Online · Yemek Kartı".
+// Pazaryerinde yöntem adının yanına kanal: "Kapıda Nakit" / "Online · Yemek Kartı".
 // Kendi siparişlerimizde yalın yöntem adı.
 function payLabelFor(o: Order): string | undefined {
   const base = PAYMENT_LABEL[o.payment.method]?.label;
-  if (!base || o.source !== "trendyol") return base;
+  if (!base || !isPlatformOrder(o)) return base;
   if (isTrendyolPrepaid(o)) return o.payment.method === "online" ? "Online ödendi" : `Online · ${base}`;
   return `Kapıda ${base}`;
 }
@@ -303,12 +301,24 @@ function buildWhatsAppUrl(
       ? splitLabel(o.payment.split)
       : (payLabelFor(o) ?? "Ödeme");
   // Trendyol siparişi ise grupta net ayrılsın diye başına etiket koy.
-  const tag = o.source === "trendyol" ? "🛍️ Trendyol · " : "";
+  const tag =
+    o.source === "trendyol" ? "🛍️ Trendyol · " : o.source === "yemeksepeti" ? "🍽️ Yemeksepeti · " : "";
   let text = `${tag}${fullAddress(o)} — ${payLabel} — Teslim edildi`;
   if (settledDebt && settledDebt.count > 0) {
     text += ` + ${settledDebt.count} eski hesap tahsil edildi (${formatCurrency(settledDebt.total)})`;
   }
   return `whatsapp://send?text=${encodeURIComponent(text)}`;
+}
+
+// Toplu üstlenme: kendi siparişler tek çağrıda, her pazaryeri kendi çağrısında
+// (paralel). Hepsi başarılıysa true.
+async function claimManySplit(list: Order[], courier: string): Promise<boolean> {
+  const { own, platform } = splitByPlatform(list);
+  const results = await Promise.all([
+    own.length ? claimManyOrders(own, courier) : Promise.resolve({ ok: true }),
+    ...platform.map((p) => p.ops.claimMany(p.refs, courier)),
+  ]);
+  return results.every((r) => r.ok);
 }
 
 // IBAN'ı 4'erli gruplayarak okunur biçimde gösterir (TR00 0000 ...). Sadece görsel.
@@ -545,8 +555,8 @@ export default function KuryePage() {
   const [planMapOpen, setPlanMapOpen] = useState(false);
   // Başlıktaki "Rota" girişiyle açılan alt sheet (tüm rota / haritadan planla).
   const [routeSheetOpen, setRouteSheetOpen] = useState(false);
-  // Trendyol siparişleri — paylaşımlı depodan (TrendyolCourierPackage) load() ile
-  // gelir. Depoyu "çek" butonu veya otomatik çekme (useTrendyolAutoSync) doldurur.
+  // Pazaryeri siparişleri (Trendyol + Yemeksepeti) — load() ile gelir. Trendyol
+  // deposunu "çek"/otomatik çekme, Yemeksepeti'yi kasadaki eklenti doldurur.
   const [trendyolOrders, setTrendyolOrders] = useState<Order[]>([]);
   useTrendyolAutoSync();
   const [trendyolError, setTrendyolError] = useState<string | null>(null);
@@ -588,6 +598,7 @@ export default function KuryePage() {
       const {
         orders: data,
         trendyolOrders: ty,
+        yemeksepetiOrders: ys,
         multiCourierMode: mode,
         shopLocation: shop,
         shopIban: iban,
@@ -600,7 +611,9 @@ export default function KuryePage() {
         setOrders(data);
         // Trendyol siparişleri artık paylaşımlı depodan gelir → her kuryenin
         // ekranında görünür. Sync (buton) Pusher yaydığı için otomatik tazelenir.
-        setTrendyolOrders(ty);
+        // Yemeksepeti siparişleri de aynı listeye: ikisi de pazaryeri siparişi,
+        // işlemleri kaynağa göre platformOps seçer.
+        setTrendyolOrders([...ty, ...(ys ?? [])]);
       }
       setMultiCourierMode(mode);
       setShopLocation(shop);
@@ -874,15 +887,13 @@ export default function KuryePage() {
       settledDebt: settleOpenAccounts ? o.customerOpenAccounts : null,
     });
 
-    // Trendyol siparişi: DB değil, Trendyol API'ye manual-delivered atılır.
-    // Başarılıysa listeden düşer ve (kendi siparişlerdeki gibi) WhatsApp açılır.
-    if (o.source === "trendyol") {
+    // Pazaryeri siparişi: Trendyol'da API'ye manual-delivered, Yemeksepeti'de
+    // kendi kaydımıza teslim. Başarılıysa listeden düşer ve WhatsApp açılır.
+    const ops = platformOps(o);
+    if (ops) {
       try {
-        const res = await deliverTrendyolCourierPackage(
-          o.externalRef ?? "",
-          courier ?? undefined,
-        );
-        if (!res.ok) throw new Error(res.error || "Trendyol teslim güncellenemedi");
+        const res = await ops.deliver(o.externalRef ?? "", courier ?? undefined);
+        if (!res.ok) throw new Error(res.error || "Teslim güncellenemedi");
         setTrendyolOrders((prev) => prev.filter((x) => x.id !== o.id));
         setConfirming(false);
         setSettleDebt(false);
@@ -893,7 +904,7 @@ export default function KuryePage() {
         a.remove();
       } catch (err) {
         setDeliverError(
-          err instanceof Error ? err.message : "Trendyol teslim kaydedilemedi.",
+          err instanceof Error ? err.message : "Teslim kaydedilemedi.",
         );
       } finally {
         setDeliveringId(null);
@@ -953,10 +964,9 @@ export default function KuryePage() {
     setShippingId(o.id);
     setDeliverError(null);
     try {
-      const res = await shipTrendyolCourierPackage(
-        o.externalRef ?? "",
-        courier ?? undefined,
-      );
+      const ops = platformOps(o);
+      if (!ops) return;
+      const res = await ops.ship(o.externalRef ?? "", courier ?? undefined);
       if (!res.ok) {
         setDeliverError(res.error ?? "Yola çıkış kaydedilemedi");
         return;
@@ -1130,20 +1140,20 @@ export default function KuryePage() {
 
     markClaiming(o.id, true);
     beginMutation();
-    const isTrendyol = o.source === "trendyol";
-    // Optimistic — Trendyol ayrı state'te tutulur, kendi siparişler orders'ta.
-    const setter = isTrendyol ? setTrendyolOrders : setOrders;
+    const ops = platformOps(o);
+    // Optimistic — pazaryeri siparişleri ayrı state'te, kendi siparişler orders'ta.
+    const setter = ops ? setTrendyolOrders : setOrders;
     setter((prev) =>
       prev.map((x) =>
         x.id === o.id ? { ...x, courier: mine ? undefined : courier } : x,
       ),
     );
-    // Trendyol claim'i packageId (externalRef) ile; kendi siparişler doc id ile.
+    // Pazaryeri claim'i externalRef ile; kendi siparişler doc id ile.
     const ref = o.externalRef ?? "";
-    const res = isTrendyol
+    const res = ops
       ? mine
-        ? await unclaimTrendyolPackage(ref, courier)
-        : await claimTrendyolPackage(ref, courier)
+        ? await ops.unclaim(ref, courier)
+        : await ops.claim(ref, courier)
       : mine
         ? await unclaimOrder(o.id, courier)
         : await claimOrder(o.id, courier);
@@ -1165,11 +1175,11 @@ export default function KuryePage() {
     markClaiming(o.id, true);
     beginMutation();
     setClaimError(null);
-    const isTrendyol = o.source === "trendyol";
-    const setter = isTrendyol ? setTrendyolOrders : setOrders;
+    const ops = platformOps(o);
+    const setter = ops ? setTrendyolOrders : setOrders;
     setter((prev) => prev.map((x) => (x.id === o.id ? { ...x, courier } : x)));
-    const res = isTrendyol
-      ? await takeOverTrendyolPackage(o.externalRef ?? "", courier, from)
+    const res = ops
+      ? await ops.takeOver(o.externalRef ?? "", courier, from)
       : await takeOverOrder(o.id, courier, from);
     endMutation();
     markClaiming(o.id, false);
@@ -1197,25 +1207,11 @@ export default function KuryePage() {
     setTrendyolOrders((prev) =>
       prev.map((x) => (x.courier ? x : { ...x, courier })),
     );
-    // Kaynağa göre böl: kendi siparişler doc id, Trendyol packageId (externalRef).
-    const dbIds = free
-      .filter((o) => o.source !== "trendyol")
-      .map((o) => o.id);
-    const tyIds = free
-      .filter((o) => o.source === "trendyol")
-      .map((o) => o.externalRef ?? "")
-      .filter(Boolean);
+    // Kaynağa göre böl: kendi siparişler doc id, pazaryerleri externalRef.
     beginMutation();
-    const [r1, r2] = await Promise.all([
-      dbIds.length
-        ? claimManyOrders(dbIds, courier)
-        : Promise.resolve({ ok: true }),
-      tyIds.length
-        ? claimManyTrendyolPackages(tyIds, courier)
-        : Promise.resolve({ ok: true }),
-    ]);
+    const ok = await claimManySplit(free, courier);
     endMutation();
-    if (!r1.ok || !r2.ok) await load(); // çakışma/başarısızlık → gerçek duruma
+    if (!ok) await load(); // çakışma/başarısızlık → gerçek duruma
   };
 
   // Haritadan seçilen paketleri tek seferde üstlen (optimistic + tek bulk çağrı).
@@ -1230,24 +1226,10 @@ export default function KuryePage() {
     setTrendyolOrders((prev) =>
       prev.map((x) => (idSet.has(x.id) && !x.courier ? { ...x, courier } : x)),
     );
-    const dbIds = picked
-      .filter((o) => o.source !== "trendyol")
-      .map((o) => o.id);
-    const tyIds = picked
-      .filter((o) => o.source === "trendyol")
-      .map((o) => o.externalRef ?? "")
-      .filter(Boolean);
     beginMutation();
-    const [r1, r2] = await Promise.all([
-      dbIds.length
-        ? claimManyOrders(dbIds, courier)
-        : Promise.resolve({ ok: true }),
-      tyIds.length
-        ? claimManyTrendyolPackages(tyIds, courier)
-        : Promise.resolve({ ok: true }),
-    ]);
+    const ok = await claimManySplit(picked, courier);
     endMutation();
-    if (!r1.ok || !r2.ok) await load();
+    if (!ok) await load();
   };
 
   // Hibrit "Konumu Pinle": önce GPS dene. İYİ doğruluk gelirse otomatik kaydet
@@ -1646,9 +1628,9 @@ export default function KuryePage() {
                 >
                   <Navigation className="h-5 w-5 fill-white" /> Git
                 </a>
-                {/* Trendyol + henüz yola çıkmamış → önce "Yola çıktım" (manual-shipped).
+                {/* Pazaryeri + henüz yola çıkmamış → önce "Yola çıktım".
                     Yola çıkınca (status on-the-way) normal "Teslim" adımı açılır. */}
-                {current.source === "trendyol" &&
+                {isPlatformOrder(current) &&
                 current.status !== "on-the-way" ? (
                   <button
                     onClick={() => void handleShipTrendyol(current)}
@@ -1684,9 +1666,9 @@ export default function KuryePage() {
               </>
             ) : (
               <div className="flex w-full flex-col gap-2">
-                {/* Trendyol: teslim anında ödeme türü belirgin. Kapıda → tutar ve
+                {/* Pazaryeri: teslim anında ödeme türü belirgin. Kapıda → tutar ve
                     yöntemle "tahsil et" uyarısı; online → tahsilat yok. */}
-                {current.source === "trendyol" &&
+                {isPlatformOrder(current) &&
                   (isTrendyolPrepaid(current) ? (
                     <div className="flex items-center gap-2 rounded-2xl bg-emerald-50 px-3 py-2.5 text-sm font-semibold text-emerald-800 ring-1 ring-emerald-200">
                       <CheckCircle2 className="h-5 w-5 shrink-0" />
@@ -1764,7 +1746,7 @@ export default function KuryePage() {
                         <>
                           <span className="flex items-center gap-2 text-base font-bold">
                             <CheckCircle2 className="h-5 w-5" />{" "}
-                            {current.source !== "trendyol"
+                            {!isPlatformOrder(current)
                               ? "Ödeme Alındı & Teslim"
                               : isTrendyolPrepaid(current)
                                 ? "Teslim Et"
@@ -1778,7 +1760,7 @@ export default function KuryePage() {
                     </button>
                     {/* Açık hesap yolu yalnızca kendi siparişlerimizde — Trendyol
                         siparişleri DB'de olmadığı için açık hesap uygulanmaz. */}
-                    {current.source !== "trendyol" && (
+                    {!isPlatformOrder(current) && (
                     <button
                       onClick={() => void handleDeliver(current, true)}
                       disabled={deliveringId === current.id}
@@ -2307,10 +2289,17 @@ function PoolList({
                 <span className="shrink-0 text-sm font-bold text-slate-900">
                   #{displayOrderNo(o)}
                 </span>
-                {o.source === "trendyol" && (
-                  <span className="inline-flex items-center gap-1 rounded-md bg-orange-100 px-1.5 py-0.5 text-[10px] font-bold text-orange-700">
+                {isPlatformOrder(o) && (
+                  <span
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-bold",
+                      o.source === "yemeksepeti"
+                        ? "bg-red-100 text-red-700"
+                        : "bg-orange-100 text-orange-700",
+                    )}
+                  >
                     <Store className="h-3 w-3" />
-                    Trendyol
+                    {PLATFORM_NAME[o.source]}
                   </span>
                 )}
                 {pay && (
@@ -2409,7 +2398,8 @@ function OrderCard({
   const itemCount = o.items.reduce((s, i) => s + i.quantity, 0);
   // Trendyol siparişi: konum API'den gelir (pinleme yok), ödeme Trendyol'da
   // belirlenmiştir (kurye değiştiremez), claim/açık hesap uygulanmaz.
-  const isTrendyol = o.source === "trendyol";
+  const isTrendyol = isPlatformOrder(o);
+  const isYs = o.source === "yemeksepeti";
   // Online ödenen (kart/yemek kartı online) Trendyol siparişlerinde kurye tahsilat
   // YAPMAZ; kapıda ödemede (nakit/kart/yemek kartı) yapar. Kapıda yemek kartı da
   // "meal_card" olduğundan yönteme değil eşlemedeki prepaid işaretine bakılır.
@@ -2444,7 +2434,7 @@ function OrderCard({
           <span
             className={cn(
               "h-5 w-1 rounded-full",
-              isTrendyol ? "bg-orange-400" : "bg-lime-400",
+              isYs ? "bg-red-400" : isTrendyol ? "bg-orange-400" : "bg-lime-400",
             )}
           />
           #{displayOrderNo(o)}
@@ -2453,8 +2443,11 @@ function OrderCard({
             süre rozetini dışarı itiyordu. Turuncu şerit de kanalı belli eder. */}
         {isTrendyol && (
           <span
-            title="Trendyol"
-            className="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-orange-500/20 text-orange-300"
+            title={PLATFORM_NAME[o.source as keyof typeof PLATFORM_NAME]}
+            className={cn(
+              "grid h-6 w-6 shrink-0 place-items-center rounded-lg",
+              isYs ? "bg-red-500/20 text-red-300" : "bg-orange-500/20 text-orange-300",
+            )}
           >
             <Store className="h-3.5 w-3.5" />
           </span>
@@ -2542,8 +2535,15 @@ function OrderCard({
                 </span>
               )}
               {isTrendyol ? (
-                <span className="inline-flex items-center gap-1 rounded-lg bg-orange-50 px-2 py-0.5 text-xs font-semibold text-orange-700 ring-1 ring-orange-100">
-                  <Store className="h-3 w-3" /> Trendyol konumu
+                <span
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded-lg px-2 py-0.5 text-xs font-semibold ring-1",
+                    isYs
+                      ? "bg-red-50 text-red-700 ring-red-100"
+                      : "bg-orange-50 text-orange-700 ring-orange-100",
+                  )}
+                >
+                  <Store className="h-3 w-3" /> {isYs ? "Yemeksepeti" : "Trendyol"} konumu
                 </span>
               ) : hasPin ? (
                 <button

@@ -3,6 +3,12 @@
 import { connectDB } from "@/lib/mongodb";
 import YemeksepetiOrderModel from "@/models/YemeksepetiOrder";
 import YemeksepetiCaptureModel from "@/models/YemeksepetiCapture";
+import {
+  isAutoDispatchEnabled,
+  setAutoDispatchEnabled,
+  listDispatchLogs,
+  type DispatchLogRow,
+} from "@/lib/yemeksepeti/dispatch";
 
 export type YemeksepetiBridgeStatus = {
   configured: boolean; // sunucuda bağlantı anahtarı tanımlı mı
@@ -31,5 +37,32 @@ export async function getYemeksepetiBridgeStatus(): Promise<YemeksepetiBridgeSta
   } catch (err) {
     console.warn("[yemeksepeti status]", err);
     return { configured, orderCount: 0, lastDataAt: null };
+  }
+}
+
+// ─── Otomatik "yola çıktı" kayıtları (Ayarlar → Yemeksepeti Köprüsü) ─────────
+
+export type { DispatchLogRow };
+
+export async function getYemeksepetiDispatchState(): Promise<{
+  enabled: boolean;
+  logs: DispatchLogRow[];
+}> {
+  try {
+    const [enabled, logs] = await Promise.all([isAutoDispatchEnabled(), listDispatchLogs(60)]);
+    return { enabled, logs };
+  } catch (err) {
+    console.warn("[yemeksepeti dispatch logs]", err);
+    return { enabled: true, logs: [] };
+  }
+}
+
+export async function setYemeksepetiAutoDispatch(on: boolean): Promise<{ ok: boolean }> {
+  try {
+    await setAutoDispatchEnabled(on);
+    return { ok: true };
+  } catch (err) {
+    console.error("[yemeksepeti auto dispatch]", err);
+    return { ok: false };
   }
 }

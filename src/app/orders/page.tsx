@@ -28,6 +28,7 @@ import {
 import { OrdersList } from "@/components/orders/OrdersList";
 import { useOrdersSync } from "@/hooks/useOrdersSync";
 import { getTrendyolOrdersForList } from "@/actions/trendyolArchive";
+import { getYemeksepetiOrdersForList } from "@/actions/yemeksepetiCourier";
 import { TrendyolOrderSheet } from "@/components/dashboard/komuta/TrendyolOrderSheet";
 
 // Trendyol listesi arka planda bu aralıkla tazelenir (arşiv kendi içinde en
@@ -79,9 +80,13 @@ export default function OrdersPage() {
   );
   useEffect(() => {
     let alive = true;
+    // Trendyol arşivi + Yemeksepeti kayıtları (eklentinin yazdığı) birlikte.
     const load = () =>
-      getTrendyolOrdersForList(ordersPeriod).then((r) => {
-        if (alive) setTyFetched({ period: ordersPeriod, orders: r });
+      Promise.all([
+        getTrendyolOrdersForList(ordersPeriod).catch(() => [] as Order[]),
+        getYemeksepetiOrdersForList(ordersPeriod).catch(() => [] as Order[]),
+      ]).then(([ty, ys]) => {
+        if (alive) setTyFetched({ period: ordersPeriod, orders: [...ty, ...ys] });
       });
     load();
     const t = setInterval(load, TY_REFRESH_MS);
@@ -90,19 +95,23 @@ export default function OrdersPage() {
       clearInterval(t);
     };
   }, [ordersPeriod]);
-  const tyOrders = useMemo(
+  // Pazaryeri siparişleri (Trendyol + Yemeksepeti), salt okunur.
+  const marketOrders = useMemo(
     () => (tyFetched?.period === ordersPeriod ? tyFetched.orders : []),
     [tyFetched, ordersPeriod],
   );
+  const tyOrders = useMemo(() => marketOrders.filter((o) => o.source === "trendyol"), [marketOrders]);
+  const ysOrders = useMemo(() => marketOrders.filter((o) => o.source === "yemeksepeti"), [marketOrders]);
 
   // Kanal filtresi + yeni→eski birleşik liste (+ seçili tarih aralığı).
   const orders = useMemo(() => {
     let list: Order[];
     if (channel === "own") list = ownOrders;
     else if (channel === "trendyol") list = tyOrders;
-    else if (tyOrders.length === 0) list = ownOrders;
+    else if (channel === "yemeksepeti") list = ysOrders;
+    else if (marketOrders.length === 0) list = ownOrders;
     else
-      list = [...ownOrders, ...tyOrders].sort(
+      list = [...ownOrders, ...marketOrders].sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
       );
     if (!dateRange) return list;
@@ -111,7 +120,7 @@ export default function OrdersPage() {
       const t = new Date(o.createdAt).getTime();
       return t >= start && t < end;
     });
-  }, [channel, ownOrders, tyOrders, dateRange]);
+  }, [channel, ownOrders, tyOrders, ysOrders, marketOrders, dateRange]);
   const [filter, setFilter] = useState<OrderFilter>("all");
   const [payFilter, setPayFilter] = useState<PaymentFilter>("all");
   const [courierFilter, setCourierFilter] = useState<CourierFilter>("all");
@@ -230,8 +239,12 @@ export default function OrdersPage() {
           <p className="mt-0.5 text-xs sm:text-sm text-muted-foreground">
             {dateRange ? dateRangeLabel(dateRange) : PERIOD_LABEL[ordersPeriod]} ·{" "}
             {orders.length} sipariş
-            {channel === "all" && tyOrders.length > 0 && (
-              <> (Kendi {ownOrders.length} · Trendyol {tyOrders.length})</>
+            {channel === "all" && marketOrders.length > 0 && (
+              <>
+                {" "}(Kendi {ownOrders.length}
+                {tyOrders.length > 0 && <> · Trendyol {tyOrders.length}</>}
+                {ysOrders.length > 0 && <> · Yemeksepeti {ysOrders.length}</>})
+              </>
             )}
             {(filter !== "all" || payFilter !== "all" || courierFilter !== "all" || search.trim()) && (
               <>

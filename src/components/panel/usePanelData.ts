@@ -22,6 +22,7 @@ async function getJson<T>(url: string): Promise<T> {
 export interface PanelBoard {
   orders: Order[];
   trendyolOrders: Order[];
+  yemeksepetiOrders?: Order[];
   multiCourierMode: boolean;
 }
 

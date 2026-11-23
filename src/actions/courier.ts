@@ -22,6 +22,7 @@ import {
 import { getAddressBook, geoForCustomer } from "@/lib/customers/geoByPhone";
 import { saveAddressGeo } from "@/lib/customers/recordAddress";
 import { getStoredTrendyolCourierOrders } from "@/actions/trendyolCourier";
+import { getActiveYemeksepetiOrders } from "@/actions/yemeksepetiCourier";
 
 // Kurye sayfası için teslim edilmesi gereken siparişler.
 // Sadece aktif (teslim/iptal olmamış) siparişleri döner — public sayfa olduğu
@@ -254,6 +255,8 @@ export async function claimManyOrders(
 export async function getCourierBoard(): Promise<{
   orders: Order[];
   trendyolOrders: Order[];
+  // Yemeksepeti siparişleri (eklentinin yazdığı YemeksepetiOrder'dan, sadece Mongo).
+  yemeksepetiOrders: Order[];
   multiCourierMode: boolean;
   shopLocation: ShopLocation | null;
   shopIban: ShopIban | null;
@@ -265,6 +268,7 @@ export async function getCourierBoard(): Promise<{
   const [
     orders,
     trendyolOrders,
+    yemeksepetiOrders,
     multiCourierMode,
     shopLocation,
     shopIban,
@@ -273,6 +277,7 @@ export async function getCourierBoard(): Promise<{
   ] = await Promise.all([
     getCourierOrders(),
     getStoredTrendyolCourierOrders(),
+    getActiveYemeksepetiOrders(),
     getMultiCourierMode(),
     getShopLocation(),
     getShopIban(),
@@ -282,6 +287,7 @@ export async function getCourierBoard(): Promise<{
   return {
     orders,
     trendyolOrders,
+    yemeksepetiOrders,
     multiCourierMode,
     shopLocation,
     shopIban,

@@ -1,6 +1,7 @@
 import { connectDB } from "@/lib/mongodb";
 import YemeksepetiOrderModel from "@/models/YemeksepetiOrder";
 import YemeksepetiCaptureModel from "@/models/YemeksepetiCapture";
+import { notifyOrdersChanged } from "@/lib/pusher/server";
 
 // Eklentiden gelen tek bir yakalama (panelin aldığı bir yanıt).
 export type YsCapture = {
@@ -25,6 +26,15 @@ const date = (v: unknown): Date | undefined => {
   return Number.isNaN(d.getTime()) ? undefined : d;
 };
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+function parseBody(v: unknown): unknown {
+  if (typeof v !== "string") return v;
+  try {
+    return JSON.parse(v);
+  } catch {
+    return v;
+  }
+}
 
 function dig(o: unknown, ...path: string[]): unknown {
   let cur = o;
@@ -120,19 +130,123 @@ function detailUpdate(res: Obj) {
   return set;
 }
 
+// Canlı sipariş (vendor-api …/deliveries/{oma_id} ve deliveries-web listesi).
+// externalId = geçmişteki orderId ("oa7z-2648-loqm") → aynı kayda birleşir.
+// Müşteri adı/telefon/adres SADECE burada gelir.
+const TRANSPORT_TYPE: Record<string, string> = {
+  RESTAURANT_DELIVERY: "vendor_delivery",
+  PICKUP: "pickup",
+  VENDOR_DELIVERY: "vendor_delivery",
+};
+
+function isLiveOrder(o: unknown): o is Obj {
+  return isObj(o) && typeof o.externalId === "string" && (isObj(o.customer) || isObj(o.payment));
+}
+
+function liveUpdate(o: Obj, seenAt: Date) {
+  const customer = isObj(o.customer) ? o.customer : {};
+  const addr = isObj(o.address) ? o.address : {};
+  const pay = isObj(o.payment) ? o.payment : {};
+  const set: Obj = { lastSeenAt: new Date(), liveSeenAt: seenAt };
+  const put = (k: string, v: unknown) => {
+    if (v !== undefined) set[k] = v;
+  };
+
+  put("liveId", str(o.id));
+  put("liveState", str(o.state)); // NEW | ACCEPTED | CLOSED | CANCELLED ...
+  put("shortCode", str(o.shortCode));
+  put("vendorId", str(o.externalRestaurantId));
+  put("placedAt", date(o.timestamp));
+  put("acceptedAt", date(o.acceptedAt));
+  put("promisedAt", date(o.promisedTime));
+  put("dispatchedAt", date(dig(o, "transport", "dispatchedAt")));
+  const transport = str(dig(o, "transport", "type"));
+  if (transport) set.deliveryType = TRANSPORT_TYPE[transport] ?? transport.toLowerCase();
+  if (typeof o.preorder === "boolean") set.preorder = o.preorder;
+  put("comment", str(o.comment));
+
+  put("customerId", str(customer.customerId));
+  const fullName = [str(customer.firstName), str(customer.lastName)].filter(Boolean).join(" ").trim();
+  if (fullName) set.customerName = fullName;
+  put("customerPhone", str(customer.phone));
+
+  set.address = {
+    street: str(addr.street) ?? "",
+    building: str(addr.building) ?? "",
+    buildingName: str(addr.buildingName) ?? "",
+    floor: str(addr.floor) ?? "",
+    entrance: str(addr.entrance) ?? "",
+    area: str(addr.area) ?? "",
+    info: str(addr.info) ?? "",
+    lat: num(addr.latitude),
+    lng: num(addr.longitude),
+  };
+  put("city", str(addr.city));
+  put("postCode", str(addr.zip));
+
+  put("subtotal", num(pay.itemsTotalPrice));
+  put("customerTotal", num(pay.total));
+  put("paymentType", str(pay.paymentType)); // ONLINE | CASH ...
+  put("paymentLabel", str(pay.paymentMethod)); // "Online Kredi/Banka Kartı"
+  if (typeof pay.paid === "boolean") set.paid = pay.paid;
+  const change = num(pay.provideChangeFor);
+  if (change) set.provideChangeFor = change;
+
+  if (Array.isArray(o.discounts)) {
+    let total = 0;
+    let vendor = 0;
+    for (const d of o.discounts.filter(isObj)) {
+      total += Math.abs(num(d.value) ?? 0);
+      if (Array.isArray(d.sponsorships)) {
+        for (const sp of d.sponsorships.filter(isObj)) {
+          if (str(sp.sponsor) === "VENDOR") vendor += Math.abs(num(sp.amount) ?? 0);
+        }
+      }
+    }
+    set.discountTotal = round2(total);
+    set.vendorDiscount = round2(vendor);
+  }
+
+  // Ayrı alan: geçmiş detayındaki (opsiyonlu) `lines` ezilmesin.
+  if (Array.isArray(o.items)) {
+    set.liveLines = o.items.filter(isObj).map((it) => {
+      const subs = [it.toppings, it.options, it.subItems].find(Array.isArray) as unknown[] | undefined;
+      return {
+        productId: str(it.productId),
+        name: str(it.name) ?? "",
+        quantity: num(it.amount) ?? num(it.quantity) ?? 1,
+        unitPrice: num(it.price) ?? num(it.unitPrice) ?? 0,
+        note: str(it.comment) ?? str(it.customerNotes) ?? "",
+        options: subs
+          ? subs.filter(isObj).map((op) => ({
+              name: str(op.name) ?? "",
+              quantity: num(op.amount) ?? num(op.quantity) ?? 1,
+              unitPrice: num(op.price) ?? num(op.unitPrice) ?? 0,
+            }))
+          : undefined,
+      };
+    });
+  }
+  return set;
+}
+
 /**
  * Eklentiden gelen yakalamaları işler. Bilinen formatlar YemeksepetiOrder'a
- * yazılır; canlı sipariş akışı (formatı henüz çözülmedi) ham saklanır.
+ * yazılır; tanınmayan canlı yanıtlar ham saklanır (3 gün).
  */
-export async function ingestCaptures(captures: YsCapture[]): Promise<IngestResult> {
-  await connectDB();
+export function parseCaptures(captures: YsCapture[]) {
   const ops: Parameters<typeof YemeksepetiOrderModel.bulkWrite>[0] = [];
   const raw: Obj[] = [];
+  // Aynı canlı sipariş bir partide birkaç kez gelir (GET, PUT /state, liste);
+  // sadece en yenisi yazılır ki durum geri gitmesin.
+  const live = new Map<string, { at: number; o: Obj }>();
   let ignored = 0;
 
   for (const c of captures) {
     const url = String(c.url ?? "");
-    const body = c.body;
+    // Eklenti gövdeyi ham metin (JSON string) olarak yollar; popup'tan
+    // indirilen dosyada ise çözülmüş nesne olur. İkisini de kabul et.
+    const body = parseBody(c.body);
 
     if (url.includes("graphql")) {
       const list = dig(body, "data", "orders", "listOrders", "orders");
@@ -160,26 +274,56 @@ export async function ingestCaptures(captures: YsCapture[]): Promise<IngestResul
       continue;
     }
 
-    // Canlı siparişler — boş liste (kapalıyken) saklanmaz.
+    // Canlı siparişler — tek sipariş (api/1/deliveries/{id}) veya liste
+    // (api/2/deliveries-web). Boş liste (kapalıyken) atlanır.
     if (url.includes("deliveries")) {
-      const empty = Array.isArray(body) && body.length === 0;
-      if (!empty) {
-        raw.push({
-          kind: c.kind,
-          url: url.slice(0, 1000),
-          method: c.method,
-          status: c.status,
-          body,
-          capturedAt: typeof c.at === "number" ? new Date(c.at) : new Date(),
-        });
-      } else ignored++;
+      const items = Array.isArray(body) ? body : [body];
+      if (Array.isArray(body) && body.length === 0) {
+        ignored++;
+        continue;
+      }
+      if (items.every(isLiveOrder)) {
+        const at = typeof c.at === "number" ? c.at : Date.now();
+        for (const o of items as Obj[]) {
+          const orderId = o.externalId as string;
+          const prev = live.get(orderId);
+          if (!prev || prev.at <= at) live.set(orderId, { at, o });
+        }
+        continue;
+      }
+      raw.push({
+        kind: c.kind,
+        url: url.slice(0, 1000),
+        method: c.method,
+        status: c.status,
+        body,
+        capturedAt: typeof c.at === "number" ? new Date(c.at) : new Date(),
+      });
       continue;
     }
 
     ignored++;
   }
+  for (const [orderId, { at, o }] of live) {
+    ops.push({
+      updateOne: {
+        filter: { orderId },
+        update: { $set: liveUpdate(o, new Date(at)) },
+        upsert: true,
+      },
+    });
+  }
+  return { ops, raw, ignored, live: live.size };
+}
 
+export async function ingestCaptures(captures: YsCapture[]): Promise<IngestResult> {
+  const { ops, raw, ignored, live } = parseCaptures(captures);
+  if (!ops.length && !raw.length) return { orders: 0, raw: 0, ignored };
+  await connectDB();
   if (ops.length) await YemeksepetiOrderModel.bulkWrite(ops, { ordered: false });
   if (raw.length) await YemeksepetiCaptureModel.insertMany(raw, { ordered: false });
+  // Canlı sipariş geldi/değişti → panel ve kurye ekranları anında tazelensin.
+  // (Eklenti değişmeyen yanıtı tekrar göndermediği için bu sadece değişiklikte olur.)
+  if (live > 0) await notifyOrdersChanged("yemeksepeti-live").catch(() => {});
   return { orders: ops.length, raw: raw.length, ignored };
 }

@@ -9,6 +9,7 @@ import {
 } from "@/actions/yemeksepeti";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { YemeksepetiDispatchLogs } from "./YemeksepetiDispatchLogs";
 
 function formatAgo(iso: string): string {
   const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60_000);
@@ -67,7 +68,8 @@ export function YemeksepetiBridgeCard() {
               <p className="font-semibold">Yemeksepeti Köprüsü</p>
               <p className="text-xs text-muted-foreground">
                 Kasadaki bilgisayarda Yemeksepeti paneli açıkken siparişleri bu sisteme
-                aktaran Chrome eklentisi. Sadece okur, Yemeksepeti&apos;de bir şey değiştirmez.
+                aktaran Chrome eklentisi. Siparişleri okur; tek yazdığı şey kurye yola
+                çıkınca Yemeksepeti&apos;ye &quot;yola çıktı&quot; bildirmektir (aşağıdan kapatılabilir).
               </p>
             </div>
           </div>
@@ -115,6 +117,8 @@ export function YemeksepetiBridgeCard() {
           <p className="mt-2 text-xs text-muted-foreground">
             Paket bağlantı anahtarını içerir; kasa dışında kimseyle paylaşmayın.
           </p>
+
+          <YemeksepetiDispatchLogs />
         </CardContent>
       </Card>
     </section>
