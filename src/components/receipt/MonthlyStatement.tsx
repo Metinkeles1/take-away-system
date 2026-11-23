@@ -14,6 +14,7 @@ import {
   ReceiptHeader,
   GrandTotal,
   shortPortion,
+  MonthlyBreakdown,
   type ReceiptOptions,
   DEFAULT_RECEIPT_OPTIONS,
   filterVouchersByScope,
@@ -55,7 +56,9 @@ function VoucherDetail({ v }: { v: Voucher }) {
                 overflowWrap: "break-word",
               }}
             >
-              <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 800 }}>
+              <span
+                style={{ fontVariantNumeric: "tabular-nums", fontWeight: 800 }}
+              >
                 {it.quantity}×
               </span>{" "}
               {it.name}
@@ -166,7 +169,9 @@ function DayRow({
         >
           <span style={{ whiteSpace: "nowrap", fontWeight: 800 }}>
             {dateShort}{" "}
-            <span style={{ fontWeight: 600, fontSize: FS_SMALL }}>{weekday}</span>
+            <span style={{ fontWeight: 600, fontSize: FS_SMALL }}>
+              {weekday}
+            </span>
           </span>
           <span
             style={{
@@ -187,9 +192,7 @@ function DayRow({
         {!v.paid && (
           <div style={{ marginTop: "3px" }}>
             {partial ? (
-              <StatusTag>
-                KISMİ · kalan {formatCurrency(remaining)}
-              </StatusTag>
+              <StatusTag>KISMİ · kalan {formatCurrency(remaining)}</StatusTag>
             ) : (
               <StatusTag>AÇIK</StatusTag>
             )}
@@ -247,7 +250,9 @@ export default function MonthlyStatement({
 
   return (
     <ReceiptShell>
-      <ReceiptHeader subtitle="Aylık Hesap Ekstresi" />
+      <ReceiptHeader
+        subtitle={multiPeriod ? "Hesap Ekstresi" : "Aylık Hesap Ekstresi"}
+      />
 
       <Divider />
 
@@ -267,86 +272,124 @@ export default function MonthlyStatement({
       {/* Kurum bilgisi */}
       <SectionTitle>İşletme</SectionTitle>
       <div style={{ fontSize: FS_NORMAL, lineHeight: 1.45, fontWeight: 700 }}>
-        <div style={{ fontWeight: 800, wordBreak: "break-word" }}>{corporate.name}</div>
+        <div style={{ fontWeight: 800, wordBreak: "break-word" }}>
+          {corporate.name}
+        </div>
         {corporate.phone && <div>{formatPhone(corporate.phone)}</div>}
       </div>
 
       <Divider dashed />
 
-      {/* Durum açıklaması: ✓ = ödendi, içi boş = açık */}
-      <div
-        style={{
-          display: "flex",
-          gap: "12px",
-          fontSize: FS_SMALL,
-          fontWeight: 700,
-          marginBottom: "6px",
-        }}
-      >
-        <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
-          <StatusMark paid={true} /> Ödendi
-        </span>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
-          <StatusMark paid={false} /> Açık
-        </span>
-      </div>
+      {options.monthly && (
+        <MonthlyBreakdown vouchers={sortedVouchers} showUnpaid={options.unpaid} />
+      )}
 
-      {/* Gün listesi */}
-      {sortedVouchers.length === 0 ? (
-        <div
-          style={{
-            fontSize: FS_SMALL,
-            textAlign: "center",
-            padding: "8px 0",
-            fontWeight: 700,
-          }}
-        >
-          {options.scope === "open"
-            ? "Açık (ödenmemiş) fiş bulunmuyor."
-            : options.scope === "paid"
-              ? "Ödenmiş fiş bulunmuyor."
-              : "Bu dönemde fiş bulunmuyor."}
-        </div>
-      ) : (
-        sortedVouchers.map((v, i) => (
-          <DayRow
-            key={v.id}
-            v={v}
-            showDetail={showDetail}
-            withYear={multiPeriod}
-            last={i === sortedVouchers.length - 1}
+      {options.lines && (
+        <>
+          {/* Durum açıklaması: ✓ = ödendi, içi boş = açık */}
+          <div
+            style={{
+              display: "flex",
+              gap: "12px",
+              fontSize: FS_SMALL,
+              fontWeight: 700,
+              marginBottom: "6px",
+            }}
+          >
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "4px",
+              }}
+            >
+              <StatusMark paid={true} /> Ödendi
+            </span>
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "4px",
+              }}
+            >
+              <StatusMark paid={false} /> Açık
+            </span>
+          </div>
+
+          {/* Gün listesi */}
+          {sortedVouchers.length === 0 ? (
+            <div
+              style={{
+                fontSize: FS_SMALL,
+                textAlign: "center",
+                padding: "8px 0",
+                fontWeight: 700,
+              }}
+            >
+              {options.scope === "open"
+                ? "Açık (ödenmemiş) fiş bulunmuyor."
+                : options.scope === "paid"
+                  ? "Ödenmiş fiş bulunmuyor."
+                  : "Bu dönemde fiş bulunmuyor."}
+            </div>
+          ) : (
+            sortedVouchers.map((v, i) => (
+              <DayRow
+                key={v.id}
+                v={v}
+                showDetail={showDetail}
+                withYear={multiPeriod}
+                last={i === sortedVouchers.length - 1}
+              />
+            ))
+          )}
+
+          <Divider />
+        </>
+      )}
+
+      {/* Özet: seçilen satırlar (fiş sayısı / toplam / ödenen) + kalan borç kutusu */}
+      {options.counts && (
+        <Row left="Fiş Sayısı" right={String(displayStats.count)} />
+      )}
+      {options.total && (
+        <Row left="Toplam" right={formatCurrency(displayStats.total)} />
+      )}
+      {options.paid && (
+        <Row left="Ödenen" right={formatCurrency(displayStats.paid)} />
+      )}
+
+      {options.unpaid &&
+        (allPaid ? (
+          <GrandTotal label="DURUM" amount="TAMAMI ÖDENDİ" />
+        ) : (
+          <GrandTotal
+            label="KALAN BORÇ"
+            amount={formatCurrency(displayStats.unpaid)}
           />
-        ))
+        ))}
+
+      {options.signature && (
+        <>
+          <Divider dashed />
+
+          {/* İmza alanı */}
+          <div
+            style={{ fontSize: FS_SMALL, fontWeight: 700, marginTop: "8px" }}
+          >
+            <div style={{ marginBottom: "16px" }}>Tahsil Eden / Alan</div>
+            <div
+              style={{
+                borderTop: "2px solid #000",
+                paddingTop: "2px",
+                textAlign: "center",
+              }}
+            >
+              Ad Soyad / İmza
+            </div>
+          </div>
+        </>
       )}
-
-      <Divider />
-
-      {/* Özet: her zaman toplam / ödenen / kalan borç */}
-      <Row left="Fiş Sayısı" right={String(displayStats.count)} />
-      <Row left="Toplam" right={formatCurrency(displayStats.total)} />
-      <Row left="Ödenen" right={formatCurrency(displayStats.paid)} />
-
-      {allPaid ? (
-        <GrandTotal label="DURUM" amount="TAMAMI ÖDENDİ" />
-      ) : (
-        <GrandTotal label="KALAN BORÇ" amount={formatCurrency(displayStats.unpaid)} />
-      )}
-
-      <Divider dashed />
-
-      {/* İmza alanı */}
-      <div style={{ fontSize: FS_SMALL, fontWeight: 700, marginTop: "8px" }}>
-        <div style={{ marginBottom: "16px" }}>Tahsil Eden / Alan</div>
-        <div
-          style={{
-            borderTop: "2px solid #000",
-            paddingTop: "2px",
-            textAlign: "center",
-          }}
-        >
-          Ad Soyad / İmza
-        </div>
-      </div>
 
       <Divider />
 

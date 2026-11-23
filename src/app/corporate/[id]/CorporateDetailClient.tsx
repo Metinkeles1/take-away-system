@@ -37,7 +37,12 @@ function paymentSourceLabel(source: PaymentSource): string {
       return "Tüm ay";
   }
 }
-import { formatPeriodLabel, ALL_OPEN_PERIOD } from "@/lib/period";
+import {
+  formatPeriodLabel,
+  ALL_OPEN_PERIOD,
+  ALL_PERIODS,
+  isMultiPeriod,
+} from "@/lib/period";
 import VoucherReceipt from "@/components/receipt/VoucherReceipt";
 import MonthlyStatement from "@/components/receipt/MonthlyStatement";
 import ProductSummaryReceipt from "@/components/receipt/ProductSummaryReceipt";
@@ -89,7 +94,13 @@ import { StatCard } from "@/components/corporate/detail/StatCard";
 import { VoucherList } from "@/components/corporate/detail/VoucherList";
 import { PerPersonVoucherDialog } from "@/components/corporate/detail/PerPersonVoucherDialog";
 import { PrintReceiptDialog } from "@/components/corporate/detail/PrintReceiptDialog";
-import { STATEMENT_SCOPE_DEFS } from "@/components/receipt/corporateReceiptKit";
+import {
+  STATEMENT_SCOPE_DEFS,
+  STATEMENT_OPTION_DEFS,
+  STATEMENT_PRESETS,
+  PRODUCT_OPTION_DEFS,
+  PRODUCT_PRESETS,
+} from "@/components/receipt/corporateReceiptKit";
 
 export default function CorporateDetailClient({
   corporate,
@@ -133,15 +144,20 @@ export default function CorporateDetailClient({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [bulkConfirmDelete, setBulkConfirmDelete] = useState(false);
 
-  const isAllOpen = period === ALL_OPEN_PERIOD;
+  // Tek ay yerine birden çok aya yayılan dönem (Tüm Açık Hesap / Tüm Dönemler):
+  // ay bazlı toplu tahsilat işlemleri bu modda kapalıdır.
+  const isMultiView = isMultiPeriod(period);
 
   const load = useCallback(async () => {
     // Refetch sırasında eski veri ekranda kalır, sadece "refreshing" göstergesi yanar.
     setIsRefreshing(true);
     try {
-      if (period === ALL_OPEN_PERIOD) {
-        // Tüm dönemlerdeki açık fişler + onlardan hesaplanan özet.
-        const vs = await getOpenVouchersByCorporate(corporate.id);
+      if (isMultiPeriod(period)) {
+        // Tüm dönemlerdeki açık fişler (ya da tüm fişler) + onlardan hesaplanan özet.
+        const vs =
+          period === ALL_OPEN_PERIOD
+            ? await getOpenVouchersByCorporate(corporate.id)
+            : await getVouchersByCorporate(corporate.id);
         const total = vs.reduce((s, v) => s + v.total, 0);
         const paid = vs.reduce((s, v) => s + v.paidAmount, 0);
         setVouchers(vs);
@@ -169,7 +185,7 @@ export default function CorporateDetailClient({
   }, [load]);
 
   const handleAddSuccess = useCallback(() => {
-    if (!periods.includes(period)) {
+    if (!isMultiPeriod(period) && !periods.includes(period)) {
       setPeriods((p) => [period, ...p]);
     }
     load();
@@ -380,6 +396,7 @@ export default function CorporateDetailClient({
               <SelectItem value={ALL_OPEN_PERIOD}>
                 Tüm Açık Hesap
               </SelectItem>
+              <SelectItem value={ALL_PERIODS}>Tüm Dönemler</SelectItem>
               {periods.map((p) => (
                 <SelectItem key={p} value={p}>
                   {formatPeriodLabel(p)}
@@ -472,7 +489,7 @@ export default function CorporateDetailClient({
       ) : (
         <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-2 mb-3 shrink-0">
           <p className="text-xs text-muted-foreground inline-flex items-center gap-2 order-1">
-            {isAllOpen ? formatPeriodLabel(period) : `${formatPeriodLabel(period)} dönemi`}
+            {isMultiView ? formatPeriodLabel(period) : `${formatPeriodLabel(period)} dönemi`}
             {isRefreshing && (
               <span className="inline-block size-1.5 rounded-full bg-cyan-500 animate-pulse" />
             )}
@@ -509,11 +526,11 @@ export default function CorporateDetailClient({
             <Button
               variant="outline"
               size="sm"
-              disabled={stats.unpaid === 0 || isAllOpen}
+              disabled={stats.unpaid === 0 || isMultiView}
               onClick={openCollectDialog}
               className="border-cyan-500/40 text-cyan-700 dark:text-cyan-400 hover:bg-cyan-500/10"
               title={
-                isAllOpen
+                isMultiView
                   ? "Tutar tahsilatı için bir ay seçin"
                   : "Tutar Tahsil Et"
               }
@@ -524,11 +541,11 @@ export default function CorporateDetailClient({
             <Button
               variant="outline"
               size="sm"
-              disabled={stats.unpaid === 0 || isAllOpen}
+              disabled={stats.unpaid === 0 || isMultiView}
               onClick={() => setConfirmingPeriodPaid(true)}
               className="border-emerald-500/40 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/10"
               title={
-                isAllOpen ? "Toplu tahsilat için bir ay seçin" : "Tüm Ayı Tahsil Et"
+                isMultiView ? "Toplu tahsilat için bir ay seçin" : "Tüm Ayı Tahsil Et"
               }
             >
               <CheckCircle2 className="h-4 w-4 sm:mr-2" />
@@ -817,7 +834,8 @@ export default function CorporateDetailClient({
         title={`${formatPeriodLabel(period)} Ekstresi`}
         filterable
         storageKey="receipt-opts:statement"
-        optionDefs={[{ key: "itemPrices", label: "Ürün detayı" }]}
+        optionDefs={STATEMENT_OPTION_DEFS}
+        presets={STATEMENT_PRESETS}
         scopeDefs={STATEMENT_SCOPE_DEFS}
       >
         {(opts) => (
@@ -827,7 +845,7 @@ export default function CorporateDetailClient({
             stats={stats}
             period={period}
             options={opts}
-            multiPeriod={isAllOpen}
+            multiPeriod={isMultiView}
           />
         )}
       </PrintReceiptDialog>
@@ -838,6 +856,9 @@ export default function CorporateDetailClient({
         title={`${formatPeriodLabel(period)} Ürün Özeti`}
         filterable
         storageKey="receipt-opts:product"
+        optionDefs={PRODUCT_OPTION_DEFS}
+        presets={PRODUCT_PRESETS}
+        scopeDefs={STATEMENT_SCOPE_DEFS}
       >
         {(opts) => (
           <ProductSummaryReceipt

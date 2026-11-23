@@ -2,6 +2,8 @@
 
 import React, { useId, useMemo } from "react";
 import { type Voucher, type PeriodStats } from "@/types";
+import { formatCurrency } from "@/lib/utils";
+import { currentPeriod, formatPeriodLabel } from "@/lib/period";
 
 /**
  * Termal yazıcı dostu ortak fiş primitifleri.
@@ -80,29 +82,114 @@ export const Divider = ({ dashed }: { dashed?: boolean }) => (
 export type PaymentScope = "all" | "open" | "paid" | "marked";
 
 export interface ReceiptOptions {
-  itemPrices: boolean; // ürün/gün satır tutarları
-  total: boolean; // toplam + genel toplam bloğu
+  monthly: boolean; // aylık özet bölümü (hangi ay kaç fiş / ne kadar)
+  lines: boolean; // liste: ekstrede gün satırları, ürün özetinde ürün satırları
+  itemPrices: boolean; // ürün özeti: satır tutarı · ekstre: gün altındaki ürün dökümü
+  unitPrice: boolean; // ürün özeti: "3 ad. × 120 ₺" birim fiyat
+  counts: boolean; // fiş sayısı / çeşit + toplam adet satırları
+  total: boolean; // toplam tutar
   paid: boolean; // tahsil edilen (ödenmiş) tutar
-  unpaid: boolean; // açık bakiye (kalan)
+  unpaid: boolean; // açık bakiye / kalan borç
+  signature: boolean; // ekstre: imza alanı
   scope: PaymentScope; // hangi ödeme durumundaki fişler basılsın
 }
 
 export const DEFAULT_RECEIPT_OPTIONS: ReceiptOptions = {
+  monthly: false,
+  lines: true,
   itemPrices: true,
+  unitPrice: false,
+  counts: true,
   total: true,
   paid: true,
   unpaid: true,
+  signature: true,
   scope: "all",
 };
 
 /** ReceiptOptions'ın yalnızca boolean (göster/gizle) alanları. */
-export type ReceiptToggleKey = "itemPrices" | "total" | "paid" | "unpaid";
+export type ReceiptToggleKey = Exclude<keyof ReceiptOptions, "scope">;
 
-export const RECEIPT_OPTION_DEFS: { key: ReceiptToggleKey; label: string }[] = [
+export interface ReceiptOptionDef {
+  key: ReceiptToggleKey;
+  label: string;
+  // Bu seçenek yalnızca verilen seçenek açıkken anlamlı (kapalıysa pasif görünür).
+  dependsOn?: ReceiptToggleKey;
+}
+
+/** Hazır şablon: tek tıkla tüm tikleri ayarlar (ödeme durumu filtresine dokunmaz). */
+export interface ReceiptPreset {
+  label: string;
+  values: Partial<Omit<ReceiptOptions, "scope">>;
+}
+
+export const RECEIPT_OPTION_DEFS: ReceiptOptionDef[] = [
   { key: "itemPrices", label: "Ürün fiyatları" },
   { key: "total", label: "Toplam tutar" },
   { key: "paid", label: "Tahsil edilen" },
   { key: "unpaid", label: "Açık bakiye" },
+];
+
+/** Ürün özeti fişinin tikleri. */
+export const PRODUCT_OPTION_DEFS: ReceiptOptionDef[] = [
+  { key: "monthly", label: "Aylık özet" },
+  { key: "lines", label: "Ürün listesi" },
+  { key: "itemPrices", label: "Ürün tutarları", dependsOn: "lines" },
+  { key: "unitPrice", label: "Birim fiyat", dependsOn: "lines" },
+  { key: "counts", label: "Adet özeti" },
+  { key: "paid", label: "Tahsil edilen" },
+  { key: "unpaid", label: "Açık bakiye" },
+  { key: "total", label: "Genel toplam" },
+];
+
+export const PRODUCT_PRESETS: ReceiptPreset[] = [
+  {
+    label: "Tam döküm",
+    values: { monthly: false, lines: true, itemPrices: true, unitPrice: true, counts: true, paid: true, unpaid: true, total: true },
+  },
+  {
+    label: "Sadece adetler",
+    values: { monthly: false, lines: true, itemPrices: false, unitPrice: false, counts: true, paid: false, unpaid: false, total: false },
+  },
+  {
+    label: "Aylık özet",
+    values: { monthly: true, lines: false, itemPrices: false, unitPrice: false, counts: true, paid: false, unpaid: true, total: true },
+  },
+  {
+    label: "Sadece borç",
+    values: { monthly: false, lines: false, itemPrices: false, unitPrice: false, counts: false, paid: false, unpaid: true, total: false },
+  },
+];
+
+/** Aylık ekstre fişinin tikleri. */
+export const STATEMENT_OPTION_DEFS: ReceiptOptionDef[] = [
+  { key: "monthly", label: "Aylık özet" },
+  { key: "lines", label: "Gün listesi" },
+  { key: "itemPrices", label: "Ürün detayı", dependsOn: "lines" },
+  { key: "counts", label: "Fiş sayısı" },
+  { key: "total", label: "Toplam" },
+  { key: "paid", label: "Ödenen" },
+  { key: "unpaid", label: "Kalan borç" },
+  { key: "signature", label: "İmza alanı" },
+];
+
+export const STATEMENT_PRESETS: ReceiptPreset[] = [
+  {
+    label: "Tam döküm",
+    values: { monthly: false, lines: true, itemPrices: true, counts: true, total: true, paid: true, unpaid: true, signature: true },
+  },
+  {
+    label: "Günlük tutarlar",
+    values: { monthly: false, lines: true, itemPrices: false, counts: true, total: true, paid: true, unpaid: true, signature: true },
+  },
+  {
+    label: "Aylık özet",
+    values: { monthly: true, lines: false, itemPrices: false, counts: true, total: true, paid: true, unpaid: true, signature: true },
+  },
+  {
+    label: "Sadece borç",
+    values: { monthly: false, lines: false, itemPrices: false, counts: false, total: false, paid: false, unpaid: true, signature: true },
+  },
 ];
 
 export const PAYMENT_SCOPE_DEFS: { value: PaymentScope; label: string }[] = [
@@ -180,6 +267,86 @@ export function aggregateVoucherProducts(vouchers: Voucher[]): {
   const products = [...map.values()].sort((a, b) => b.quantity - a.quantity);
   const totalQty = products.reduce((s, p) => s + p.quantity, 0);
   return { products, totalQty, personCount };
+}
+
+/** Bir ayın özeti (aylık özet bölümü için). */
+export interface MonthBucket {
+  period: string; // "YYYY-MM"
+  count: number; // fiş sayısı
+  quantity: number; // ürün adedi (ürün bazlı fişler)
+  persons: number; // kişi sayısı (kişi bazlı fişler)
+  total: number;
+  paid: number;
+  unpaid: number;
+}
+
+/** Fişleri aylara göre gruplar (eski → yeni). */
+export function groupVouchersByMonth(vouchers: Voucher[]): MonthBucket[] {
+  const map = new Map<string, MonthBucket>();
+  for (const v of vouchers) {
+    const key = currentPeriod(new Date(v.date));
+    let b = map.get(key);
+    if (!b) {
+      b = { period: key, count: 0, quantity: 0, persons: 0, total: 0, paid: 0, unpaid: 0 };
+      map.set(key, b);
+    }
+    b.count += 1;
+    b.total += v.total;
+    b.paid += v.paidAmount;
+    b.unpaid += v.total - v.paidAmount;
+    if (v.billingType === "per_person") b.persons += v.personCount ?? 0;
+    else for (const it of v.items ?? []) b.quantity += it.quantity;
+  }
+  return [...map.values()].sort((a, b) => a.period.localeCompare(b.period));
+}
+
+/**
+ * "Aylık Özet" bölümü: her ay için tutar + alt satırda fiş/adet ve kalan.
+ * showQuantity → ürün özetinde adet/kişi; showUnpaid → kalan borç etiketi.
+ */
+export function MonthlyBreakdown({
+  vouchers,
+  showQuantity,
+  showUnpaid,
+}: {
+  vouchers: Voucher[];
+  showQuantity?: boolean;
+  showUnpaid?: boolean;
+}) {
+  const months = groupVouchersByMonth(vouchers);
+  if (months.length === 0) return null;
+  return (
+    <>
+      <SectionTitle>Aylık Özet</SectionTitle>
+      {months.map((m, i) => {
+        const last = i === months.length - 1;
+        const parts = [`${m.count} fiş`];
+        if (showQuantity && m.quantity > 0) parts.push(`${m.quantity} ad.`);
+        if (showQuantity && m.persons > 0) parts.push(`${m.persons} kişi`);
+        if (showUnpaid) {
+          parts.push(
+            m.unpaid <= 0.005 ? "Ödendi" : `Kalan ${formatCurrency(m.unpaid)}`,
+          );
+        }
+        return (
+          <div
+            key={m.period}
+            style={{
+              marginBottom: last ? "0" : "5px",
+              paddingBottom: last ? "0" : "5px",
+              borderBottom: last ? "none" : "1px dashed #bbb",
+            }}
+          >
+            <Row left={formatPeriodLabel(m.period)} right={formatCurrency(m.total)} bold />
+            <div style={{ fontSize: FS_SMALL, fontWeight: 700 }}>
+              {parts.join(" · ")}
+            </div>
+          </div>
+        );
+      })}
+      <Divider />
+    </>
+  );
 }
 
 /** "1 Porsiyon" → "1p.", "2 Porsiyon" → "2p." gibi kısaltır. */

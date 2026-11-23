@@ -18,6 +18,8 @@ import {
   type ReceiptOptions,
   type ReceiptToggleKey,
   type PaymentScope,
+  type ReceiptOptionDef,
+  type ReceiptPreset,
   DEFAULT_RECEIPT_OPTIONS,
   RECEIPT_OPTION_DEFS,
   PAYMENT_SCOPE_DEFS,
@@ -33,6 +35,7 @@ export function PrintReceiptDialog({
   optionDefs = RECEIPT_OPTION_DEFS,
   showScope = true,
   scopeDefs = PAYMENT_SCOPE_DEFS,
+  presets,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -42,11 +45,13 @@ export function PrintReceiptDialog({
   filterable?: boolean;
   storageKey?: string;
   // Gösterilecek "Fişte Göster" tikleri (varsayılan: tümü).
-  optionDefs?: { key: ReceiptToggleKey; label: string }[];
+  optionDefs?: ReceiptOptionDef[];
   // "Ödeme durumu" mod butonları gösterilsin mi (varsayılan: evet).
   showScope?: boolean;
   // "Ödeme durumu" filtre seçenekleri (varsayılan: tümü/sadece açık/ödenenleri işaretle).
   scopeDefs?: { value: PaymentScope; label: string }[];
+  // Hazır şablonlar (ör. "Sadece borç"): tek tıkla tikleri ayarlar.
+  presets?: ReceiptPreset[];
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const handlePrint = useReactToPrint({
@@ -59,7 +64,12 @@ export function PrintReceiptDialog({
     if (typeof window === "undefined" || !storageKey) return DEFAULT_RECEIPT_OPTIONS;
     try {
       const raw = localStorage.getItem(storageKey);
-      if (raw) return { ...DEFAULT_RECEIPT_OPTIONS, ...JSON.parse(raw) };
+      if (raw) {
+        const saved = { ...DEFAULT_RECEIPT_OPTIONS, ...JSON.parse(raw) } as ReceiptOptions;
+        // Kayıtlı kapsam bu fişte artık yoksa (eski "Ödenenleri işaretle" vb.) "Tümü"ne dön.
+        if (!scopeDefs.some((d) => d.value === saved.scope)) saved.scope = "all";
+        return saved;
+      }
     } catch {
       /* yok say */
     }
@@ -83,6 +93,19 @@ export function PrintReceiptDialog({
       return next;
     });
   };
+
+  const applyPreset = (preset: ReceiptPreset) => {
+    setOpts((prev) => {
+      const next = { ...prev, ...preset.values };
+      persist(next);
+      return next;
+    });
+  };
+
+  const isPresetActive = (preset: ReceiptPreset) =>
+    (Object.keys(preset.values) as ReceiptToggleKey[]).every(
+      (k) => opts[k] === preset.values[k],
+    );
 
   const setScope = (scope: PaymentScope) => {
     setOpts((prev) => {
@@ -120,19 +143,45 @@ export function PrintReceiptDialog({
               <SlidersHorizontal className="h-3.5 w-3.5" />
               Fişte Göster
             </p>
+            {presets && presets.length > 0 && (
+              <div className="mb-3 flex flex-wrap gap-1.5">
+                {presets.map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => applyPreset(preset)}
+                    className={cn(
+                      "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
+                      isPresetActive(preset)
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-input hover:bg-muted",
+                    )}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-x-3 gap-y-2">
-              {optionDefs.map((def) => (
-                <label
-                  key={def.key}
-                  className="flex cursor-pointer select-none items-center gap-2 text-sm"
-                >
-                  <Checkbox
-                    checked={opts[def.key]}
-                    onCheckedChange={() => toggle(def.key)}
-                  />
-                  {def.label}
-                </label>
-              ))}
+              {optionDefs.map((def) => {
+                const disabled = !!def.dependsOn && !opts[def.dependsOn];
+                return (
+                  <label
+                    key={def.key}
+                    className={cn(
+                      "flex select-none items-center gap-2 text-sm",
+                      disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
+                    )}
+                  >
+                    <Checkbox
+                      checked={opts[def.key] && !disabled}
+                      disabled={disabled}
+                      onCheckedChange={() => toggle(def.key)}
+                    />
+                    {def.label}
+                  </label>
+                );
+              })}
             </div>
 
             {showScope && (

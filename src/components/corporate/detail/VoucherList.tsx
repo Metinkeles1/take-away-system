@@ -2,7 +2,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Receipt } from "lucide-react";
 import { type Voucher } from "@/types";
-import { formatPeriodLabel } from "@/lib/period";
+import { formatPeriodLabel, isMultiPeriod } from "@/lib/period";
 import { VoucherRow } from "./VoucherRow";
 
 interface VoucherListProps {
@@ -55,7 +55,9 @@ export function VoucherList({
         <CardContent className="flex flex-col items-center justify-center py-16 text-muted-foreground">
           <Receipt className="mb-4 h-14 w-14 opacity-20" />
           <p className="text-base font-medium">
-            {formatPeriodLabel(period)} döneminde fiş yok
+            {isMultiPeriod(period)
+              ? "Bu görünümde fiş yok"
+              : `${formatPeriodLabel(period)} döneminde fiş yok`}
           </p>
           <p className="mt-1 text-xs">İlk fişi eklemek için sağ üstteki butonu kullan</p>
         </CardContent>

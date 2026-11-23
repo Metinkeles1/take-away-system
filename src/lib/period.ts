@@ -21,8 +21,17 @@ export function periodRange(period: Period): { start: Date; end: Date } {
  */
 export const ALL_OPEN_PERIOD = "all-open";
 
+/** Özel "dönem" değeri: kurumun tüm aylarındaki tüm fişleri (ödenmiş + açık). */
+export const ALL_PERIODS = "all";
+
+/** Tek ay değil, birden çok aya yayılan özel dönem mi? */
+export function isMultiPeriod(period: Period): boolean {
+  return period === ALL_OPEN_PERIOD || period === ALL_PERIODS;
+}
+
 export function formatPeriodLabel(period: Period): string {
   if (period === ALL_OPEN_PERIOD) return "Açık Hesap (Tüm Dönemler)";
+  if (period === ALL_PERIODS) return "Tüm Dönemler";
   const [y, m] = period.split("-").map(Number);
   return `${TR_MONTHS[m - 1]} ${y}`;
 }
