@@ -42,6 +42,11 @@ import {
   ALL_OPEN_PERIOD,
   ALL_PERIODS,
   isMultiPeriod,
+  isMonthPeriod,
+  isRangePeriod,
+  makeRangePeriod,
+  rangePeriodBounds,
+  toDateInputValue,
 } from "@/lib/period";
 import VoucherReceipt from "@/components/receipt/VoucherReceipt";
 import MonthlyStatement from "@/components/receipt/MonthlyStatement";
@@ -94,6 +99,7 @@ import { StatCard } from "@/components/corporate/detail/StatCard";
 import { VoucherList } from "@/components/corporate/detail/VoucherList";
 import { PerPersonVoucherDialog } from "@/components/corporate/detail/PerPersonVoucherDialog";
 import { PrintReceiptDialog } from "@/components/corporate/detail/PrintReceiptDialog";
+import { MonthlySummary } from "@/components/corporate/detail/MonthlySummary";
 import {
   STATEMENT_SCOPE_DEFS,
   STATEMENT_OPTION_DEFS,
@@ -101,6 +107,9 @@ import {
   PRODUCT_OPTION_DEFS,
   PRODUCT_PRESETS,
 } from "@/components/receipt/corporateReceiptKit";
+
+// Dönem seçicide "Tarih aralığı seç…" öğesi: dönem değil, aralık penceresini açar.
+const RANGE_PICK = "__range__";
 
 export default function CorporateDetailClient({
   corporate,
@@ -147,6 +156,46 @@ export default function CorporateDetailClient({
   // Tek ay yerine birden çok aya yayılan dönem (Tüm Açık Hesap / Tüm Dönemler):
   // ay bazlı toplu tahsilat işlemleri bu modda kapalıdır.
   const isMultiView = isMultiPeriod(period);
+  const isRange = isRangePeriod(period);
+  const bulkPaidLabel = isRange ? "Aralığı Tahsil Et" : "Tüm Ayı Tahsil Et";
+
+  // Tarih aralığı seçimi (ör. ayın 15'inden 15'ine hesap kapatma).
+  const [rangeOpen, setRangeOpen] = useState(false);
+  const [rangeFrom, setRangeFrom] = useState("");
+  const [rangeTo, setRangeTo] = useState("");
+
+  const openRangeDialog = useCallback(() => {
+    const current = rangePeriodBounds(period);
+    if (current) {
+      setRangeFrom(current.from);
+      setRangeTo(current.to);
+    } else {
+      const now = new Date();
+      setRangeFrom(toDateInputValue(new Date(now.getFullYear(), now.getMonth(), 1)));
+      setRangeTo(toDateInputValue(now));
+    }
+    setRangeOpen(true);
+  }, [period]);
+
+  const applyRange = useCallback(() => {
+    if (!rangeFrom || !rangeTo) return;
+    setPeriod(makeRangePeriod(rangeFrom, rangeTo));
+    setRangeOpen(false);
+  }, [rangeFrom, rangeTo]);
+
+  const handlePeriodChange = useCallback(
+    (value: string) => {
+      if (value === RANGE_PICK) openRangeDialog();
+      else setPeriod(value);
+    },
+    [openRangeDialog],
+  );
+
+  // Aylık özet satırından o aya geç (listede yoksa ekle).
+  const selectMonth = useCallback((m: string) => {
+    setPeriods((p) => (p.includes(m) ? p : [m, ...p].sort().reverse()));
+    setPeriod(m);
+  }, []);
 
   const load = useCallback(async () => {
     // Refetch sırasında eski veri ekranda kalır, sadece "refreshing" göstergesi yanar.
@@ -185,7 +234,7 @@ export default function CorporateDetailClient({
   }, [load]);
 
   const handleAddSuccess = useCallback(() => {
-    if (!isMultiPeriod(period) && !periods.includes(period)) {
+    if (isMonthPeriod(period) && !periods.includes(period)) {
       setPeriods((p) => [period, ...p]);
     }
     load();
@@ -388,7 +437,7 @@ export default function CorporateDetailClient({
         </div>
 
         <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
-          <Select value={period} onValueChange={setPeriod}>
+          <Select value={period} onValueChange={handlePeriodChange}>
             <SelectTrigger className="flex-1 sm:flex-none sm:w-44">
               <SelectValue />
             </SelectTrigger>
@@ -397,6 +446,10 @@ export default function CorporateDetailClient({
                 Tüm Açık Hesap
               </SelectItem>
               <SelectItem value={ALL_PERIODS}>Tüm Dönemler</SelectItem>
+              {isRange && (
+                <SelectItem value={period}>{formatPeriodLabel(period)}</SelectItem>
+              )}
+              <SelectItem value={RANGE_PICK}>Tarih aralığı seç…</SelectItem>
               {periods.map((p) => (
                 <SelectItem key={p} value={p}>
                   {formatPeriodLabel(p)}
@@ -442,6 +495,8 @@ export default function CorporateDetailClient({
           tone={stats.unpaid > 0 ? "amber" : "default"}
         />
       </div>
+
+      <MonthlySummary vouchers={vouchers} onSelectMonth={selectMonth} />
 
       {/* Action bar */}
       {bulkMode ? (
@@ -531,7 +586,7 @@ export default function CorporateDetailClient({
               className="border-cyan-500/40 text-cyan-700 dark:text-cyan-400 hover:bg-cyan-500/10"
               title={
                 isMultiView
-                  ? "Tutar tahsilatı için bir ay seçin"
+                  ? "Tutar tahsilatı için bir ay ya da tarih aralığı seçin"
                   : "Tutar Tahsil Et"
               }
             >
@@ -545,11 +600,13 @@ export default function CorporateDetailClient({
               onClick={() => setConfirmingPeriodPaid(true)}
               className="border-emerald-500/40 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/10"
               title={
-                isMultiView ? "Toplu tahsilat için bir ay seçin" : "Tüm Ayı Tahsil Et"
+                isMultiView
+                  ? "Toplu tahsilat için bir ay ya da tarih aralığı seçin"
+                  : bulkPaidLabel
               }
             >
               <CheckCircle2 className="h-4 w-4 sm:mr-2" />
-              <span className="hidden sm:inline">Tüm Ayı Tahsil Et</span>
+              <span className="hidden sm:inline">{bulkPaidLabel}</span>
             </Button>
           </div>
         </div>
@@ -801,7 +858,7 @@ export default function CorporateDetailClient({
       <AlertDialog open={confirmingPeriodPaid} onOpenChange={setConfirmingPeriodPaid}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Tüm Ayı Tahsil Et</AlertDialogTitle>
+            <AlertDialogTitle>{bulkPaidLabel}</AlertDialogTitle>
             <AlertDialogDescription>
               {formatPeriodLabel(period)} dönemindeki açık fişlerin tamamı (
               <strong>{formatCurrency(stats.unpaid)}</strong>) tahsil edildi olarak
@@ -819,6 +876,45 @@ export default function CorporateDetailClient({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={rangeOpen} onOpenChange={setRangeOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Tarih Aralığı</DialogTitle>
+            <DialogDescription>
+              Seçilen iki tarih de dahil. Liste, ekstre ve tahsilat bu aralığa göre çalışır.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="space-y-1 text-sm">
+              <span className="text-xs font-medium text-muted-foreground">Başlangıç</span>
+              <Input
+                type="date"
+                value={rangeFrom}
+                max={rangeTo || undefined}
+                onChange={(e) => setRangeFrom(e.target.value)}
+              />
+            </label>
+            <label className="space-y-1 text-sm">
+              <span className="text-xs font-medium text-muted-foreground">Bitiş</span>
+              <Input
+                type="date"
+                value={rangeTo}
+                min={rangeFrom || undefined}
+                onChange={(e) => setRangeTo(e.target.value)}
+              />
+            </label>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRangeOpen(false)}>
+              İptal
+            </Button>
+            <Button onClick={applyRange} disabled={!rangeFrom || !rangeTo}>
+              Uygula
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <PrintReceiptDialog
         open={!!printingVoucher}
@@ -845,7 +941,7 @@ export default function CorporateDetailClient({
             stats={stats}
             period={period}
             options={opts}
-            multiPeriod={isMultiView}
+            multiPeriod={!isMonthPeriod(period)}
           />
         )}
       </PrintReceiptDialog>
