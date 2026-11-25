@@ -7,8 +7,8 @@ import { toast } from "sonner";
 import {
   getYemeksepetiDispatchState,
   setYemeksepetiAutoDispatch,
-  type DispatchLogRow,
 } from "@/actions/yemeksepeti";
+import type { DispatchLogRow } from "@/lib/yemeksepeti/dispatch";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";

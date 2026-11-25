@@ -42,8 +42,6 @@ export async function getYemeksepetiBridgeStatus(): Promise<YemeksepetiBridgeSta
 
 // ─── Otomatik "yola çıktı" kayıtları (Ayarlar → Yemeksepeti Köprüsü) ─────────
 
-export type { DispatchLogRow };
-
 export async function getYemeksepetiDispatchState(): Promise<{
   enabled: boolean;
   logs: DispatchLogRow[];

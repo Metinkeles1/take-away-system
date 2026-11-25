@@ -35,21 +35,35 @@ const STEPS = [
 export function YemeksepetiBridgeCard() {
   const [status, setStatus] = useState<YemeksepetiBridgeStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
 
+  // Sunucu eylemi istek düzeyinde düşerse (eski sekme/yeni deploy, ağ) eskiden
+  // status null kalıyordu → yazı sonsuza dek "Kontrol ediliyor…", buton kilitli.
   const load = useCallback(async () => {
     setLoading(true);
-    setStatus(await getYemeksepetiBridgeStatus());
-    setLoading(false);
+    try {
+      setStatus(await getYemeksepetiBridgeStatus());
+      setFailed(false);
+    } catch (err) {
+      console.warn("[yemeksepeti status]", err);
+      setFailed(true);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
-    void getYemeksepetiBridgeStatus()
-      .then(setStatus)
-      .finally(() => setLoading(false));
-  }, []);
+    void load();
+  }, [load]);
+
+  // İndirme yalnız anahtarın tanımsız olduğu KESİN bilindiğinde kilitlenir;
+  // durum alınamadıysa indirme yine denenir (rota kendi kontrolünü yapar).
+  const blocked = status?.configured === false;
 
   const statusText = !status
-    ? "Kontrol ediliyor…"
+    ? failed
+      ? "Durum alınamadı. Sayfayı yenileyin (Ctrl+F5); eklentiyi yine de indirebilirsiniz."
+      : "Kontrol ediliyor…"
     : !status.configured
       ? "Sunucuda bağlantı anahtarı tanımlı değil (YEMEKSEPETI_INGEST_TOKEN)."
       : status.lastDataAt
@@ -97,13 +111,13 @@ export function YemeksepetiBridgeCard() {
             ))}
           </ol>
 
-          <Button asChild className="w-full" disabled={!status?.configured}>
+          <Button asChild className="w-full" disabled={blocked}>
             <a
               href="/api/yemeksepeti/extension"
               download
-              aria-disabled={!status?.configured}
+              aria-disabled={blocked}
               onClick={(e) => {
-                if (!status?.configured) e.preventDefault();
+                if (blocked) e.preventDefault();
               }}
             >
               {loading && !status ? (
