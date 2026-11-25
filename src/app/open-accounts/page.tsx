@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   XCircle,
   Receipt,
+  MessageCircle,
 } from "lucide-react";
 import {
   AlertDialog,
@@ -34,6 +35,10 @@ import {
 } from "@/lib/orders/aging";
 import { RelativeTime } from "@/components/RelativeTime";
 import { CollectPaymentDialog } from "@/components/orders/CollectPaymentDialog";
+import {
+  OpenAccountReminderDialog,
+  type ReminderTarget,
+} from "@/components/orders/OpenAccountReminderDialog";
 import { subscribeOrders } from "@/lib/pusher/client";
 import {
   getOpenAccounts,
@@ -245,12 +250,14 @@ const CustomerOpenAccountCard = memo(function CustomerOpenAccountCard({
   onCollectAll,
   onCancel,
   onViewHistory,
+  onRemind,
 }: {
   group: OpenAccountCustomerGroup;
   onCollectClick: (order: Order) => void;
   onCollectAll: (orders: Order[]) => void;
   onCancel: (order: Order) => void;
   onViewHistory: (customer: HistoryCustomer) => void;
+  onRemind: (target: ReminderTarget) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const d = daysOpen(group.oldestCreatedAt);
@@ -317,6 +324,23 @@ const CustomerOpenAccountCard = memo(function CustomerOpenAccountCard({
         </Button>
 
         <div className="-mt-1 -mr-1.5 flex shrink-0 items-center sm:m-0">
+          {group.customer.phone && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              title="Açık hesap bilgilendirmesi gönder"
+              className="text-emerald-600 hover:text-emerald-700"
+              onClick={() =>
+                onRemind({
+                  customer: { name: group.customer.name, phone: group.customer.phone },
+                  orders: group.openOrders,
+                })
+              }
+            >
+              <MessageCircle className="h-4 w-4" />
+            </Button>
+          )}
           <Button
             type="button"
             variant="ghost"
@@ -389,6 +413,23 @@ const CustomerOpenAccountCard = memo(function CustomerOpenAccountCard({
                   >
                     Tahsil Et
                   </Button>
+                  {group.customer.phone && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-emerald-600 hover:text-emerald-700"
+                      title="Bu sipariş için mesaj gönder"
+                      onClick={() =>
+                        onRemind({
+                          customer: { name: group.customer.name, phone: group.customer.phone },
+                          orders: group.openOrders,
+                          selectedIds: [order.id],
+                        })
+                      }
+                    >
+                      <MessageCircle className="h-4 w-4" />
+                    </Button>
+                  )}
                   <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
                     <Link href={`/orders/${order.id}`} prefetch={false} title="Sipariş detayı">
                       <ChevronRight className="h-4 w-4" />
@@ -443,6 +484,7 @@ export default function OpenAccountsPage() {
   const [bulkTarget, setBulkTarget] = useState<Order[] | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [historyCustomer, setHistoryCustomer] = useState<HistoryCustomer | null>(null);
+  const [reminderTarget, setReminderTarget] = useState<ReminderTarget | null>(null);
 
   const mountedRef = useRef(true);
   const inFlightRef = useRef(false);
@@ -726,6 +768,7 @@ export default function OpenAccountsPage() {
                   onCollectAll={handleCollectAllClick}
                   onCancel={handleCancel}
                   onViewHistory={setHistoryCustomer}
+                  onRemind={setReminderTarget}
                 />
               ))
             )}
@@ -746,6 +789,11 @@ export default function OpenAccountsPage() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         onCollect={handleCollect}
+      />
+
+      <OpenAccountReminderDialog
+        target={reminderTarget}
+        onClose={() => setReminderTarget(null)}
       />
 
       <CustomerHistoryDialog
