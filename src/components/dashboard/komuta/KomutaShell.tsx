@@ -162,7 +162,7 @@ export function KomutaShell({ children }: { children: React.ReactNode }) {
           <header className="flex flex-wrap items-end justify-between gap-3 px-4 pt-5 sm:px-6 lg:px-8 lg:pt-7">
             <div>
               <p className="text-xs font-medium text-muted-foreground">Komuta Merkezi</p>
-              <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
+              <h1 className="text-xl font-bold tracking-tight sm:text-2xl">{title}</h1>
               <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
                 <span
                   className={cn(
@@ -201,7 +201,7 @@ export function KomutaShell({ children }: { children: React.ReactNode }) {
           </header>
 
           {/* ─── Filtreler — sayfa kayarken üstte kalır ─── */}
-          <div className="sticky top-0 z-20 border-b bg-background/85 px-4 py-3 backdrop-blur supports-backdrop-filter:bg-background/70 sm:px-6 lg:px-8">
+          <div className="sticky top-0 z-20 border-b bg-background/85 px-4 py-2 backdrop-blur supports-backdrop-filter:bg-background/70 sm:px-6 sm:py-3 lg:px-8">
             <div className="flex flex-wrap items-center gap-2">
               <Segmented
                 ariaLabel="Kanal"
@@ -276,10 +276,10 @@ export function KomutaShell({ children }: { children: React.ReactNode }) {
             {failed > 0 && (
               <div
                 role="alert"
-                className="flex items-center gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300"
+                className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300"
               >
                 <TriangleAlert className="size-4 shrink-0" />
-                <span className="flex-1">
+                <span className="min-w-48 flex-1">
                   Bazı veriler yüklenemedi{failed > 1 ? ` (${failed} bölüm)` : ""}. Bağlantı ya da
                   Trendyol kaynaklı olabilir.
                 </span>

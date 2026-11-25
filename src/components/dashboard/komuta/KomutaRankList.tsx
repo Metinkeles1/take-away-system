@@ -5,6 +5,7 @@ import { ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 
 export interface KomutaRankItem {
   id: string;
@@ -29,6 +30,7 @@ interface Props {
   onShowAll?: () => void;
   /** Kart çerçevesi olmadan (modal içi kullanım) sadece list gövdesi. */
   bare?: boolean;
+  className?: string;
 }
 
 function Legend() {
@@ -70,13 +72,17 @@ function RankBody({
         const body = (
           <>
             <div className="mb-1 flex items-baseline justify-between gap-3">
-              <span className="flex min-w-0 items-center gap-1.5 truncate text-sm font-medium">
-                {it.label}
+              <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium">
+                <span className="truncate" title={it.label}>
+                  {it.label}
+                </span>
                 {onItemClick && (
                   <ChevronRight className="size-3 shrink-0 text-muted-foreground/40" />
                 )}
               </span>
-              <span className="shrink-0 text-sm font-semibold tabular-nums">{it.primary}</span>
+              <span className="shrink-0 text-xs font-semibold tabular-nums sm:text-sm">
+                {it.primary}
+              </span>
             </div>
             <div className="flex items-center gap-2">
               <div className="flex h-2 flex-1 overflow-hidden rounded-full bg-muted">
@@ -122,6 +128,7 @@ export function KomutaRankList({
   maxItems,
   onShowAll,
   bare,
+  className,
 }: Props) {
   // Modal içi: çerçevesiz, tüm satırlar.
   if (bare) {
@@ -146,9 +153,9 @@ export function KomutaRankList({
   const hasMore = maxItems != null && items.length > maxItems;
 
   return (
-    <Card>
+    <Card className={cn("min-w-0", className)}>
       <CardHeader className="pb-3">
-        <div className="flex items-start justify-between gap-2">
+        <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
           <CardTitle className="text-base">{title}</CardTitle>
           {showLegend && !isLoading && items.length > 0 && <Legend />}
         </div>

@@ -46,13 +46,15 @@ export function PerfStat({
           : undefined
       }
       className={cn(
-        "flex flex-col rounded-xl border bg-card p-4",
+        "flex min-w-0 flex-col rounded-xl border bg-card p-3 sm:p-4",
         clickable && "cursor-pointer transition-colors hover:border-foreground/20 hover:bg-muted/30",
       )}
     >
-      <div className="flex items-center justify-between gap-2 text-sm text-muted-foreground">
-        <span>{label}</span>
-        <div className="flex items-center gap-1">
+      <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground sm:text-sm">
+        <span className="min-w-0 truncate" title={label}>
+          {label}
+        </span>
+        <div className="flex shrink-0 items-center gap-1">
           {action}
           <Icon className="size-4" />
         </div>
@@ -62,7 +64,7 @@ export function PerfStat({
       ) : (
         <p
           className={cn(
-            "mt-2 text-2xl font-bold tabular-nums",
+            "mt-2 truncate text-xl font-bold tabular-nums sm:text-2xl",
             tone === "bad" && "text-rose-600 dark:text-rose-400",
             tone === "warn" && "text-amber-600 dark:text-amber-400",
             tone === "good" && "text-emerald-600 dark:text-emerald-400",

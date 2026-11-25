@@ -48,7 +48,7 @@ export function KomutaMetricCard({
           : undefined
       }
       className={cn(
-        "flex min-w-0 flex-col gap-1.5 bg-card p-4",
+        "flex min-w-0 flex-col gap-1.5 bg-card p-3 sm:p-4",
         accent && "bg-emerald-50/60 shadow-[inset_0_3px_0_var(--color-emerald-500)] dark:bg-emerald-950/20",
         clickable && "cursor-pointer transition-colors hover:bg-muted/40",
       )}
@@ -67,7 +67,7 @@ export function KomutaMetricCard({
       ) : (
         <span
           className={cn(
-            "text-[26px] font-bold leading-tight tracking-tight tabular-nums",
+            "truncate text-xl font-bold leading-tight tracking-tight tabular-nums sm:text-2xl xl:text-[26px]",
             accent && "text-emerald-700 dark:text-emerald-300",
           )}
         >
@@ -76,7 +76,7 @@ export function KomutaMetricCard({
       )}
 
       {!isLoading && (
-        <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <span className="flex flex-wrap items-center gap-x-1.5 text-[11px] text-muted-foreground sm:text-xs">
           {flat && <span className="font-semibold tabular-nums">± %0</span>}
           {delta !== null && !flat && (
             <span

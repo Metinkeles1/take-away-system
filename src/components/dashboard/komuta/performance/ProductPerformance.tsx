@@ -125,10 +125,10 @@ export function ProductPerformance({
     setLimit(PAGE);
   };
 
-  const header = (key: SortKey, label: string) => {
+  const header = (key: SortKey, label: string, hide?: string) => {
     const active = sort.key === key;
     return (
-      <th className="px-2 py-2 text-right">
+      <th className={cn("px-2 py-2 text-right", hide)}>
         <button
           type="button"
           onClick={() => setSort((s) => ({ key, desc: s.key === key ? !s.desc : true }))}
@@ -183,11 +183,11 @@ export function ProductPerformance({
         />
       </StatStrip>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-4 xl:grid-cols-3">
         {/* ─── Ürün tablosu ─── */}
-        <Card className="min-w-0 gap-3 lg:col-span-2">
+        <Card className="min-w-0 gap-3 xl:col-span-2">
           <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="space-y-1">
+            <div className="min-w-0 space-y-1">
               <CardTitle>Ürünler</CardTitle>
               <CardDescription>
                 {data
@@ -222,7 +222,7 @@ export function ProductPerformance({
                   );
                 })}
               </div>
-              <div className="relative sm:w-52">
+              <div className="relative sm:w-52 sm:shrink-0">
                 <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   id="perf-product-search"
@@ -248,20 +248,23 @@ export function ProductPerformance({
                 {rows.length === 0 ? "Bu dönemde satış kaydı yok." : "Bu filtreye uyan ürün yok."}
               </EmptyState>
             ) : (
-              <div className="-mx-6 overflow-x-auto px-6">
-                <table className="w-full min-w-160 border-collapse text-sm">
+              // Dar ekranda ikincil sütunlar gizlenir (detay satıra tıklayınca açılır).
+              <div className="-mx-4 overflow-x-auto px-4">
+                <table className="w-full border-collapse text-sm">
                   <thead>
                     <tr className="border-b">
                       <th className="px-2 py-2 text-left text-xs font-semibold text-muted-foreground">Ürün</th>
                       {header("qty", "Adet")}
-                      {header("prevQty", "Önceki")}
-                      {header("baseAvg", "Normal")}
+                      {header("prevQty", "Önceki", "hidden md:table-cell")}
+                      {header("baseAvg", "Normal", "hidden md:table-cell")}
                       {header("changePct", "Değişim")}
-                      {header("revenue", "Ciro")}
+                      {header("revenue", "Ciro", "hidden sm:table-cell")}
                       {showSplit && (
-                        <th className="px-2 py-2 text-left text-xs font-semibold text-muted-foreground">Kanal</th>
+                        <th className="hidden px-2 py-2 text-left text-xs font-semibold text-muted-foreground lg:table-cell">
+                          Kanal
+                        </th>
                       )}
-                      <th className="px-2 py-2 text-left text-xs font-semibold text-muted-foreground">
+                      <th className="hidden px-2 py-2 text-left text-xs font-semibold text-muted-foreground sm:table-cell">
                         Son 8 dönem
                       </th>
                     </tr>
@@ -273,34 +276,41 @@ export function ProductPerformance({
                         onClick={() => setDetail(r)}
                         className="cursor-pointer border-b border-border/50 transition-colors last:border-0 hover:bg-muted/40"
                       >
-                        <td className="max-w-56 px-2 py-2">
-                          <div className="flex items-center gap-2">
-                            <span className="truncate font-medium">{r.name}</span>
-                            <StatusTag status={r.status} />
+                        <td className="px-2 py-2">
+                          {/* td'de max-w işlemez → genişlik içteki blokta sınırlanır. */}
+                          <div className="max-w-36 sm:max-w-56">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <span className="truncate font-medium" title={r.name}>
+                                {r.name}
+                              </span>
+                              <StatusTag status={r.status} />
+                            </div>
+                            {r.variants.length > 0 && (
+                              <p className="truncate text-[11px] text-muted-foreground">
+                                + {r.variants.join(", ")}
+                              </p>
+                            )}
                           </div>
-                          {r.variants.length > 0 && (
-                            <p className="truncate text-[11px] text-muted-foreground">
-                              + {r.variants.join(", ")}
-                            </p>
-                          )}
                         </td>
                         <td className="px-2 py-2 text-right font-semibold tabular-nums">{fmtInt(r.qty)}</td>
-                        <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">
+                        <td className="hidden px-2 py-2 text-right tabular-nums text-muted-foreground md:table-cell">
                           {fmtInt(r.prevQty)}
                         </td>
-                        <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">
+                        <td className="hidden px-2 py-2 text-right tabular-nums text-muted-foreground md:table-cell">
                           {r.baseAvg.toLocaleString("tr-TR", { maximumFractionDigits: 1 })}
                         </td>
                         <td className="px-2 py-2 text-right">
                           <ChangeChip pct={r.changePct} threshold={data?.changeThreshold ?? 25} />
                         </td>
-                        <td className="px-2 py-2 text-right tabular-nums">{formatCurrencyShort(r.revenue)}</td>
+                        <td className="hidden px-2 py-2 text-right tabular-nums sm:table-cell">
+                          {formatCurrencyShort(r.revenue)}
+                        </td>
                         {showSplit && (
-                          <td className="px-2 py-2">
+                          <td className="hidden px-2 py-2 lg:table-cell">
                             <ChannelSplitBar own={r.own.qty} trendyol={r.trendyol.qty} />
                           </td>
                         )}
-                        <td className="px-2 py-2">
+                        <td className="hidden px-2 py-2 sm:table-cell">
                           <Sparkline
                             values={r.history.map((h) => h.own + h.trendyol)}
                             tone={sparkTone(r)}
@@ -321,8 +331,8 @@ export function ProductPerformance({
           </CardContent>
         </Card>
 
-        {/* ─── Yan listeler ─── */}
-        <div className="flex flex-col gap-4">
+        {/* ─── Yan listeler — tablet/dizüstünde yan yana, geniş ekranda tablonun yanında ─── */}
+        <div className="grid content-start gap-4 md:grid-cols-3 xl:grid-cols-1">
           <SideList
             title="Düşüşte"
             dot="bg-rose-500"
@@ -421,9 +431,9 @@ function SideList({
   const [open, setOpen] = useState(false);
   const shown = open ? rows : rows.slice(0, 5);
   return (
-    <Card className="gap-2 py-4">
+    <Card className="min-w-0 gap-2 py-4">
       <CardHeader className="px-4">
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
           <CardTitle className="flex items-center gap-2 text-sm">
             <span className={cn("size-2 rounded-full", dot)} />
             {title}
@@ -449,7 +459,7 @@ function SideList({
                   onClick={() => onPick(r)}
                   className="flex w-full items-center justify-between gap-3 rounded py-2 text-left transition-colors hover:bg-muted/40"
                 >
-                  <span className="min-w-0">
+                  <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-medium">{r.name}</span>
                     <span className="block truncate text-[11px] tabular-nums text-muted-foreground">{sub(r)}</span>
                   </span>
@@ -489,11 +499,11 @@ function ProductDetailDialog({
 }) {
   return (
     <Dialog open={!!row} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
         {row && (
           <>
             <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
+              <DialogTitle className="flex flex-wrap items-center gap-2 pr-6">
                 {row.name}
                 <StatusTag status={row.status} />
               </DialogTitle>
@@ -502,16 +512,18 @@ function ProductDetailDialog({
               </DialogDescription>
             </DialogHeader>
 
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               <MiniStat label="Bu dönem" value={`${fmtInt(row.qty)} adet`} />
               <MiniStat
                 label={`Normal (${baseLabel})`}
                 value={`${row.baseAvg.toLocaleString("tr-TR", { maximumFractionDigits: 1 })} adet`}
               />
               <MiniStat label="Ciro" value={formatCurrencyShort(row.revenue)} />
+              {/* Dar ekranda tabloda gizlenen sütunlar burada */}
+              <MiniStat label="Önceki dönem" value={`${fmtInt(row.prevQty)} adet`} />
             </div>
 
-            <ChartContainer config={historyConfig} className="aspect-auto h-56 w-full">
+            <ChartContainer config={historyConfig} className="aspect-auto h-48 w-full sm:h-56">
               <BarChart data={row.history} margin={{ left: -16, right: 8, top: 8, bottom: 0 }}>
                 <CartesianGrid vertical={false} strokeDasharray="3 3" strokeOpacity={0.5} />
                 <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} fontSize={11} />

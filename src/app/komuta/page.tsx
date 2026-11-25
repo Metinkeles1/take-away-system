@@ -111,6 +111,25 @@ export default function KomutaOverviewPage() {
       </span>
     ) : null;
 
+  // ─── Ortalama sepet — kanal başına ortalama (oran çubuğu ortalamada anlamsız) ───
+  const avgOf = (t?: { revenue: number; orderCount: number }) =>
+    t && t.orderCount > 0 ? t.revenue / t.orderCount : null;
+  const ownAvg = avgOf(bd?.own);
+  const tyAvg = avgOf(bd?.trendyol);
+  const basketLine =
+    channel === "all" && (ownAvg !== null || tyAvg !== null) ? (
+      <div className="flex flex-wrap justify-between gap-x-2 text-[11px] tabular-nums text-muted-foreground">
+        <span className="flex items-center gap-1">
+          <span className="size-1.5 rounded-full bg-blue-500" />
+          {ownAvg !== null ? formatCurrencyShort(ownAvg) : "—"}
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="size-1.5 rounded-full bg-orange-500" />
+          {tyAvg !== null ? formatCurrencyShort(tyAvg) : "—"}
+        </span>
+      </div>
+    ) : null;
+
   // ─── Sıralı listeler (iki renkli çubuk: mavi kendi, turuncu Trendyol) ───
   const splitProducts = data?.splitProducts ?? [];
   const splitPayments = data?.splitPayments ?? [];
@@ -246,13 +265,14 @@ export default function KomutaOverviewPage() {
           comparisonLabel={compareLabel}
           isLoading={isLoading}
           onClick={openAllOrders}
+          footer={basketLine}
         />
       </StatStrip>
 
       {showTarget && cur && (
         <Card className="py-0 shadow-xs">
           <CardContent className="p-4">
-            <div className="mb-2 flex items-baseline justify-between text-sm">
+            <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-sm">
               <span className="font-medium">Aylık hedef</span>
               <span className="tabular-nums text-muted-foreground">
                 {formatCurrencyShort(cur.revenue)} / {formatCurrencyShort(target)}
@@ -275,8 +295,9 @@ export default function KomutaOverviewPage() {
       <KomutaPerformanceAlert period={period} channel={channel} dayOffset={dayOffset} />
 
       {/* ─── Trend + son siparişler ─── */}
-      <section className="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-3">
-        <div className={cn("h-full", showLive ? "lg:col-span-2" : "lg:col-span-3")}>
+      {/* Son siparişler dar sütunda sıkışmasın diye yan yana yalnız xl'de. */}
+      <section className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-3">
+        <div className={cn("h-full min-w-0", showLive ? "xl:col-span-2" : "xl:col-span-3")}>
           <KomutaTrendChart
             data={data?.splitTrend ?? []}
             title="Ciro trendi"
@@ -321,6 +342,7 @@ export default function KomutaOverviewPage() {
           hint="Satıra tıkla → o bölgenin siparişleri"
           onItemClick={openRegionSplit}
           maxItems={6}
+          className="md:col-span-2 xl:col-span-1"
         />
       </section>
 

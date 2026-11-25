@@ -53,8 +53,8 @@ export function KomutaTrendChart({ data: raw, title, description, isLoading, tri
 
   return (
     <Card className="h-full gap-3 shadow-xs">
-      <CardHeader className="flex flex-row items-start justify-between gap-2">
-        <div className="space-y-1">
+      <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0 space-y-1">
           <CardTitle>{title}</CardTitle>
           <CardDescription>{description}</CardDescription>
         </div>
@@ -71,11 +71,11 @@ export function KomutaTrendChart({ data: raw, title, description, isLoading, tri
           )}
         </div>
       </CardHeader>
-      <CardContent className="flex flex-1 flex-col px-2 sm:px-6">
+      <CardContent className="flex flex-1 flex-col px-2 sm:px-4">
         {isLoading ? (
-          <Skeleton className="min-h-64 w-full flex-1" />
+          <Skeleton className="min-h-56 w-full flex-1 sm:min-h-64" />
         ) : (
-          <ChartContainer config={chartConfig} className="aspect-auto min-h-64 w-full flex-1">
+          <ChartContainer config={chartConfig} className="aspect-auto min-h-56 w-full flex-1 sm:min-h-64">
             <AreaChart data={data} margin={{ left: 0, right: 12, top: 8, bottom: 0 }}>
               <defs>
                 <linearGradient id="komuta-own" x1="0" y1="0" x2="0" y2="1">

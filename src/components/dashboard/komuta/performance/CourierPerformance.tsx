@@ -67,6 +67,16 @@ function minDelta(cur: number | null, prev: number | null) {
   return { text: `${d < 0 ? "▼" : "▲"} ${Math.abs(d)} dk`, good: d < 0 };
 }
 
+// Kurye tablosunda ekran daraldıkça gizlenen sütunlar (td + th aynı sınıf).
+const COL = {
+  perDay: "hidden md:table-cell",
+  pay: "hidden xl:table-cell",
+  revenue: "hidden sm:table-cell",
+  pace: "hidden lg:table-cell",
+  range: "hidden 2xl:table-cell",
+  prev: "hidden md:table-cell",
+} as const;
+
 const doorAmount = (p: CourierPay) => p.cash + p.card + p.mealCard;
 const fmtPerDay = (n: number) => n.toLocaleString("tr-TR", { maximumFractionDigits: 1 });
 const pctOf = (part: number, total: number) => (total > 0 ? Math.round((part / total) * 100) : 0);
@@ -190,7 +200,7 @@ export function CourierPerformance({
       {/* ─── Kurye karşılaştırması ─── */}
       <Card className="gap-3">
         <CardHeader className="flex flex-row items-start justify-between gap-2">
-          <div className="space-y-1">
+          <div className="min-w-0 space-y-1">
             <CardTitle>Kurye karşılaştırması</CardTitle>
             <CardDescription>
               Çizgi = {target} dk hedef. Satıra tıkla → gün gün paket, ödeme dağılımı, bölgeler ve en yavaş
@@ -206,20 +216,24 @@ export function CourierPerformance({
               ))}
             </div>
           ) : (
-            <div className="-mx-6 overflow-x-auto px-6">
-              <table className="w-full min-w-230 border-collapse text-sm">
+            // Ekran daraldıkça ikincil sütunlar gizlenir; hepsi satıra tıklayınca detayda.
+            <div className="-mx-4 overflow-x-auto px-4">
+              <table className="w-full border-collapse text-sm">
                 <thead>
                   <tr className="border-b text-xs font-semibold text-muted-foreground">
                     <th className="px-2 py-2 text-left">Kurye</th>
                     <th className="px-2 py-2 text-right">Paket</th>
-                    <th className="px-2 py-2 text-right">Günde</th>
-                    <th className="px-2 py-2 text-left">Kapıda / Online</th>
-                    <th className="px-2 py-2 text-right">Tutar</th>
+                    <th className={cn("px-2 py-2 text-right", COL.perDay)}>Günde</th>
+                    <th className={cn("px-2 py-2 text-left", COL.pay)}>Kapıda / Online</th>
+                    <th className={cn("px-2 py-2 text-right", COL.revenue)}>Tutar</th>
                     <th className="px-2 py-2 text-right">Ortalama</th>
-                    <th className="px-2 py-2 text-left">Hedefe göre</th>
-                    <th className="px-2 py-2 text-right">En hızlı / yavaş</th>
-                    <th className="px-2 py-2 text-right">Hedef aşımı</th>
-                    <th className="px-2 py-2 text-right">Önceki</th>
+                    <th className={cn("px-2 py-2 text-left", COL.pace)}>Hedefe göre</th>
+                    <th className={cn("px-2 py-2 text-right", COL.range)}>En hızlı / yavaş</th>
+                    <th className="px-2 py-2 text-right">
+                      <span className="sm:hidden">Aşım</span>
+                      <span className="hidden sm:inline">Hedef aşımı</span>
+                    </th>
+                    <th className={cn("px-2 py-2 text-right", COL.prev)}>Önceki</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -237,7 +251,9 @@ export function CourierPerformance({
                             <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-violet-100 text-xs font-bold text-violet-700 dark:bg-violet-950/60 dark:text-violet-300">
                               {r.name.charAt(0)}
                             </span>
-                            <span className="font-medium">{r.name}</span>
+                            <span className="max-w-28 truncate font-medium sm:max-w-44" title={r.name}>
+                              {r.name}
+                            </span>
                           </div>
                         </td>
                         <td className="px-2 py-2.5 text-right tabular-nums">
@@ -248,14 +264,16 @@ export function CourierPerformance({
                             </span>
                           )}
                         </td>
-                        <td className="px-2 py-2.5 text-right tabular-nums">
+                        <td className={cn("px-2 py-2.5 text-right tabular-nums", COL.perDay)}>
                           {fmtPerDay(r.perDay)}
                           <span className="block text-[11px] text-muted-foreground">{r.activeDays} gün</span>
                         </td>
-                        <td className="px-2 py-2.5">
+                        <td className={cn("px-2 py-2.5", COL.pay)}>
                           <PaySplit pay={r.pay} />
                         </td>
-                        <td className="px-2 py-2.5 text-right tabular-nums">{formatCurrencyShort(r.revenue)}</td>
+                        <td className={cn("px-2 py-2.5 text-right tabular-nums", COL.revenue)}>
+                          {formatCurrencyShort(r.revenue)}
+                        </td>
                         <td
                           className={cn(
                             "px-2 py-2.5 text-right font-semibold tabular-nums",
@@ -264,7 +282,7 @@ export function CourierPerformance({
                         >
                           {r.avg !== null ? fmtMin(r.avg) : "—"}
                         </td>
-                        <td className="px-2 py-2.5">
+                        <td className={cn("px-2 py-2.5", COL.pace)}>
                           <div className="relative h-2 w-28 rounded-full bg-muted">
                             {r.avg !== null && (
                               <span
@@ -278,7 +296,7 @@ export function CourierPerformance({
                             />
                           </div>
                         </td>
-                        <td className="px-2 py-2.5 text-right tabular-nums text-muted-foreground">
+                        <td className={cn("px-2 py-2.5 text-right tabular-nums text-muted-foreground", COL.range)}>
                           {r.fastest !== null && r.slowest !== null
                             ? `${Math.round(r.fastest)} / ${Math.round(r.slowest)} dk`
                             : "—"}
@@ -297,7 +315,7 @@ export function CourierPerformance({
                             %{over.toFixed(0)}
                           </span>
                         </td>
-                        <td className="px-2 py-2.5 text-right text-xs tabular-nums">
+                        <td className={cn("px-2 py-2.5 text-right text-xs tabular-nums", COL.prev)}>
                           {d ? (
                             <span
                               className={cn(
@@ -323,17 +341,26 @@ export function CourierPerformance({
                           <span className="flex size-8 shrink-0 items-center justify-center rounded-full border border-dashed text-xs">
                             ?
                           </span>
-                          <span>Kurye adı yok</span>
+                          <span className="min-w-0">
+                            Kurye adı yok
+                            {/* colSpan, gizlenen sütunlarla kayar → açıklama ad hücresinde. */}
+                            <span className="block max-w-44 text-[11px] leading-snug sm:max-w-64">
+                              Kurye seçilmeden teslim edilmiş ya da süresi Trendyol kaydından alınmış paketler
+                            </span>
+                          </span>
                         </div>
                       </td>
                       <td className="px-2 py-2.5 text-right tabular-nums">{data.unassigned.count}</td>
-                      <td colSpan={3} />
+                      <td className={COL.perDay} />
+                      <td className={COL.pay} />
+                      <td className={COL.revenue} />
                       <td className="px-2 py-2.5 text-right tabular-nums">
                         {data.unassigned.avg !== null ? fmtMin(data.unassigned.avg) : "—"}
                       </td>
-                      <td colSpan={4} className="px-2 py-2.5 text-xs">
-                        Kurye seçilmeden teslim edilmiş ya da süresi Trendyol kaydından alınmış paketler
-                      </td>
+                      <td className={COL.pace} />
+                      <td className={COL.range} />
+                      <td />
+                      <td className={COL.prev} />
                     </tr>
                   )}
                 </tbody>
@@ -343,15 +370,15 @@ export function CourierPerformance({
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 lg:grid-cols-5">
+      <div className="grid gap-4 xl:grid-cols-5">
         <HourlyChart
-          className="lg:col-span-3"
+          className="min-w-0 xl:col-span-3"
           hourly={data?.hourly ?? []}
           target={target}
           isLoading={isLoading}
         />
         <Distribution
-          className="lg:col-span-2"
+          className="min-w-0 xl:col-span-2"
           buckets={data?.buckets ?? []}
           total={t?.count ?? 0}
           target={target}
@@ -498,11 +525,11 @@ function HourlyChart({
             : "Siparişin alındığı saate göre. Kırmızı = hedef üstü."}
         </CardDescription>
       </CardHeader>
-      <CardContent className="px-2 sm:px-6">
+      <CardContent className="px-2 sm:px-4">
         {isLoading ? (
-          <Skeleton className="h-56 w-full" />
+          <Skeleton className="h-48 w-full sm:h-56" />
         ) : (
-          <ChartContainer config={hourConfig} className="aspect-auto h-56 w-full">
+          <ChartContainer config={hourConfig} className="aspect-auto h-48 w-full sm:h-56">
             <BarChart data={data} margin={{ left: 0, right: 8, top: 16, bottom: 0 }}>
               <CartesianGrid vertical={false} strokeDasharray="3 3" strokeOpacity={0.5} />
               <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} fontSize={11} minTickGap={8} />
@@ -563,14 +590,14 @@ function Distribution({
       </CardHeader>
       <CardContent>
         {isLoading ? (
-          <Skeleton className="h-56 w-full" />
+          <Skeleton className="h-48 w-full sm:h-56" />
         ) : (
           <ul className="flex flex-col gap-3">
             {buckets.map((b) => {
               const late = b.from >= target;
               const partial = !late && b.to !== null && b.to > target;
               return (
-                <li key={b.label} className="grid grid-cols-[5.5rem_1fr_4.5rem] items-center gap-3 text-sm">
+                <li key={b.label} className="grid grid-cols-[4.5rem_1fr_4rem] items-center gap-2 text-sm sm:grid-cols-[5.5rem_1fr_4.5rem] sm:gap-3">
                   <span className="text-muted-foreground">{b.label}</span>
                   <div className="h-3.5 overflow-hidden rounded bg-muted">
                     <div
@@ -624,17 +651,17 @@ function SlowOrdersCard({
       {orders.map((o) => {
         const inner = (
           <>
-            <span className="min-w-0">
-              <span className="flex items-center gap-2 text-sm font-medium">
+            <span className="min-w-0 flex-1">
+              <span className="flex min-w-0 items-center gap-2 text-sm font-medium">
                 <span
                   className={cn(
                     "size-2 shrink-0 rounded-sm",
                     o.channel === "own" ? "bg-blue-500" : "bg-orange-500",
                   )}
                 />
-                #{o.orderNumber}
+                <span className="shrink-0">#{o.orderNumber}</span>
                 {showCourier && o.courier && (
-                  <span className="font-normal text-muted-foreground">· {o.courier}</span>
+                  <span className="truncate font-normal text-muted-foreground">· {o.courier}</span>
                 )}
               </span>
               <span className="block truncate text-[11px] text-muted-foreground">
@@ -744,7 +771,7 @@ function CourierDetailDialog({
         {row && (
           <>
             <DialogHeader>
-              <DialogTitle>{row.name}</DialogTitle>
+              <DialogTitle className="pr-6">{row.name}</DialogTitle>
               <DialogDescription>
                 {row.count} paket
                 {row.avg !== null && ` · ortalama ${fmtMin(row.avg)}`}
@@ -759,6 +786,25 @@ function CourierDetailDialog({
               <MiniStat
                 label="Paket başı"
                 value={formatCurrencyShort(row.count ? row.revenue / row.count : 0)}
+              />
+              {/* Dar ekranda tabloda gizlenen sütunlar burada */}
+              <MiniStat
+                label="En hızlı / yavaş"
+                value={
+                  row.fastest !== null && row.slowest !== null
+                    ? `${Math.round(row.fastest)} / ${Math.round(row.slowest)} dk`
+                    : "—"
+                }
+              />
+              <MiniStat
+                label={`${target} dk'yı aşan`}
+                value={`%${row.timed > 0 ? Math.round((row.overTarget / row.timed) * 100) : 0}`}
+                sub={`${fmtInt(row.overTarget)} paket`}
+              />
+              <MiniStat
+                label="Önceki dönem ort."
+                value={row.prevAvg !== null ? fmtMin(row.prevAvg) : "—"}
+                sub={minDelta(row.avg, row.prevAvg)?.text}
               />
             </div>
 

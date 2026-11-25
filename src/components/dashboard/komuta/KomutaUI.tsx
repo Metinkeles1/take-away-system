@@ -84,9 +84,9 @@ export function StripStat({
   isLoading?: boolean;
 }) {
   return (
-    <div className="flex flex-col gap-1 bg-card p-4">
+    <div className="flex min-w-0 flex-col gap-1 bg-card p-3 sm:p-4">
       <span className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-        {label}
+        <span className="min-w-0 truncate">{label}</span>
         {dot && <span className={cn("size-2 rounded-full", dot)} />}
       </span>
       {isLoading ? (
@@ -94,7 +94,7 @@ export function StripStat({
       ) : (
         <span
           className={cn(
-            "text-2xl font-bold tabular-nums tracking-tight",
+            "text-xl font-bold tabular-nums tracking-tight sm:text-2xl",
             tone === "good" && "text-emerald-600 dark:text-emerald-400",
             tone === "bad" && "text-rose-600 dark:text-rose-400",
             tone === "warn" && "text-amber-600 dark:text-amber-400",
@@ -104,7 +104,7 @@ export function StripStat({
           {value}
         </span>
       )}
-      {sub && <span className="text-[11px] text-muted-foreground">{sub}</span>}
+      {sub && <span className="truncate text-[11px] text-muted-foreground">{sub}</span>}
     </div>
   );
 }
