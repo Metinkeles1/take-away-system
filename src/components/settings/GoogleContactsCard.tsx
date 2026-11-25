@@ -146,6 +146,7 @@ export function GoogleContactsCard() {
   };
 
   const connected = status?.connected ?? false;
+  const dropped = connected && (status?.dropped ?? false);
   const clientReady = Boolean(status?.clientId && status.hasSecret);
   const clientFormOpen = !clientReady || showClient;
 
@@ -162,7 +163,9 @@ export function GoogleContactsCard() {
               <p className="truncate text-xs text-muted-foreground">
                 {!status
                   ? "Yükleniyor…"
-                  : connected
+                  : dropped
+                    ? `Bağlantı düştü: ${status.email ?? "Google hesabı"} — müşteriler rehbere gitmiyor`
+                    : connected
                     ? `Bağlı: ${status.email ?? "Google hesabı"} — yeni müşteriler otomatik eklenir`
                     : "Bağlı değil — müşteriler telefon rehberine elle (CSV) aktarılıyor"}
               </p>
@@ -171,6 +174,21 @@ export function GoogleContactsCard() {
 
           {connected && status && (
             <div className="space-y-3">
+              {dropped && (
+                <div className="space-y-2 rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-900/60 dark:bg-red-950/30">
+                  <p className="text-xs text-red-700 dark:text-red-300">
+                    Google bağlantıyı kesti (izin süresi doldu ya da geri
+                    alındı). Tekrar bağlanınca bu arada eklenen müşteriler
+                    otomatik gönderilir.
+                  </p>
+                  <Button asChild className="w-full">
+                    <a href="/api/google-contacts/connect">
+                      <LogIn className="h-4 w-4" />
+                      Tekrar Bağlan
+                    </a>
+                  </Button>
+                </div>
+              )}
               {status.lastSync && (
                 <p
                   className={

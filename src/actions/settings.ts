@@ -278,6 +278,8 @@ export interface GoogleContactsStatus {
   clientId: string;
   hasSecret: boolean;
   connected: boolean;
+  // Token Google tarafından reddedildi (invalid_grant) — tekrar bağlanmak gerekir.
+  dropped: boolean;
   email?: string;
   connectedAt?: string;
   lastSync?: {
@@ -297,6 +299,7 @@ export async function getGoogleContactsStatus(): Promise<GoogleContactsStatus> {
     clientId: s.clientId ?? "",
     hasSecret: Boolean(s.clientSecret),
     connected: Boolean(s.clientId && s.clientSecret && s.refreshToken),
+    dropped: Boolean(s.droppedAt),
     email: s.email,
     connectedAt: s.connectedAt ? new Date(s.connectedAt).toISOString() : undefined,
     lastSync: s.lastSync
