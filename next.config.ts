@@ -7,6 +7,9 @@ const nextConfig: NextConfig = {
   // sunucu paketine dahil edilmezse Vercel'de dosyalar bulunamaz.
   outputFileTracingIncludes: {
     "/api/yemeksepeti/extension": ["./extensions/yemeksepeti/**/*"],
+    // Kasa bilgisayarındaki Trendyol Yazıcı programı (indirme + güncelleme özeti).
+    "/api/print-agent/script": ["./agents/trendyol-yazici/**/*"],
+    "/api/print-agent/poll": ["./agents/trendyol-yazici/**/*"],
   },
   experimental: {
     // Ürün resmi sunucu eylemiyle yüklenir; varsayılan 1 MB sınırı telefon

@@ -27,6 +27,7 @@ import { GoogleContactsCard } from "@/components/settings/GoogleContactsCard";
 import { CashAlertCard } from "@/components/settings/CashAlertCard";
 import { TrendyolAccountsCard } from "@/components/settings/TrendyolAccountsCard";
 import { YemeksepetiBridgeCard } from "@/components/settings/YemeksepetiBridgeCard";
+import { TrendyolPrintAgentCard } from "@/components/settings/TrendyolPrintAgentCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -444,6 +445,9 @@ export default function SettingsPage() {
 
         {/* Trendyol hesapları — çoklu işletme (Satıcı ID + API anahtarı) */}
         <TrendyolAccountsCard />
+
+        {/* Trendyol otomatik kabul + fiş — kasa bilgisayarındaki program */}
+        <TrendyolPrintAgentCard />
 
         {/* Yemeksepeti — panelden okuyan Chrome eklentisi (indirme + durum) */}
         <YemeksepetiBridgeCard />
