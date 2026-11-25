@@ -8,10 +8,13 @@ import type { TrendyolCategoryEarning } from "@/actions/trendyolDashboard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MEAL_CARD_PROVIDER_CUT } from "@/lib/commission";
 import { cn, formatCurrency } from "@/lib/utils";
+import { ACCOUNT_DOT_CLASS, accountColor } from "@/lib/integrations/trendyol/accountColors";
 
 import {
   EPSILON,
   METHOD_META,
+  accountSummaries,
+  type AccountSummary,
   METHOD_ORDER,
   isLate,
   ownNet,
@@ -67,6 +70,7 @@ export function Ledger({ report, orders, comparison, targetMin, courierPending, 
   const rows = useMemo(() => (report ? buildRows(report, orders) : []), [report, orders]);
   const net = rows.reduce((s, r) => s + r.amount, 0);
   const corp = report ? buildCorporateRow(report) : null;
+  const accounts = useMemo(() => accountSummaries(orders), [orders]);
   // Şerit yalnız defterden bir satır seçiliyken diğerlerini soldurur (kanal/kurye seçimi değil).
   const fadeOthers = rows.some((r) => r.key === filter.scope?.key);
   const selected = filter.scope?.key;
@@ -202,6 +206,12 @@ export function Ledger({ report, orders, comparison, targetMin, courierPending, 
         orders={orders}
         active={selected === "ty-receipt"}
         onShowOrders={() => select(scopeFromKey("ty-receipt"))}
+      />
+
+      <AccountsCard
+        accounts={accounts}
+        selected={selected}
+        onSelect={(a) => select(scopeFromKey(`ty-acc-${a.id}`, a.name))}
       />
 
       {/* Defter satırları */}
@@ -450,6 +460,81 @@ function ReceiptCard({
             {active ? "Liste filtresini kaldır" : "Siparişleri listede göster"}
           </button>
         </div>
+      )}
+    </div>
+  );
+}
+
+// Trendyol işletme kırılımı (2+ işletme): kim kaç sipariş getirdi, eline ne
+// kaldı. Siparişlerden toplanır (sipariş bazlı hakediş) — defter toplamıyla
+// kuruş farkı olabilir. Satıra tıkla → liste o işletmeye süzülür.
+function AccountsCard({
+  accounts,
+  selected,
+  onSelect,
+}: {
+  accounts: AccountSummary[];
+  selected: string | undefined;
+  onSelect: (a: AccountSummary) => void;
+}) {
+  if (accounts.length === 0) return null;
+  const totalCount = accounts.reduce((s, a) => s + a.count, 0);
+  const estimated = accounts.some((a) => a.estimated);
+  return (
+    <div className="mx-4 mt-3 flex flex-col rounded-lg border px-1 py-1.5">
+      <div className="flex items-baseline justify-between gap-2 px-2 pb-1">
+        <span className="text-xs font-medium text-muted-foreground">Trendyol işletmeleri</span>
+        <span className="text-[11px] text-muted-foreground">Sipariş · Eline kalan</span>
+      </div>
+      {accounts.map((a) => {
+        const key = `ty-acc-${a.id}`;
+        const active = selected === key;
+        const share = totalCount > 0 ? Math.round((a.count / totalCount) * 100) : 0;
+        return (
+          <div key={a.id} className={cn("rounded-md", active && "bg-muted/60 ring-1 ring-border")}>
+            <button
+              type="button"
+              onClick={() => onSelect(a)}
+              aria-pressed={active}
+              className="flex min-h-11 w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted/60 sm:min-h-0"
+            >
+              <span className={cn("size-2.5 shrink-0 rounded-full", ACCOUNT_DOT_CLASS[accountColor(a.color)])} />
+              <span className="min-w-0 flex-1 truncate font-medium">{a.name}</span>
+              <span className="text-xs whitespace-nowrap tabular-nums text-muted-foreground">
+                {a.count} <span className="hidden sm:inline">(%{share})</span>
+              </span>
+              <span className="w-24 text-right font-semibold whitespace-nowrap tabular-nums">
+                {formatCurrency(a.takeHome)}
+              </span>
+            </button>
+            {active && (
+              <div className="flex flex-col gap-0.5 px-2 pt-0.5 pb-2 pl-6 text-xs text-muted-foreground">
+                <div className="flex justify-between gap-3">
+                  <span>Müşterilerin ödediği</span>
+                  <span className="tabular-nums">{formatCurrency(a.paid)}</span>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <span>Komisyon ve kesintiler</span>
+                  <span className="tabular-nums text-rose-600 dark:text-rose-400">
+                    −{formatCurrency(Math.max(a.paid - a.takeHome, 0))}
+                  </span>
+                </div>
+                <div className="mt-0.5 flex justify-between gap-3 border-t pt-1 font-semibold text-foreground">
+                  <span>Eline kalan</span>
+                  <span className="tabular-nums">{formatCurrency(a.takeHome)}</span>
+                </div>
+                <span className="pt-1">
+                  {a.online} online · {a.onDoor} kapıda · ort. sepet {formatCurrency(a.count ? a.paid / a.count : 0)}
+                </span>
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {estimated && (
+        <p className="px-2 pt-1 text-[11px] text-muted-foreground">
+          Bazı siparişlerin hakedişi henüz kesinleşmedi; tahmini komisyonla hesaplandı.
+        </p>
       )}
     </div>
   );

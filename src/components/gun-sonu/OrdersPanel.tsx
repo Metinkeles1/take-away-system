@@ -1,6 +1,6 @@
 "use client";
 
-import { useDeferredValue, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useDeferredValue, useMemo, useState } from "react";
 import { Bike, List, Package, Search, SlidersHorizontal, X } from "lucide-react";
 
 import type { EndOfDayOrder } from "@/actions/endOfDay";
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Segmented } from "@/components/dashboard/komuta/KomutaUI";
 import { TrendyolOrderSheet } from "@/components/dashboard/komuta/TrendyolOrderSheet";
+import { ACCOUNT_BADGE_CLASS, accountColor } from "@/lib/integrations/trendyol/accountColors";
 import { cn, formatCurrency } from "@/lib/utils";
 
 import {
@@ -44,15 +45,22 @@ interface Props {
   onViewChange: (v: PanelView) => void;
 }
 
-// md ve üstü tablo, altı kart — ikisini birden çizip CSS ile gizlemek DOM'u ikiye katlar.
-const MD_QUERY = "(min-width: 768px)";
-const subscribeMd = (cb: () => void) => {
-  const mq = window.matchMedia(MD_QUERY);
-  mq.addEventListener("change", cb);
-  return () => mq.removeEventListener("change", cb);
-};
-const getMd = () => window.matchMedia(MD_QUERY).matches;
-const getMdServer = () => true;
+// Geniş panel → tablo + tek satır başlık; dar panel → kart + alt alta başlık.
+// Ekran değil PANELİN genişliği belirler: dik monitörde (1024–1199 px) yan menü
+// + Para Defteri yanında panel ~370 px'e düşüyor, ekran ölçüsü "geniş" dese de
+// tablo/başlık sığmıyordu. Eşik = Tailwind @2xl (42rem) — sınıflar da onu kullanır.
+const WIDE_PX = 672;
+
+function usePanelWide(): [(el: HTMLDivElement | null) => void, boolean] {
+  const [wide, setWide] = useState(true);
+  const ref = useCallback((el: HTMLDivElement | null) => {
+    if (!el) return;
+    const ro = new ResizeObserver(([e]) => setWide(e.contentRect.width >= WIDE_PX));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return [ref, wide];
+}
 
 const STATE_LABEL = { open: "Açık hesap", late: "Geç teslim", cancelled: "İptal" } as const;
 
@@ -86,7 +94,7 @@ export function OrdersPanel({ orders, isLoading, targetMin, filter, onFilterChan
       .sort((a, b) => (a.key === NO_COURIER ? 1 : b.key === NO_COURIER ? -1 : b.n - a.n));
   }, [orders]);
 
-  const isMd = useSyncExternalStore(subscribeMd, getMd, getMdServer);
+  const [panelRef, isMd] = usePanelWide();
   // Yazarken/seçerken giriş akıcı kalsın: liste süzme düşük öncelikte yeniden çizilir.
   const deferred = useDeferredValue(filter);
   const { list, gross, tyNet } = useMemo(() => {
@@ -109,7 +117,7 @@ export function OrdersPanel({ orders, isLoading, targetMin, filter, onFilterChan
       ariaLabel="Görünüm"
       value={view}
       onChange={onViewChange}
-      className="h-10 shrink-0 md:h-8"
+      className="h-10 shrink-0 @2xl:h-8"
       options={[
         // Mobilde yalnız ikon — arama satırına sığsın.
         { id: "orders", label: isMd ? "Siparişler" : "", icon: List },
@@ -121,12 +129,15 @@ export function OrdersPanel({ orders, isLoading, targetMin, filter, onFilterChan
   // Kanal düğmesi = defterdeki kapsamın kanal-only hâli ("ch-own"/"ch-trendyol").
   const channelValue = filter.scope?.key.startsWith("ch-") ? (filter.scope.channel ?? "all") : "all";
   const scopeChip = filter.scope && !filter.scope.key.startsWith("ch-") ? filter.scope : null;
+  const accountName = scopeChip?.account
+    ? orders.find((o) => o.account?.id === scopeChip.account)?.account?.name
+    : undefined;
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div ref={panelRef} className="@container flex h-full min-h-0 flex-col">
       {/* Başlık: arama + filtre (+ mobilde görünüm) / kanal. Dar ekranda kanal
           seçici kendi satırında tam genişlik — yan yana sığmayınca sağa taşıyordu. */}
-      <div className="flex flex-col gap-2 border-b p-3 md:flex-row md:items-center">
+      <div className="flex flex-col gap-2 border-b p-3 @2xl:flex-row @2xl:items-center">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <div className="relative min-w-0 flex-1">
             <Search className="absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -135,7 +146,7 @@ export function OrdersPanel({ orders, isLoading, targetMin, filter, onFilterChan
               onChange={(e) => set({ q: e.target.value || undefined })}
               placeholder={isMd ? "No, müşteri, mahalle ara" : "Ara"}
               aria-label="No, müşteri, mahalle ara"
-              className="h-10 w-full rounded-lg border bg-background pr-3 pl-8 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring md:h-8 md:text-sm"
+              className="h-10 w-full rounded-lg border bg-background pr-3 pl-8 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring @2xl:h-8 @2xl:text-sm"
             />
           </div>
           <Button
@@ -144,12 +155,12 @@ export function OrdersPanel({ orders, isLoading, targetMin, filter, onFilterChan
             onClick={() => setFilterOpen(true)}
             aria-label="Filtre"
             className={cn(
-              "relative h-10 shrink-0 gap-1.5 px-3 md:h-7 md:px-2.5",
+              "relative h-10 shrink-0 gap-1.5 px-3 @2xl:h-7 @2xl:px-2.5",
               (nAdv > 0 || filter.sort) && "border-foreground/30",
             )}
           >
-            <SlidersHorizontal className="size-4 md:size-3.5" />
-            <span className="hidden md:inline">Filtre</span>
+            <SlidersHorizontal className="size-4 @2xl:size-3.5" />
+            <span className="hidden @2xl:inline">Filtre</span>
             {nAdv > 0 && (
               <span className="rounded-full bg-foreground px-1.5 text-[10px] font-semibold text-background tabular-nums">
                 {nAdv}
@@ -163,7 +174,7 @@ export function OrdersPanel({ orders, isLoading, targetMin, filter, onFilterChan
             ariaLabel="Kanal"
             value={channelValue}
             onChange={(v) => set({ scope: v === "all" ? undefined : scopeFromKey(`ch-${v}`) })}
-            className="h-10 w-full md:h-8 md:w-auto [&>button]:flex-1 [&>button]:justify-center"
+            className="h-10 w-full @2xl:h-8 @2xl:w-auto [&>button]:flex-1 [&>button]:justify-center"
             options={[
               { id: "all", label: "Tümü" },
               { id: "own", label: "Kendi", dot: "bg-blue-500" },
@@ -210,7 +221,7 @@ export function OrdersPanel({ orders, isLoading, targetMin, filter, onFilterChan
         <span className="text-muted-foreground">
           <b className="text-foreground tabular-nums">{list.length}</b> sipariş
         </span>
-        {scopeChip && <ActiveChip label={scopeChip.label} onClear={() => set({ scope: undefined })} />}
+        {scopeChip && <ActiveChip label={accountName ? `Trendyol · ${accountName}` : scopeChip.label} onClear={() => set({ scope: undefined })} />}
         {filter.state && <ActiveChip label={STATE_LABEL[filter.state]} onClear={() => set({ state: undefined })} />}
         {advChips(filter.adv).map((c) => (
           <ActiveChip key={c.key} label={c.label} onClear={() => clearAdv(c.clear)} />
@@ -418,6 +429,22 @@ function Amount({ o, className }: { o: EndOfDayOrder; className?: string }) {
   );
 }
 
+// Trendyol işletmesi rozeti (yalnız 2+ işletmede dolu).
+function AccountBadge({ o }: { o: EndOfDayOrder }) {
+  if (!o.account) return null;
+  return (
+    <span
+      title={`Trendyol · ${o.account.name}`}
+      className={cn(
+        "max-w-24 truncate rounded px-1.5 py-px text-[10px] font-semibold",
+        ACCOUNT_BADGE_CLASS[accountColor(o.account.color)],
+      )}
+    >
+      {o.account.name}
+    </span>
+  );
+}
+
 function OrderRow({ o, targetMin, onOpen }: { o: EndOfDayOrder; targetMin: number; onOpen: (o: EndOfDayOrder) => void }) {
   return (
     <tr className="cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/40" onClick={() => onOpen(o)}>
@@ -425,6 +452,7 @@ function OrderRow({ o, targetMin, onOpen }: { o: EndOfDayOrder; targetMin: numbe
       <td className="max-w-52 px-3 py-2">
         <span className="flex items-center gap-1.5 font-medium">
           <span className={cn("size-1.5 shrink-0 rounded-full", CHANNEL_DOT[o.channel])} />#{o.orderNumber}
+          <AccountBadge o={o} />
         </span>
         <span className="block truncate text-[11px] text-muted-foreground">
           {o.customer}
@@ -453,9 +481,12 @@ function OrderCard({ o, targetMin, onOpen }: { o: EndOfDayOrder; targetMin: numb
       className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted/40"
     >
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="flex items-center gap-1.5 text-sm font-medium">
-          <span className={cn("size-1.5 shrink-0 rounded-full", CHANNEL_DOT[o.channel])} />#{o.orderNumber}
-          <span className="font-normal tabular-nums text-muted-foreground">· {o.time}</span>
+        <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm font-medium">
+          <span className="flex items-center gap-1.5 whitespace-nowrap">
+            <span className={cn("size-1.5 shrink-0 rounded-full", CHANNEL_DOT[o.channel])} />#{o.orderNumber}
+            <span className="font-normal tabular-nums text-muted-foreground">· {o.time}</span>
+          </span>
+          <AccountBadge o={o} />
         </span>
         <span className="truncate text-xs text-muted-foreground">{o.customer}</span>
         <span className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs">

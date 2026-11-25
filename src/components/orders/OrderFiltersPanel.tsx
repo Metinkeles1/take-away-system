@@ -158,14 +158,16 @@ function Segmented<T extends string>({
   onChange: (v: T) => void;
 }) {
   return (
-    <div className="grid auto-cols-fr grid-flow-col rounded-lg bg-muted p-0.5">
+    // Eşit sütun değil, yazıya göre pay: "Yemeksepeti" dar panelde (telefon, dik
+    // monitör) eşit çeyreğe sığmayıp kenara taşıyordu.
+    <div className="flex rounded-lg bg-muted p-0.5">
       {options.map((o) => (
         <button
           key={o.key}
           type="button"
           onClick={() => onChange(o.key)}
           className={cn(
-            "rounded-md px-2 py-1.5 text-xs font-medium transition-all",
+            "min-w-0 flex-auto truncate rounded-md px-1.5 py-1.5 text-xs font-medium whitespace-nowrap transition-all",
             value === o.key
               ? "bg-background text-foreground shadow-sm"
               : "text-muted-foreground hover:text-foreground",

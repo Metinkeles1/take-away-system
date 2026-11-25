@@ -41,16 +41,23 @@ export interface LedgerScope {
   methods?: string[];
   brand?: string; // yemek kartı markası
   onDoor?: boolean; // Trendyol: kapıda (true) / online (false)
+  account?: string; // Trendyol işletmesi (satıcı ID)
 }
 
 // Kapsam anahtarı → kapsam. Filtre adres çubuğunda yalnız anahtarla tutulur
 // (?kapsam=own-cash); geri gelince buradan yeniden kurulur. Defter ve kanal
 // düğmesi de kapsamı buradan üretir → tek tanım.
-export function scopeFromKey(key: string): LedgerScope | undefined {
+// İşletme kapsamında (ty-acc-<id>) name etiketi verir; adresten gelince bilinmez.
+export function scopeFromKey(key: string, name?: string): LedgerScope | undefined {
   if (key === "ty-bank") return { key, label: "Trendyol · online", channel: "trendyol", onDoor: false };
   if (key === "ty-receipt")
     return { key, label: "Trendyol · online kart", channel: "trendyol", onDoor: false, methods: ["online"] };
   if (key === "ty-door") return { key, label: "Trendyol · kapıda", channel: "trendyol", onDoor: true };
+  if (key.startsWith("ty-acc-")) {
+    const account = key.slice("ty-acc-".length);
+    if (!/^\d{1,20}$/.test(account)) return undefined;
+    return { key, label: name ? `Trendyol · ${name}` : "Trendyol işletmesi", channel: "trendyol", account };
+  }
   if (key === "ch-own") return { key, label: "Kendi", channel: "own" };
   if (key === "ch-trendyol") return { key, label: "Trendyol", channel: "trendyol" };
   if (key.startsWith("own-meal-")) {
@@ -238,6 +245,7 @@ export function matchesFilter(o: EndOfDayOrder, f: OrderFilter, targetMin: numbe
   if (sc?.channel && o.channel !== sc.channel) return false;
   if (hasPartRule(sc, a) && scopedParts(o, sc, a).length === 0) return false;
   if (sc?.onDoor != null && o.onDoor !== sc.onDoor) return false;
+  if (sc?.account && o.account?.id !== sc.account) return false;
   if (f.courier && (o.courier ?? NO_COURIER) !== f.courier) return false;
   if (f.state === "cancelled" && o.status !== "cancelled") return false;
   if (f.state === "open" && !o.open) return false;
@@ -322,6 +330,53 @@ export function ownNet(r: EndOfDayReport) {
   }
   const mealCut = mealGross * MEAL_CARD_PROVIDER_CUT;
   return { gross, mealGross, mealCut, net: gross - mealCut };
+}
+
+// Siparişin sana fiilen kalan neti (Para Defteri ile aynı kural): Trendyol
+// hakedişi; yemek kartında sağlayıcı %10 da düşülür. Kendi siparişte null.
+export function orderTakeHome(o: EndOfDayOrder): number | null {
+  if (o.net == null) return null;
+  return o.method === "meal_card" ? o.net * (1 - MEAL_CARD_PROVIDER_CUT) : o.net;
+}
+
+// Trendyol işletme kırılımı — günün siparişlerinden (iptaller hariç). 2+ işletme
+// (sipariş etiketi yalnız 2+ hesapta dolar) yoksa boş dizi.
+export interface AccountSummary {
+  id: string;
+  name: string;
+  color: string;
+  count: number;
+  paid: number; // müşterilerin ödediği
+  takeHome: number; // eline kalan net
+  online: number; // online sipariş sayısı
+  onDoor: number; // kapıda sipariş sayısı
+  estimated: boolean; // hakedişi henüz kesinleşmemiş sipariş var
+}
+
+export function accountSummaries(orders: EndOfDayOrder[]): AccountSummary[] {
+  const map = new Map<string, AccountSummary>();
+  for (const o of orders) {
+    if (o.channel !== "trendyol" || !o.account || o.status === "cancelled") continue;
+    const s = map.get(o.account.id) ?? {
+      id: o.account.id,
+      name: o.account.name,
+      color: o.account.color,
+      count: 0,
+      paid: 0,
+      takeHome: 0,
+      online: 0,
+      onDoor: 0,
+      estimated: false,
+    };
+    s.count++;
+    s.paid += o.total;
+    s.takeHome += orderTakeHome(o) ?? 0;
+    if (o.onDoor) s.onDoor++;
+    else s.online++;
+    if (o.netEstimated) s.estimated = true;
+    map.set(o.account.id, s);
+  }
+  return map.size > 0 ? [...map.values()].sort((a, b) => b.takeHome - a.takeHome) : [];
 }
 
 export const fmtMin = (m: number | null) => (m == null ? "—" : `${Math.round(m)} dk`);

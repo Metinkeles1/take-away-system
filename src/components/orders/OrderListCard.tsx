@@ -157,7 +157,15 @@ function OrderListCardImpl({
         {/* Sol: sipariş + müşteri. Üst satırda yalnız kimlik + uyarılar (renkli);
             ödeme/süre/kurye/saat alttaki tek gri bilgi satırında. */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
+          {/* Mobilde köşe şeridi (TRENDYOL / YEMEKSEPETİ) bu satırın üstüne biniyordu:
+              şerit genişliği kadar sağ boşluk; md+ şerit sağ sütunun üstünde kalır. */}
+          <div
+            className={cn(
+              "flex items-center gap-2 flex-wrap",
+              isTrendyol && "pr-26 md:pr-0",
+              isYs && "pr-32 md:pr-0",
+            )}
+          >
             <span className="font-bold text-lg leading-none tabular-nums">
               #{isYs ? (order.orderCode ?? order.orderNumber) : order.orderNumber}
             </span>
@@ -274,7 +282,7 @@ function OrderListCardImpl({
         </div>
 
         {/* Orta: ürünler — md+ */}
-        <div className="hidden md:flex md:w-44 lg:w-56 shrink-0 flex-col border-l pl-4">
+        <div className="hidden md:flex md:w-44 xl:w-56 shrink-0 flex-col border-l pl-4">
           <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">
             {order.items.length} kalem ·{" "}
             {order.items.reduce((s, i) => s + i.quantity, 0)} adet

@@ -15,6 +15,7 @@ import {
   trendyolConfigured,
 } from "@/lib/trendyol/archive";
 import { archivedNet, normalizeMealCardBrand } from "@/lib/integrations/trendyol/packageUtils";
+import { trendyolAccountLabeler } from "@/lib/integrations/trendyol/accounts";
 import { getDeliveryTargetMin } from "@/actions/settings";
 import {
   getTrendyolDashboardStats,
@@ -566,6 +567,8 @@ export interface EndOfDayOrder {
   itemCount: number;
   items: EndOfDayOrderItem[];
   district: string | null;
+  // Trendyol işletmesi (yalnız 2+ hesap varken dolu) — işletme kırılımı için.
+  account?: { id: string; name: string; color: string };
 }
 
 export interface EndOfDaySplitPart {
@@ -616,6 +619,7 @@ type TyRow = {
   packageCreationDate?: Date;
   courier?: string;
   deliveryDurationMin?: number;
+  supplierId?: number;
 };
 
 function tyDayOrders(start: Date, end: Date): Promise<TyRow[]> {
@@ -638,6 +642,7 @@ function tyDayOrders(start: Date, end: Date): Promise<TyRow[]> {
       packageCreationDate: 1,
       courier: 1,
       deliveryDurationMin: 1,
+      supplierId: 1,
     })
     .lean<TyRow[]>();
 }
@@ -678,7 +683,7 @@ export async function getEndOfDayOrders(dateStr?: string): Promise<EndOfDayOrder
     createdAt: Date;
   };
 
-  const [own, tyFirst, deliveryTargetMin] = await Promise.all([
+  const [own, tyFirst, deliveryTargetMin, accountLabel] = await Promise.all([
     OrderModel.find({ createdAt: { $gte: start, $lt: end } })
       .select({
         id: 1,
@@ -701,6 +706,7 @@ export async function getEndOfDayOrders(dateStr?: string): Promise<EndOfDayOrder
       .lean<OwnRow[]>(),
     tyDayOrders(start, end),
     getDeliveryTargetMin(),
+    trendyolAccountLabeler(),
   ]);
 
   // Yemek kartının kaynağı (online / kapıda kod) arşive sonradan eklendi. O günün
@@ -803,6 +809,10 @@ export async function getEndOfDayOrders(dateStr?: string): Promise<EndOfDayOrder
         itemCount: lines.reduce((s, l) => s + l.qty, 0),
         items: status === "cancelled" ? [] : spreadItems(lines, total, net),
         district: o.neighborhood || o.district || null,
+        account: (() => {
+          const a = accountLabel(o.supplierId);
+          return a ? { id: String(o.supplierId), ...a } : undefined;
+        })(),
       };
     }),
   ].sort((a, b) => b.createdAt - a.createdAt);
