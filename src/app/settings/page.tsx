@@ -28,6 +28,7 @@ import { CashAlertCard } from "@/components/settings/CashAlertCard";
 import { TrendyolAccountsCard } from "@/components/settings/TrendyolAccountsCard";
 import { YemeksepetiBridgeCard } from "@/components/settings/YemeksepetiBridgeCard";
 import { TrendyolPrintAgentCard } from "@/components/settings/TrendyolPrintAgentCard";
+import { StationPrintCard } from "@/components/settings/StationPrintCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -448,6 +449,9 @@ export default function SettingsPage() {
 
         {/* Trendyol otomatik kabul + fiş — kasa bilgisayarındaki program */}
         <TrendyolPrintAgentCard />
+
+        {/* Mutfak istasyonları — ocakbaşı / fırın fişlerini ayrı yazıcıya böl */}
+        <StationPrintCard />
 
         {/* Yemeksepeti — panelden okuyan Chrome eklentisi (indirme + durum) */}
         <YemeksepetiBridgeCard />

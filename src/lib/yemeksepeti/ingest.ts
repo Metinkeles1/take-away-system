@@ -2,6 +2,7 @@ import { connectDB } from "@/lib/mongodb";
 import YemeksepetiOrderModel from "@/models/YemeksepetiOrder";
 import YemeksepetiCaptureModel from "@/models/YemeksepetiCapture";
 import { notifyOrdersChanged } from "@/lib/pusher/server";
+import { queueYemeksepetiStations } from "@/lib/printAgent/stations";
 
 // Eklentiden gelen tek bir yakalama (panelin aldığı bir yanıt).
 export type YsCapture = {
@@ -313,11 +314,11 @@ export function parseCaptures(captures: YsCapture[]) {
       },
     });
   }
-  return { ops, raw, ignored, live: live.size };
+  return { ops, raw, ignored, live: live.size, liveIds: [...live.keys()] };
 }
 
 export async function ingestCaptures(captures: YsCapture[]): Promise<IngestResult> {
-  const { ops, raw, ignored, live } = parseCaptures(captures);
+  const { ops, raw, ignored, live, liveIds } = parseCaptures(captures);
   if (!ops.length && !raw.length) return { orders: 0, raw: 0, ignored };
   await connectDB();
   if (ops.length) await YemeksepetiOrderModel.bulkWrite(ops, { ordered: false });
@@ -325,5 +326,9 @@ export async function ingestCaptures(captures: YsCapture[]): Promise<IngestResul
   // Canlı sipariş geldi/değişti → panel ve kurye ekranları anında tazelensin.
   // (Eklenti değişmeyen yanıtı tekrar göndermediği için bu sadece değişiklikte olur.)
   if (live > 0) await notifyOrdersChanged("yemeksepeti-live").catch(() => {});
+  // Mutfak istasyonları açıksa yeni canlı siparişin ocak/fırın fişleri (bir kez).
+  if (live > 0) {
+    await queueYemeksepetiStations(liveIds).catch((err) => console.error("[ys stations]", err));
+  }
   return { orders: ops.length, raw: raw.length, ignored };
 }

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useReactToPrint } from "react-to-print";
 import { toast } from "sonner";
 import { useOrderStore } from "@/store/orderStore";
+import { sendOrderToStations } from "@/actions/printStations";
 
 interface UseOrderSubmitResult {
   isSubmitting: boolean;
@@ -57,6 +58,13 @@ export function useOrderSubmit(): UseOrderSubmitResult {
         }
         toast.success(`#${order.orderNumber} numaralı sipariş alındı!`);
         if (alsoPrint) {
+          // Mutfak istasyonları açıksa ocak/fırın fişleri kasa programından
+          // basılır (beklemeden); kasa fişi aşağıda tarayıcıdan.
+          void sendOrderToStations(order.id)
+            .then((r) => {
+              if (!r.ok) toast.error(r.error ?? "Mutfak fişleri gönderilemedi");
+            })
+            .catch(() => toast.error("Mutfak fişleri gönderilemedi"));
           // Print bitsin (veya iptal edilsin), receiptRef unmount olmadan önce
           try {
             await handlePrint();

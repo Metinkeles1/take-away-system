@@ -131,6 +131,72 @@ export function buildTrendyolReceipt(
   return out;
 }
 
+// ─── İstasyon fişi (Ocakbaşı / Fırın…) ──────────────────────────────────────
+// Fiyatsız, büyük yazı: usta yalnız kendi ürünlerini görür. Adres/tutar kasa
+// fişinde. Siparişin başka istasyonda da ürünü varsa altta not düşülür ki
+// iki taraf birlikte hazırlasın.
+
+export interface StationTicketItem {
+  qty: string; // "2" · "1.5 porsiyon" gibi
+  name: string;
+  details: string[]; // seçimler / ekstralar
+  removed: string[]; // "soğan" → "SOĞAN İSTEMİYOR"
+  note?: string;
+  unmatched?: boolean; // menüde bulunamadı → fişte "(?)"
+}
+
+export interface StationTicketOrder {
+  source: string; // "PANEL" · "TRENDYOL · Kebapçı X" · "YEMEKSEPETİ"
+  number: string;
+  createdAt: Date;
+  notes?: string;
+}
+
+export function buildStationTicket(
+  stationName: string,
+  order: StationTicketOrder,
+  items: StationTicketItem[],
+  others: { name: string; count: number }[],
+): ReceiptLine[] {
+  const out: ReceiptLine[] = [];
+  out.push({ k: "t", x: stationName.toLocaleUpperCase("tr"), s: 4, b: true, a: "c" });
+  out.push({ k: "t", x: order.source, s: 1, b: true, a: "c" });
+  out.push({ k: "hr" });
+  out.push({ k: "r", l: `Sipariş #${order.number}`, r: clock(order.createdAt), s: 2, b: true });
+  out.push({ k: "hr" });
+
+  for (const it of items) {
+    out.push({ k: "t", x: `${it.qty} x ${it.name}${it.unmatched ? " (?)" : ""}`, s: 3, b: true });
+    for (const d of it.details) out.push({ k: "t", x: `   • ${d}`, s: 2 });
+    for (const r of it.removed) out.push({ k: "t", x: `   – ${r} İSTEMİYOR`, s: 2, b: true });
+    if (it.note) out.push({ k: "t", x: `   Not: ${it.note}`, s: 2, b: true });
+  }
+  out.push({ k: "hr" });
+
+  if (order.notes) {
+    out.push({ k: "t", x: "MÜŞTERİ NOTU:", s: 1, b: true });
+    out.push({ k: "t", x: order.notes, s: 2, b: true });
+    out.push({ k: "hr" });
+  }
+  for (const o of others) {
+    out.push({ k: "t", x: `+ ${o.name}: ${o.count} ürün daha var`, s: 1, b: true, a: "c" });
+  }
+  out.push({ k: "sp" });
+  return out;
+}
+
+export function buildStationTestTicket(stationName: string, printerName: string): ReceiptLine[] {
+  return [
+    { k: "t", x: stationName.toLocaleUpperCase("tr"), s: 4, b: true, a: "c" },
+    { k: "t", x: "İSTASYON DENEME FİŞİ", s: 2, b: true, a: "c" },
+    { k: "hr" },
+    { k: "r", l: "Saat", r: clock(new Date()), s: 1 },
+    { k: "r", l: "Yazıcı", r: printerName || "Bilgisayarın varsayılanı", s: 1 },
+    { k: "t", x: "Bu istasyonun fişleri buradan çıkacak.", s: 1, a: "c" },
+    { k: "sp" },
+  ];
+}
+
 export function buildTestReceipt(accountNames: string[], printerName: string): ReceiptLine[] {
   const now = new Date();
   return [
