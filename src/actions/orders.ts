@@ -78,7 +78,7 @@ export type OrdersPeriod = "today" | "week" | "month" | "all";
 // daha geniş arama yapılabilsin diye tavan yükseltilir (yine de sınırsız değil).
 const ORDERS_MAX = 500;
 const ORDERS_MAX_ALL = 2000;
-const ACTIVE_STATUSES = ["pending", "preparing", "on-the-way"];
+const ACTIVE_STATUSES = ["pending", "preparing", "on-the-way"] as const;
 
 // Seçilen döneme göre "geçmiş" kesme tarihi. "all" → kesme yok (tüm kayıtlar).
 function periodCutoff(period: OrdersPeriod): Date | null {
@@ -135,7 +135,7 @@ export async function getOrders(period: OrdersPeriod = "week"): Promise<Order[]>
     ? {
         $or: [
           { status: { $in: ACTIVE_STATUSES } }, // aktif iş daima görünür
-          { paymentStatus: "open" }, // açık hesaplar daima görünür
+          { paymentStatus: "open" as const }, // açık hesaplar daima görünür
           { createdAt: { $gte: cutoff } }, // seçilen dönemin geçmişi
         ],
       }
@@ -490,8 +490,8 @@ export async function getOpenAccounts(
 
   const cutoff = collectionCutoff(collectionPeriod);
   const collectedQuery = cutoff
-    ? { paymentStatus: "paid", paidAt: { $gte: cutoff } }
-    : { paymentStatus: "paid", paidAt: { $exists: true } };
+    ? { paymentStatus: "paid" as const, paidAt: { $gte: cutoff } }
+    : { paymentStatus: "paid" as const, paidAt: { $exists: true } };
 
   // Açık borçlar daima gelir; tahsil edilmiş kayıtlar seçilen geçmiş döneminden
   // gelir. İptal edilen siparişler alacak/tahsilat tarihi sayılmaz.

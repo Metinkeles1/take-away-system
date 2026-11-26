@@ -25,7 +25,7 @@ export function mealCardShare(payment: PaymentLike, total: number): number {
 
 // Mongo filtresi: ana yöntemi YA DA bölünmüş parçalarından biri bu yöntem olan
 // siparişler. $and içinde ki kaynak filtresinin $or'u ile çakışmasın.
-export function paymentMethodFilter(method: string) {
+export function paymentMethodFilter(method: PaymentInfo["method"]) {
   return {
     $and: [{ $or: [{ "payment.method": method }, { "payment.split.method": method }] }],
   };

@@ -302,7 +302,7 @@ async function ownMealCardBrands(
     channel === "all"
       ? {}
       : channel === "manual"
-        ? { $or: [{ source: "manual" }, { source: { $exists: false } }] }
+        ? { $or: [{ source: "manual" as const }, { source: { $exists: false } }] }
         : { source: channel };
   const rows = await OrderModel.find({
     ...filter,

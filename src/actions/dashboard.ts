@@ -1008,7 +1008,7 @@ export interface OperationalSnapshot {
   openOrders: LiveOpsOrder[]; // açık siparişler — geciken üstte sıralı
 }
 
-const OPEN_STATUSES = ["pending", "preparing", "on-the-way"];
+const OPEN_STATUSES = ["pending", "preparing", "on-the-way"] as const;
 
 export async function getOperationalSnapshot(
   source: DashboardSource = "all",
