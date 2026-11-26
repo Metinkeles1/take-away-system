@@ -14,8 +14,8 @@
     "db:normalize-phones": "node scripts/normalize-phones.mjs"
   },
   "dependencies": {
-    "@hookform/resolvers": "^5.2.2",
-    "@tanstack/react-virtual": "^3.13.24",
+    "@hookform/resolvers": "^5.9.2",
+    "@tanstack/react-virtual": "^3.14.28",
     "@vercel/blob": "^2.9.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -26,36 +26,36 @@
     "mongoose": "^9.13.1",
     "next": "16.4.6",
     "next-themes": "^0.4.6",
-    "pusher": "^5.3.3",
-    "pusher-js": "^8.5.0",
-    "radix-ui": "^1.4.3",
-    "react": "19.2.3",
-    "react-day-picker": "^10.0.1",
-    "react-dom": "19.2.3",
-    "react-hook-form": "^7.71.2",
+    "pusher": "^5.3.4",
+    "pusher-js": "^8.6.0",
+    "radix-ui": "^1.8.1",
+    "react": "^19.3.1",
+    "react-day-picker": "^10.0.2",
+    "react-dom": "^19.3.1",
+    "react-hook-form": "^7.92.0",
     "react-leaflet": "^5.0.0",
     "react-to-print": "^3.3.0",
-    "recharts": "^3.8.0",
-    "shadcn": "^4.0.2",
+    "recharts": "^3.11.1",
+    "shadcn": "^4.23.1",
     "sharp": "^0.35.5",
-    "sonner": "^2.0.7",
-    "tailwind-merge": "^3.5.0",
+    "sonner": "^2.0.8",
+    "tailwind-merge": "^3.7.1",
     "tw-animate-css": "^1.4.0",
     "web-push": "^3.6.7",
     "zod": "^4.6.7",
-    "zustand": "^5.0.11"
+    "zustand": "^5.1.0"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4",
-    "@types/leaflet": "^1.9.21",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
+    "@tailwindcss/postcss": "^4.3.5",
+    "@types/leaflet": "^1.9.23",
+    "@types/node": "^20.19.43",
+    "@types/react": "^19.3.3",
+    "@types/react-dom": "^19.3.0",
     "@types/web-push": "^3.6.4",
-    "eslint": "^9",
+    "eslint": "^9.39.5",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5.9.3"
   },
   "overrides": {
     "@vercel/blob": {
@@ -63,6 +63,7 @@
     },
     "@vercel/cli-config": {
       "zod": "^4.6.7"
-    }
+    },
+    "eslint-plugin-react-hooks": "7.0.1"
   }
 }
