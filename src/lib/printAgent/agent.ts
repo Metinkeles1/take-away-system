@@ -29,6 +29,7 @@ import {
 import { getTrendyolAccounts } from "@/lib/integrations/trendyol/accounts";
 import { buildTestReceipt, buildTrendyolReceipt, type ReceiptLine } from "./receipt";
 import { AGENT_ONLINE_MS } from "./constants";
+import { queueTrendyolStations, readStationConfig, stationsActive } from "./stations";
 
 const CONFIG_KEY = "printAgent";
 const INTAKE_SLOT_KEY = "printAgentIntakeAt";
@@ -52,6 +53,7 @@ export interface PrintAgentConfig {
   autoAccept: boolean;
   prepMinutes: number;
   enabledAt: string; // ISO — bu andan önce gelen siparişler işlenmez
+  installerAt?: string; // ISO — kurulum dosyası en son ne zaman indirildi
 }
 
 export interface PrintAgentDevice {
@@ -255,8 +257,9 @@ async function queuePrint(p: TrendyolPackage, accountName: string, receipt: Rece
 }
 
 export async function runIntake(cfg: PrintAgentConfig): Promise<{ accepted: number }> {
-  const print = await anyPrintingDevice();
-  if (!cfg.autoAccept && !print) return { accepted: 0 };
+  const [print, stations] = await Promise.all([anyPrintingDevice(), readStationConfig()]);
+  // İstasyon fişi kasa fişinden bağımsız: ocak bilgisayarında "fiş basar" kapalı olabilir.
+  if (!cfg.autoAccept && !print && !stationsActive(stations)) return { accepted: 0 };
   if (!(await claimIntakeSlot())) return { accepted: 0 };
 
   const accounts = await getTrendyolAccounts();
@@ -297,6 +300,7 @@ export async function runIntake(cfg: PrintAgentConfig): Promise<{ accepted: numb
             buildTrendyolReceipt(p, { accountName, accepted: true, prepMinutes: cfg.prepMinutes }),
           );
         }
+        await queueTrendyolStations(stations, p, accountName);
       } else {
         const error = `${r.status} ${r.error}`.slice(0, 300);
         console.warn("[print-agent accept]", p.id, error);
@@ -310,6 +314,8 @@ export async function runIntake(cfg: PrintAgentConfig): Promise<{ accepted: numb
     }
 
     // Otomatik kabul kapalı (ya da paket zaten kabul edilmiş): sadece yazdır.
+    // Kabul edilmemiş (Created) paket istasyona gitmez — elle kabul edilince
+    // Picking olur ve bir sonraki turda buradan düşer.
     if (print) {
       await queuePrint(
         p,
@@ -317,6 +323,7 @@ export async function runIntake(cfg: PrintAgentConfig): Promise<{ accepted: numb
         buildTrendyolReceipt(p, { accountName, accepted: true, prepMinutes: p.preparationTime || undefined }),
       );
     }
+    if (p.packageStatus !== "Created") await queueTrendyolStations(stations, p, accountName);
   }
   return { accepted };
 }
@@ -326,6 +333,7 @@ export async function runIntake(cfg: PrintAgentConfig): Promise<{ accepted: numb
 export interface PrintJob {
   id: string;
   lines: ReceiptLine[];
+  printer?: string; // istasyon fişi: bu yazıcı (yoksa bilgisayarın yazıcısı)
 }
 
 // Bu bilgisayarın basacağı fişleri kilitleyerek alır. Deneme fişi yalnız ona;
@@ -373,10 +381,14 @@ export async function claimPrintJobs(device: PrintAgentDevice): Promise<PrintJob
         packageId: { $nin: jobs.map((j) => j.id) },
       },
       { $set: { printLockAt: new Date(now), printLockBy: device.deviceId } },
-      { sort: { printQueuedAt: 1 }, new: true, projection: { packageId: 1, receipt: 1 } },
-    ).lean<{ packageId: string; receipt?: ReceiptLine[] }>();
+      { sort: { printQueuedAt: 1 }, new: true, projection: { packageId: 1, receipt: 1, printerName: 1 } },
+    ).lean<{ packageId: string; receipt?: ReceiptLine[]; printerName?: string }>();
     if (!doc) break;
-    jobs.push({ id: doc.packageId, lines: doc.receipt ?? [] });
+    jobs.push({
+      id: doc.packageId,
+      lines: doc.receipt ?? [],
+      ...(doc.printerName ? { printer: doc.printerName } : {}),
+    });
   }
   return jobs;
 }

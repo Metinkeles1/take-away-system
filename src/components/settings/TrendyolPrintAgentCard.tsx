@@ -42,7 +42,7 @@ const STEPS = [
 type Res = { ok: boolean; error?: string };
 const failed: Res = { ok: false };
 
-function Switch({
+export function Switch({
   on,
   busy,
   label,
@@ -78,7 +78,9 @@ function Switch({
 function JobRow({ j }: { j: PrintAgentJobRow }) {
   const time = new Date(j.at).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
   const title =
-    j.kind === "test" ? `Deneme fişi · ${j.accountName ?? ""}` : `#${j.orderNumber ?? "?"}${j.accountName ? ` · ${j.accountName}` : ""}`;
+    j.kind === "test"
+      ? `Deneme fişi · ${j.accountName ?? ""}`
+      : `#${j.orderNumber ?? "?"}${j.accountName ? ` · ${j.accountName}` : ""}`;
   const accept =
     j.kind === "test" || j.acceptOk === null ? null : j.acceptOk ? (
       <span className="text-emerald-600">Kabul ✓</span>
@@ -343,6 +345,23 @@ export function TrendyolPrintAgentCard() {
                       }${printing ? " · fiş basılıyor" : " · fiş basan bilgisayar yok"}`}
             </span>
           </div>
+
+          {/* Kurulum dosyası indirildi ama hiçbir bilgisayardan sinyal gelmedi. */}
+          {s && s.devices.length === 0 && s.installerAt && (
+            <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              <p className="font-medium">
+                Kurulum dosyası indirildi ({formatAgo(s.installerAt)}) ama henüz hiçbir bilgisayar bağlanmadı.
+              </p>
+              <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                <li>Dosyayı fiş yazıcısının bağlı olduğu bilgisayarda yeniden indirip çalıştırın.</li>
+                <li>Pencerede “HATA” yazıyorsa altındaki açıklamayı izleyin.</li>
+                <li>
+                  Antivirüs engellemiş olabilir: Windows Güvenliği → Virüs ve tehdit koruması → Koruma
+                  geçmişi’nden “İzin ver” deyin.
+                </li>
+              </ul>
+            </div>
+          )}
 
           {s && (
             <div className="mb-4 space-y-3">

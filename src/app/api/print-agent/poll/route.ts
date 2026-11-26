@@ -13,7 +13,7 @@ import { syncTrendyolCourierPackages } from "@/actions/trendyolCourier";
 // Kasadaki "Trendyol Yazıcı" programının ~20 sn'lik yoklaması.
 //   POST /api/print-agent/poll   Header: "Authorization: Bearer <bağlantı anahtarı>"
 //   Gövde: { deviceId, host?, version?, printers?: string[] }
-//   Yanıt: { jobs: [{ id, lines }], printerName, scriptHash, intervalSec }
+//   Yanıt: { ok: true, jobs: [{ id, lines }], printerName, scriptHash, intervalSec }
 //          ya da { uninstall: true } → program kendini kaldırır.
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
   // Ayarlar'dan "Kaldır" denmiş → program kendini kaldırır, kayıt silinir.
   if (device.uninstallRequestedAt) {
     await deleteDevice(device.deviceId);
-    return NextResponse.json({ uninstall: true });
+    return NextResponse.json({ ok: true, uninstall: true });
   }
 
   try {
@@ -63,6 +63,7 @@ export async function POST(req: NextRequest) {
   ]);
 
   return NextResponse.json({
+    ok: true, // kurulum bununla gerçekten bu siteye ulaştığını doğrular
     jobs,
     printerName: device.printerName,
     scriptHash: script?.hash ?? "",

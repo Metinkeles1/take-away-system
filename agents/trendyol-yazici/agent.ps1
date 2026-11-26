@@ -1,4 +1,5 @@
 # Trendyol Yazici - kasa bilgisayarinda calisan program.
+# TRENDYOL-YAZICI-AGENT (kurulum dosyasi bu isareti arar; silmeyin)
 #
 # Ne yapar: ~20 sn'de bir siteye (/api/print-agent/poll) sorar. Sunucu yeni
 # Trendyol siparislerini (tum isletmeler) otomatik kabul eder ve fis satirlarini
@@ -26,6 +27,9 @@ $ScriptPath = Join-Path $AppDir 'agent.ps1'
 $ConfigPath = Join-Path $AppDir 'config.json'
 $LogPath = Join-Path $AppDir 'log.txt'
 $DevicePath = Join-Path $AppDir 'device.txt'
+# Arka plandaki program her basarili yoklamada buraya yazar; kurulum bununla
+# programin gercekten calisip siteye ulastigini dogrular.
+$StatusPath = Join-Path $AppDir 'status.txt'
 $LauncherPath = Join-Path ([Environment]::GetFolderPath('Startup')) 'TrendyolYazici.vbs'
 
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -234,7 +238,7 @@ if ($Install) {
       'Set sh = CreateObject("WScript.Shell")',
       'script = sh.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\TrendyolYazici\agent.ps1"',
       'Do',
-      '  rc = sh.Run("powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File """ & script & """", 0, True)',
+      '  rc = sh.Run("powershell.exe -NoProfile -ExecutionPolicy Bypass -File """ & script & """", 0, True)',
       '  If rc = 99 Then Exit Do',
       '  WScript.Sleep 15000',
       'Loop'
@@ -249,21 +253,51 @@ if ($Install) {
     [IO.File]::WriteAllText((Join-Path $AppDir 'Kaldir.bat'), $un, [Text.Encoding]::ASCII)
 
     # Baglantiyi dogrula + yazicilari hemen bildir (Ayarlar'da liste gorunsun).
+    Write-Host '  Siteye baglaniliyor:' $cfg.serverUrl
     $printers = Get-PrinterNames
-    Invoke-Api $cfg '/api/print-agent/poll' @{ deviceId = (Get-DeviceId); host = $env:COMPUTERNAME; version = (Get-MyHash); printers = @($printers) } | Out-Null
+    $resp = Invoke-Api $cfg '/api/print-agent/poll' @{ deviceId = (Get-DeviceId); host = $env:COMPUTERNAME; version = (Get-MyHash); printers = @($printers) }
+    # Bizim sunucu "ok: true" doner; baska bir sayfa (giris, hata, guvenlik
+    # duvari) 200 donse bile kurulum basarili sayilmaz.
+    if (-not $resp -or $resp.ok -ne $true) { throw 'Siteden beklenen yanit gelmedi (adres ya da guvenlik duvari sorunu).' }
+    Write-Host '  Siteye baglanildi. Bilgisayar Ayarlar listesine eklendi.'
 
+    # Arka plan programini baslat ve gercekten calistigini bekle.
+    if (Test-Path $StatusPath) { Remove-Item $StatusPath -Force }
+    $startedAt = Get-Date
     Start-Process -FilePath 'wscript.exe' -ArgumentList ('"' + $LauncherPath + '"')
+    Write-Host '  Arka plan programi baslatiliyor (en fazla 45 sn)...'
+    $running = $false
+    for ($i = 0; $i -lt 45; $i++) {
+      Start-Sleep -Seconds 1
+      if ((Test-Path $StatusPath) -and ((Get-Item $StatusPath).LastWriteTime -ge $startedAt.AddSeconds(-2))) { $running = $true; break }
+    }
+    if (-not $running) {
+      $why = ''
+      if (-not (Test-Path $LauncherPath)) { $why = ' Baslatici dosyasi silinmis: antivirus engellemis olabilir.' }
+      elseif (-not (Test-Path $ScriptPath)) { $why = ' Program dosyasi silinmis: antivirus engellemis olabilir.' }
+      throw ('Arka plan programi calismadi.' + $why + ' Ayrinti: ' + $LogPath)
+    }
     Write-Log 'Kuruldu.'
 
-    Write-Host '  Siteye baglanildi.'
+    Write-Host '  Arka plan programi calisiyor.'
     Write-Host '  Bulunan yazicilar:'
     foreach ($p in $printers) { Write-Host '    -' $p }
     Write-Host '  Secilen yazici:' (Resolve-Printer '')
     Write-Host '  (Yaziciyi sitede Ayarlar > Trendyol Otomatik Kabul bolumunden degistirebilirsiniz.)'
     exit 0
   } catch {
-    Write-Host '  HATA:' $_.Exception.Message
-    Write-Log ('Kurulum hatasi: ' + $_.Exception.Message)
+    $msg = $_.Exception.Message
+    Write-Host ''
+    Write-Host '  HATA:' $msg
+    if ($msg -match 'SSL|TLS|secure channel|guvenli kanal') {
+      Write-Host '  -> Bu bilgisayarin Windows/.NET surumu guncel guvenli baglantiyi desteklemiyor olabilir. Windows Update yapin.'
+    } elseif ($msg -match '\(401\)') {
+      Write-Host '  -> Baglanti anahtari gecersiz. Ayarlar sayfasindan kurulum dosyasini yeniden indirin.'
+    } elseif ($msg -match 'antivirus|silinmis|calismadi') {
+      Write-Host '  -> Windows Guvenligi > Virus ve tehdit koruma > Koruma gecmisi bolumunden'
+      Write-Host '     TrendyolYazici dosyasina "Izin ver" deyin ve kurulumu tekrar calistirin.'
+    }
+    Write-Log ('Kurulum hatasi: ' + $msg)
     exit 1
   }
 }
@@ -300,6 +334,7 @@ while ($true) {
       $printersSentAt = Get-Date
     }
     $resp = Invoke-Api $cfg '/api/print-agent/poll' $body
+    try { [IO.File]::WriteAllText($StatusPath, (Get-Date -Format 'o'), [Text.Encoding]::ASCII) } catch {}
 
     # Sitede Ayarlar'dan "Kaldir" denmis -> acilistan cik ve dur (99 = baslatici da durur).
     if ($resp.uninstall) {
@@ -319,7 +354,10 @@ while ($true) {
         $results += @{ id = [string]$job.id; ok = $true }
         continue
       }
-      $printer = Resolve-Printer ([string]$resp.printerName)
+      # Istasyon fisi (Ocakbasi/Firin...) kendi yazicisini tasir; yoksa bilgisayarin yazicisi.
+      $wanted = [string]$resp.printerName
+      if ($job.printer) { $wanted = [string]$job.printer }
+      $printer = Resolve-Printer $wanted
       try {
         Print-Receipt $printer $job.lines
         [void]$printed.Add([string]$job.id)

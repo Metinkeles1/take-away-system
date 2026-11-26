@@ -13,7 +13,7 @@ import { AGENT_ONLINE_MS, PREP_CHOICES } from "@/lib/printAgent/constants";
 
 export type PrintAgentJobRow = {
   id: string;
-  kind: "order" | "test";
+  kind: "order" | "test" | "station";
   orderNumber: string | null;
   accountName: string | null;
   acceptOk: boolean | null;
@@ -39,6 +39,7 @@ export type PrintAgentDeviceRow = {
 export type PrintAgentStatus = {
   autoAccept: boolean;
   prepMinutes: number;
+  installerAt: string | null; // kurulum dosyası en son indirilme anı
   devices: PrintAgentDeviceRow[];
   recent: PrintAgentJobRow[];
 };
@@ -56,6 +57,7 @@ export async function getPrintAgentStatus(): Promise<PrintAgentStatus> {
   return {
     autoAccept: cfg?.autoAccept ?? true,
     prepMinutes: cfg?.prepMinutes ?? 20,
+    installerAt: cfg?.installerAt ?? null,
     devices: devices.map((d) => ({
       deviceId: d.deviceId,
       host: d.host,
@@ -69,7 +71,7 @@ export async function getPrintAgentStatus(): Promise<PrintAgentStatus> {
     })),
     recent: rows.map((r) => ({
       id: r.packageId,
-      kind: (r.kind as "order" | "test") ?? "order",
+      kind: (r.kind as PrintAgentJobRow["kind"]) ?? "order",
       orderNumber: r.orderNumber ?? null,
       accountName: r.accountName ?? null,
       acceptOk: typeof r.acceptOk === "boolean" ? r.acceptOk : null,
