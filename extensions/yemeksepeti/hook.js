@@ -26,15 +26,28 @@
   // Sunucumuza yalnız başlık ADLARI raporlanır (teşhis için).
   const PARTNER_API = /restaurant-partners\.com/i;
   const SKIP_HEADER = /^(content-type|content-length|accept|accept-language)$/i;
-  const panelHeaders = {};
+  // Sunucu (host) başına ayrı tutulur: başka bir restaurant-partners alt
+  // alanına giden başlık, vendor-api'nin izin listesinde yoksa tarayıcı isteği
+  // ("Failed to fetch") keser.
+  const headersByHost = {};
+  function hostOf(url) {
+    try {
+      return new URL(String(url), location.href).host;
+    } catch {
+      return "";
+    }
+  }
   function rememberHeader(url, name, value) {
     try {
       if (!PARTNER_API.test(String(url)) || !name || SKIP_HEADER.test(name)) return;
-      panelHeaders[String(name).toLowerCase()] = String(value);
+      const h = hostOf(url);
+      if (!h) return;
+      (headersByHost[h] ||= {})[String(name).toLowerCase()] = String(value);
     } catch {
       /* yoksay */
     }
   }
+  const headersFor = (url) => headersByHost[hostOf(url)] || {};
   function rememberHeaders(url, headers) {
     if (!headers) return;
     try {
@@ -70,7 +83,7 @@
           requestBody: typeof reqBody === "string" ? reqBody.slice(0, 2000) : reqBody == null ? "" : "[metin değil]",
           httpStatus: status,
           responseState: typeof state === "string" ? state : undefined,
-          headerNames: Object.keys(panelHeaders),
+          headerNames: Object.keys(headersFor(url)),
         },
         "*",
       );
@@ -80,9 +93,11 @@
   }
 
   // Sunucudan gelen iş: tahmini içerikleri sırayla dener, ilk 2xx'te durur.
+  let credMode = "same-origin";
   const JOB_URL = /^https:\/\/vendor-api-[a-z]+\.me\.restaurant-partners\.com\/api\/1\/deliveries\/oma_[\w-]+\/state$/;
   async function runJob(job) {
     const attempts = [];
+    const panelHeaders = headersFor(job?.url);
     const headerNames = Object.keys(panelHeaders);
     if (!job || !JOB_URL.test(String(job.url)) || job.method !== "PUT" || !Array.isArray(job.variants)) {
       return { orderId: job?.orderId, attempts, headerNames, error: "Geçersiz iş (adres/yöntem)" };
@@ -91,12 +106,28 @@
       if (typeof v?.body !== "string" || v.body.length > 2000) continue;
       const a = { variant: String(v.name ?? ""), body: v.body };
       try {
-        const res = await origFetch(job.url, {
-          method: "PUT",
-          headers: { ...panelHeaders, "content-type": "application/json" },
-          body: v.body,
-          credentials: "include",
-        });
+        // Panel giriş anahtarını başlıkta (authorization) gönderir, çerezle
+        // değil. Eskiden credentials:"include" vardı → Yemeksepeti sunucusu
+        // çerezli çapraz isteğe izin vermediği için tarayıcı isteği kesiyordu
+        // ("Failed to fetch"). Önce panelin yaptığı gibi çerezsiz; ağ hatası
+        // olursa bir kez çerezli dene, tutan yöntemi hatırla.
+        const send = (credentials) =>
+          origFetch(job.url, {
+            method: "PUT",
+            headers: { ...panelHeaders, "content-type": "application/json" },
+            body: v.body,
+            credentials,
+          });
+        let res;
+        try {
+          res = await send(credMode);
+        } catch (e1) {
+          const alt = credMode === "include" ? "same-origin" : "include";
+          res = await send(alt).catch(() => {
+            throw e1;
+          });
+          credMode = alt;
+        }
         a.httpStatus = res.status;
         const text = await res.text().catch(() => "");
         let json = null;
