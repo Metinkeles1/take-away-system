@@ -89,7 +89,7 @@ function relativeDate(ts: number): string {
 
 function formatDate(ts: number): string {
   if (!ts) return "—";
-  return new Date(ts).toLocaleDateString("tr-TR", {
+  return new Date(ts).toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul",
     day: "2-digit",
     month: "short",
     year: "numeric",

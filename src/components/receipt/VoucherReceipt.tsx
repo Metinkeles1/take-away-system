@@ -82,7 +82,7 @@ export default function VoucherReceipt({ voucher }: { voucher: Voucher }) {
   const receiptId = `voucher-receipt-${uniqueId.replace(/:/g, "")}`;
 
   const dateStr = useMemo(
-    () => new Date(voucher.date).toLocaleDateString("tr-TR"),
+    () => new Date(voucher.date).toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul" }),
     [voucher.date],
   );
 

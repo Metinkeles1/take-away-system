@@ -242,7 +242,7 @@ export async function getDashboardOverview(
     const label =
       w.buckets === "hour"
         ? `${String(key).padStart(2, "0")}:00`
-        : new Date(key + ISTANBUL_OFFSET_MS).toLocaleDateString("tr-TR", {
+        : new Date(key + ISTANBUL_OFFSET_MS).toLocaleDateString("tr-TR", { timeZone: "UTC",
             day: "numeric",
             month: "short",
           });

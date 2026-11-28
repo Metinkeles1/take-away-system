@@ -524,7 +524,7 @@ export async function getDashboardStats(
   const dailyTrend = revenueTrend.slice(-7).map((d) => {
     const dt = new Date(d.date + "T00:00:00Z");
     return {
-      date: dt.toLocaleDateString("tr-TR", {
+      date: dt.toLocaleDateString("tr-TR", { timeZone: "UTC",
         weekday: "short",
         day: "numeric",
         month: "short",

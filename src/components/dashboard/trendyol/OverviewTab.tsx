@@ -404,7 +404,7 @@ export function OverviewTab() {
             suppressHydrationWarning
           >
             Son güncelleme{" "}
-            {lastUpdated.toLocaleTimeString("tr-TR", {
+            {lastUpdated.toLocaleTimeString("tr-TR", { timeZone: "Europe/Istanbul",
               hour: "2-digit",
               minute: "2-digit",
             })}

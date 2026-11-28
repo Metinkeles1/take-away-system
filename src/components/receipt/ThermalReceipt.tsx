@@ -23,7 +23,7 @@ interface ThermalReceiptProps {
 // Eski açık hesap satırlarındaki tarih — sadece geçmiş createdAt formatlanır
 // (new Date() yok), bu yüzden hydration güvenli. "12 Haz" gibi kısa biçim.
 const formatDebtDate = (d: Date | string) =>
-  new Date(d).toLocaleDateString("tr-TR", { day: "2-digit", month: "short" });
+  new Date(d).toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul", day: "2-digit", month: "short" });
 
 const paymentLabels: Record<string, string> = {
   cash: "NAKİT",
@@ -154,9 +154,9 @@ const ThermalReceipt = React.forwardRef<HTMLDivElement, ThermalReceiptProps>(
     );
     // createdAt sabit bir geçmiş tarih olduğundan SSR'da da güvenle render edilir.
     const receiptDate = createdAt ? new Date(createdAt) : liveDate;
-    const dateStr = receiptDate ? receiptDate.toLocaleDateString("tr-TR") : "";
+    const dateStr = receiptDate ? receiptDate.toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul" }) : "";
     const timeStr = receiptDate
-      ? receiptDate.toLocaleTimeString("tr-TR", {
+      ? receiptDate.toLocaleTimeString("tr-TR", { timeZone: "Europe/Istanbul",
           hour: "2-digit",
           minute: "2-digit",
         })

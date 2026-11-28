@@ -12,7 +12,7 @@ import {
   listTrendyolPackages,
   type TrendyolPackage,
 } from "@/lib/integrations/trendyol/client";
-import { istanbulDayStart } from "@/lib/datetime";
+import { istanbulDateISO, istanbulDayStart } from "@/lib/datetime";
 
 // Ödeme tipi normalizasyonu — trendyolDashboard.ts'taki paymentKey ile uyumlu.
 function paymentKey(p: TrendyolPackage): string {
@@ -99,16 +99,14 @@ async function fetchAllPackages(
   return { ok: true, packages };
 }
 
+// İstanbul günü: sunucu UTC'de çalışır; yerel getDate() 00:00–03:00 arası
+// siparişleri bir önceki güne yazıyordu.
 function dayKey(ts: number): string {
-  const d = new Date(ts);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${dd}`;
+  return istanbulDateISO(ts);
 }
 
 function dayLabel(ts: number): string {
-  return new Date(ts).toLocaleDateString("tr-TR", {
+  return new Date(ts).toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul",
     day: "2-digit",
     month: "short",
   });

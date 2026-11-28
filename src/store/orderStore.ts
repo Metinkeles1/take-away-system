@@ -45,6 +45,7 @@ import { toast } from "sonner";
 // yüklemede uyarı kapanır ve sayaç sıfırlanır.
 const LOAD_RETRY_DELAYS_MS = [2_000, 5_000, 10_000, 30_000];
 const LOAD_ERROR_TOAST_ID = "orders-load-error";
+const LOAD_TOAST_AFTER_FAILURES = 2;
 let loadRetryTimer: ReturnType<typeof setTimeout> | null = null;
 let loadFailures = 0;
 
@@ -491,11 +492,16 @@ export const useOrderStore = create<OrderStore>()((set, get) => ({
       const delay =
         LOAD_RETRY_DELAYS_MS[Math.min(loadFailures, LOAD_RETRY_DELAYS_MS.length - 1)];
       loadFailures += 1;
-      toast.error("Siparişler yüklenemedi", {
-        id: LOAD_ERROR_TOAST_ID,
-        description: "Bağlantı sorunu olabilir, otomatik olarak tekrar deneniyor…",
-        duration: Infinity,
-      });
+      // Tek seferlik hatalar (Vercel'de soğuk başlangıç/zaman aşımı, sekme
+      // uykudan uyanırken ilk istek) 2 sn sonraki denemede kendiliğinden
+      // düzelir; uyarı ancak art arda ikinci hatada gösterilir.
+      if (loadFailures >= LOAD_TOAST_AFTER_FAILURES) {
+        toast.error("Siparişler yüklenemedi", {
+          id: LOAD_ERROR_TOAST_ID,
+          description: "Bağlantı sorunu olabilir, otomatik olarak tekrar deneniyor…",
+          duration: Infinity,
+        });
+      }
       clearLoadRetry();
       loadRetryTimer = setTimeout(() => {
         loadRetryTimer = null;

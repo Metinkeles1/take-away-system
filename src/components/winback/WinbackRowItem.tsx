@@ -28,7 +28,7 @@ function daysAgo(iso: string): string {
 }
 
 function shortDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("tr-TR", { day: "numeric", month: "short" });
+  return new Date(iso).toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul", day: "numeric", month: "short" });
 }
 
 const SEGMENT_DOT: Record<NonNullable<WinbackRow["segment"]>, string> = {

@@ -118,8 +118,8 @@ export function PanelView({
               <>
                 ·
                 <span className="truncate">
-                  {nowDate.toLocaleDateString("tr-TR", { weekday: "long", day: "numeric", month: "long" })} ·{" "}
-                  {nowDate.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}
+                  {nowDate.toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul", weekday: "long", day: "numeric", month: "long" })} ·{" "}
+                  {nowDate.toLocaleTimeString("tr-TR", { timeZone: "Europe/Istanbul", hour: "2-digit", minute: "2-digit" })}
                 </span>
               </>
             )}

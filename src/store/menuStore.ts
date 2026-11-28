@@ -29,6 +29,9 @@ export const useMenuStore = create<MenuStore>()(
       isRefreshing: false,
 
       loadMenu: async () => {
+        // Önbellek mount sonrası okunur (bkz. skipHydration). Senkron çalışır:
+        // önbellekteki menü taze istek beklenmeden anında ekrana gelir.
+        if (!useMenuStore.persist.hasHydrated()) void useMenuStore.persist.rehydrate();
         if (get().isRefreshing) return;
         set({ isRefreshing: true });
         try {
@@ -46,6 +49,10 @@ export const useMenuStore = create<MenuStore>()(
     }),
     {
       name: "menu-cache",
+      // Sunucu boş menüyle çizer; tarayıcı önbelleği ilk çizimde okunursa
+      // içerik farklı olur → React #418 (hydration uyuşmazlığı). Önbellek
+      // loadMenu içinde, sayfa açıldıktan sonra okunur.
+      skipHydration: true,
       // Şema/görsel alanları değiştikçe bu sürümü artır → eski (ör. resimsiz)
       // cache'ler kullanıcı tarayıcılarında otomatik atılır, menü taze çekilir.
       version: 3,

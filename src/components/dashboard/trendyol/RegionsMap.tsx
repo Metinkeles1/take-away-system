@@ -131,7 +131,7 @@ export function RegionsMap({
         opacity: 1,
         fillOpacity: 0.85,
       });
-      const datestr = new Date(pin.createdAt).toLocaleString("tr-TR", {
+      const datestr = new Date(pin.createdAt).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul",
         day: "2-digit",
         month: "short",
         hour: "2-digit",

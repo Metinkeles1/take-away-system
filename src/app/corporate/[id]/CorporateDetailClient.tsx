@@ -792,7 +792,7 @@ export default function CorporateDetailClient({
                       className="flex items-center justify-between gap-2 py-0.5"
                     >
                       <span className="text-muted-foreground tabular-nums shrink-0">
-                        {new Date(p.createdAt).toLocaleDateString("tr-TR", {
+                        {new Date(p.createdAt).toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul",
                           day: "2-digit",
                           month: "2-digit",
                           hour: "2-digit",

@@ -172,7 +172,7 @@ export function KomutaShell({ children }: { children: React.ReactNode }) {
                 />
                 {isLive ? "Canlı" : "Geçmiş dönem"}
                 {lastSuccessAt &&
-                  ` · ${new Date(lastSuccessAt).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}'te güncellendi`}
+                  ` · ${new Date(lastSuccessAt).toLocaleTimeString("tr-TR", { timeZone: "Europe/Istanbul", hour: "2-digit", minute: "2-digit" })}'te güncellendi`}
               </p>
             </div>
             <div className="flex items-center gap-2">

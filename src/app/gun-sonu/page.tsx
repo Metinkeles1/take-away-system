@@ -278,7 +278,7 @@ export default function EndOfDayPage() {
             {closed && (
               <span
                 className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400"
-                title={closedAt ? `Donduruldu: ${new Date(closedAt).toLocaleString("tr-TR")}` : undefined}
+                title={closedAt ? `Donduruldu: ${new Date(closedAt).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" })}` : undefined}
               >
                 <Lock className="size-3" />
                 Kapatıldı

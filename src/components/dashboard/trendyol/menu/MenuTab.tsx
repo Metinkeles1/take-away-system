@@ -362,7 +362,7 @@ export function MenuTab() {
     );
   }
 
-  const fetchedTime = new Date(data.fetchedAt).toLocaleTimeString("tr-TR", {
+  const fetchedTime = new Date(data.fetchedAt).toLocaleTimeString("tr-TR", { timeZone: "Europe/Istanbul",
     hour: "2-digit",
     minute: "2-digit",
   });

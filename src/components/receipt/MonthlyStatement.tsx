@@ -19,6 +19,7 @@ import {
   DEFAULT_RECEIPT_OPTIONS,
   filterVouchersByScope,
   computeVoucherStats,
+  usePrintedAt,
 } from "./corporateReceiptKit";
 
 /** Gün/ay kısaltması (+ çoklu dönemde yıl) + Türkçe gün adı. */
@@ -26,13 +27,16 @@ function formatVoucherDate(
   date: Date,
   withYear = false,
 ): { dateShort: string; weekday: string } {
+  // İstanbul takvim günü: sunucu UTC'de çizerken getDate() bir önceki günü
+  // verip tarayıcıdakiyle uyuşmuyordu (React #418).
   const d = new Date(date);
-  const dd = String(d.getDate()).padStart(2, "0");
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dateShort = withYear
-    ? `${dd}.${mm}.${String(d.getFullYear()).slice(2)}`
-    : `${dd}.${mm}`;
-  const weekday = d.toLocaleDateString("tr-TR", { weekday: "short" });
+  const tz = "Europe/Istanbul";
+  const part = (o: Intl.DateTimeFormatOptions) =>
+    new Intl.DateTimeFormat("tr-TR", { timeZone: tz, ...o }).format(d);
+  const dd = part({ day: "2-digit" });
+  const mm = part({ month: "2-digit" });
+  const dateShort = withYear ? `${dd}.${mm}.${part({ year: "2-digit" })}` : `${dd}.${mm}`;
+  const weekday = d.toLocaleDateString("tr-TR", { timeZone: tz, weekday: "short" });
   return { dateShort, weekday };
 }
 
@@ -219,13 +223,7 @@ export default function MonthlyStatement({
   // Açık hesap ekstresi: fişler birden çok aya yayılır → tarihe yıl eklenir.
   multiPeriod?: boolean;
 }) {
-  const printedAt = useMemo(() => {
-    const d = new Date();
-    return `${d.toLocaleDateString("tr-TR")} ${d.toLocaleTimeString("tr-TR", {
-      hour: "2-digit",
-      minute: "2-digit",
-    })}`;
-  }, []);
+  const printedAt = usePrintedAt();
 
   // Ödeme durumu filtresi (tümü / sadece ödenen / sadece açık), sonra tarih sırası.
   // Tek liste; her satırda ödendi/açık işareti durur.

@@ -81,7 +81,7 @@ function getInitials(name: string): string {
 
 function formatDate(ts: number): string {
   if (!ts) return "—";
-  return new Date(ts).toLocaleDateString("tr-TR", {
+  return new Date(ts).toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul",
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -92,7 +92,7 @@ function formatDate(ts: number): string {
 
 function formatDateOnly(ts: number): string {
   if (!ts) return "—";
-  return new Date(ts).toLocaleDateString("tr-TR", {
+  return new Date(ts).toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul",
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -101,7 +101,7 @@ function formatDateOnly(ts: number): string {
 
 function formatTimeOnly(ts: number): string {
   if (!ts) return "";
-  return new Date(ts).toLocaleTimeString("tr-TR", {
+  return new Date(ts).toLocaleTimeString("tr-TR", { timeZone: "Europe/Istanbul",
     hour: "2-digit",
     minute: "2-digit",
   });
@@ -115,7 +115,7 @@ function formatRelativeDate(ts: number): string {
   if (d === 1) return "Dün";
   if (d < 7) return `${d} gün önce`;
   if (d < 30) return `${Math.floor(d / 7)} hafta önce`;
-  return new Date(ts).toLocaleDateString("tr-TR", {
+  return new Date(ts).toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul",
     day: "2-digit",
     month: "short",
   });

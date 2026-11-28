@@ -17,7 +17,7 @@ import {
 } from "@/types";
 import { createVoucher, updateVoucher } from "@/actions/vouchers";
 import { formatCurrency } from "@/lib/utils";
-import { toDateInputValue } from "@/lib/period";
+import { istanbulDateISO } from "@/lib/datetime";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -57,7 +57,8 @@ export default function NewVoucherClient({
   const [search, setSearch] = useState("");
   const [items, setItems] = useState<Map<string, VoucherDraftItem>>(new Map());
   const [date, setDate] = useState(
-    voucher ? toDateInputValue(new Date(voucher.date)) : toDateInputValue(new Date()),
+    // İstanbul günü: sunucuda (UTC) toDateInputValue bir önceki günü verebiliyordu.
+    istanbulDateISO(voucher ? new Date(voucher.date) : new Date()),
   );
   const [note, setNote] = useState(voucher?.note ?? "");
   const [isSaving, setIsSaving] = useState(false);

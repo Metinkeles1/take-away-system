@@ -22,7 +22,7 @@ export function KomutaTrendyolLoyalty({ period, dayOffset, title }: Props) {
   if (d && !d.available) return null;
 
   const since = d?.archiveSince
-    ? new Date(d.archiveSince).toLocaleDateString("tr-TR", { day: "numeric", month: "short" })
+    ? new Date(d.archiveSince).toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul", day: "numeric", month: "short" })
     : null;
 
   return (

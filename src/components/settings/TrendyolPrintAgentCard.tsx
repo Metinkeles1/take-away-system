@@ -24,7 +24,7 @@ function formatAgo(iso: string): string {
   if (secs < 60) return "az önce";
   const mins = Math.round(secs / 60);
   if (mins < 60) return `${mins} dk önce`;
-  return new Date(iso).toLocaleString("tr-TR", {
+  return new Date(iso).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul",
     day: "2-digit",
     month: "2-digit",
     hour: "2-digit",
@@ -76,7 +76,7 @@ export function Switch({
 }
 
 function JobRow({ j }: { j: PrintAgentJobRow }) {
-  const time = new Date(j.at).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
+  const time = new Date(j.at).toLocaleTimeString("tr-TR", { timeZone: "Europe/Istanbul", hour: "2-digit", minute: "2-digit" });
   const title =
     j.kind === "test"
       ? `Deneme fişi · ${j.accountName ?? ""}`

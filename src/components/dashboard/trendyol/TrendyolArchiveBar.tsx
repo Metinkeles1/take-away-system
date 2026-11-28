@@ -18,7 +18,7 @@ const MAX_CHUNKS = 6;
 
 function fmtDate(ts: number | null): string {
   if (!ts) return "—";
-  return new Date(ts).toLocaleDateString("tr-TR", { day: "numeric", month: "short", year: "numeric" });
+  return new Date(ts).toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul", day: "numeric", month: "short", year: "numeric" });
 }
 
 function fmtAgo(ts: number | null): string {

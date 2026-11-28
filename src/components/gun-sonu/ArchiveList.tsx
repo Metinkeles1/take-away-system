@@ -53,7 +53,7 @@ export const ArchiveList = memo(function ArchiveList({
                     <p className="truncate text-[11px] text-muted-foreground">
                       {s.packageCount} paket
                       {s.closedAt &&
-                        ` · ${new Date(s.closedAt).toLocaleString("tr-TR", {
+                        ` · ${new Date(s.closedAt).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul",
                           day: "2-digit",
                           month: "2-digit",
                           hour: "2-digit",

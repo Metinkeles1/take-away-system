@@ -87,7 +87,7 @@ export function toDateInputValue(date: Date): string {
 }
 
 export function formatDateShort(date: Date | string): string {
-  return new Intl.DateTimeFormat("tr-TR", {
+  return new Intl.DateTimeFormat("tr-TR", { timeZone: "Europe/Istanbul",
     day: "2-digit",
     month: "2-digit",
     year: "numeric",

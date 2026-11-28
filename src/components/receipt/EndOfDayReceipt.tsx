@@ -90,7 +90,7 @@ const SectionTitle = ({ children }: { children: React.ReactNode }) => (
 
 function formatDateTR(iso: string): string {
   const d = new Date(iso + "T00:00:00Z");
-  return d.toLocaleDateString("tr-TR", {
+  return d.toLocaleDateString("tr-TR", { timeZone: "UTC",
     weekday: "long",
     day: "numeric",
     month: "long",
@@ -114,7 +114,7 @@ const EndOfDayReceipt = React.forwardRef<HTMLDivElement, EndOfDayReceiptProps>(
       () => null,
     );
     const printedStr = printDate
-      ? `${printDate.toLocaleDateString("tr-TR")} ${printDate.toLocaleTimeString("tr-TR", {
+      ? `${printDate.toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul" })} ${printDate.toLocaleTimeString("tr-TR", { timeZone: "Europe/Istanbul",
           hour: "2-digit",
           minute: "2-digit",
         })}`

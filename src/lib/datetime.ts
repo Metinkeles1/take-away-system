@@ -42,7 +42,7 @@ export function dayLabelTR(dateISO: string, offset: number): string {
   if (offset === 0) return "Bugün";
   if (offset === 1) return "Dün";
   const dt = new Date(`${dateISO}T00:00:00Z`);
-  return dt.toLocaleDateString("tr-TR", {
+  return dt.toLocaleDateString("tr-TR", { timeZone: "UTC",
     weekday: "short",
     day: "numeric",
     month: "short",

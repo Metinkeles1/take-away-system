@@ -514,7 +514,7 @@ function TopCustomerSheet({
                           <p className="text-xs text-muted-foreground">
                             {new Date(o.createdAt).toLocaleDateString(
                               "tr-TR",
-                              {
+                              { timeZone: "Europe/Istanbul",
                                 day: "2-digit",
                                 month: "short",
                                 hour: "2-digit",

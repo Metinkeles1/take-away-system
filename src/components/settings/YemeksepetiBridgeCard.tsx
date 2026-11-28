@@ -15,7 +15,7 @@ function formatAgo(iso: string): string {
   const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60_000);
   if (mins < 1) return "az önce";
   if (mins < 60) return `${mins} dk önce`;
-  return new Date(iso).toLocaleString("tr-TR", {
+  return new Date(iso).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul",
     day: "2-digit",
     month: "2-digit",
     hour: "2-digit",

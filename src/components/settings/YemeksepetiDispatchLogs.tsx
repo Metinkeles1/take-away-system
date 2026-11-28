@@ -28,7 +28,7 @@ function rowTone(r: DispatchLogRow): string {
 }
 
 function timeLabel(iso: string): string {
-  return new Date(iso).toLocaleString("tr-TR", {
+  return new Date(iso).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul",
     day: "2-digit",
     month: "2-digit",
     hour: "2-digit",

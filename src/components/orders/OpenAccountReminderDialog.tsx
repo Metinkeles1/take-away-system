@@ -29,7 +29,7 @@ export type ReminderTarget = {
 const remainingOf = (o: Order) => Math.max(0, o.total - (o.paidAmount ?? 0));
 
 function shortDate(d: Date | string): string {
-  return new Date(d).toLocaleDateString("tr-TR", { day: "numeric", month: "long" });
+  return new Date(d).toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul", day: "numeric", month: "long" });
 }
 
 // Bir siparişin ürün satırları: "2× Lahmacun (0.5 Porsiyon, Acısız) — 180 ₺".

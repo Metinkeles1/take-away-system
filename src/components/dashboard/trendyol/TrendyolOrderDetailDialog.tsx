@@ -61,7 +61,7 @@ const STATUS_LABEL: Record<string, { label: string; className: string }> = {
 };
 
 function formatDateTime(ts: number): string {
-  return new Date(ts).toLocaleString("tr-TR", {
+  return new Date(ts).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul",
     day: "2-digit",
     month: "2-digit",
     year: "numeric",

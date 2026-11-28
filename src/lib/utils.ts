@@ -25,7 +25,7 @@ export function formatCurrencyShort(amount: number): string {
 
 // ─── Tarih formatı ────────────────────────────────────────────────────────────
 export function formatDate(date: Date | string): string {
-  return new Intl.DateTimeFormat("tr-TR", {
+  return new Intl.DateTimeFormat("tr-TR", { timeZone: "Europe/Istanbul",
     day: "2-digit",
     month: "2-digit",
     year: "numeric",

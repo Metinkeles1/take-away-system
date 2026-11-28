@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useId, useMemo } from "react";
+import React, { useId, useMemo, useSyncExternalStore } from "react";
 import { type Voucher, type PeriodStats } from "@/types";
 import { formatCurrency } from "@/lib/utils";
 import { currentPeriod, formatPeriodLabel } from "@/lib/period";
@@ -355,16 +355,29 @@ export function shortPortion(label?: string): string {
   return label.replace(/\s*porsiyon/i, "p.").trim();
 }
 
-/** "10.06.2026 14:32" formatında yazdırma zamanı (render anına sabitlenir). */
+/**
+ * "10.06.2026 14:32" formatında yazdırma zamanı (ilk çizime sabitlenir).
+ * Sadece tarayıcıda hesaplanır: sunucuda (UTC, farklı an) hesaplanırsa metin
+ * tarayıcıdakiyle tutmaz → React #418. SSR snapshot "" döner.
+ */
 export function usePrintedAt(): string {
-  return useMemo(() => {
-    const d = new Date();
-    return `${d.toLocaleDateString("tr-TR")} ${d.toLocaleTimeString("tr-TR", {
-      hour: "2-digit",
-      minute: "2-digit",
-    })}`;
+  const getSnapshot = useMemo(() => {
+    let cached: string | null = null;
+    return () =>
+      (cached ??= (() => {
+        const d = new Date();
+        const tz = { timeZone: "Europe/Istanbul" } as const;
+        return `${d.toLocaleDateString("tr-TR", tz)} ${d.toLocaleTimeString("tr-TR", {
+          ...tz,
+          hour: "2-digit",
+          minute: "2-digit",
+        })}`;
+      })());
   }, []);
+  return useSyncExternalStore(noopSubscribe, getSnapshot, () => "");
 }
+
+const noopSubscribe = () => () => {};
 
 export const SectionTitle = ({ children }: { children: React.ReactNode }) => (
   <div
