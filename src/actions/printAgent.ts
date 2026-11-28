@@ -10,6 +10,7 @@ import {
   readPrintAgentConfig,
 } from "@/lib/printAgent/agent";
 import { AGENT_ONLINE_MS, PREP_CHOICES } from "@/lib/printAgent/constants";
+import { notifyPrintAgents } from "@/lib/pusher/server";
 
 export type PrintAgentJobRow = {
   id: string;
@@ -106,6 +107,7 @@ export async function updatePrintAgentSettings(patch: {
       next.prepMinutes = patch.prepMinutes;
     }
     await patchPrintAgentConfig(next);
+    await notifyPrintAgents(); // otomatik kabul aç/kapa programlara hemen ulaşsın
     return { ok: true };
   } catch (err) {
     console.error("[updatePrintAgentSettings]", err);
@@ -124,6 +126,7 @@ export async function updatePrintAgentDevice(
     if (typeof patch.print === "boolean") set.print = patch.print;
     if (typeof patch.printerName === "string") set.printerName = patch.printerName.slice(0, 120);
     const r = await PrintAgentDeviceModel.updateOne({ deviceId }, { $set: set });
+    if (r.matchedCount) await notifyPrintAgents();
     return r.matchedCount ? { ok: true } : { ok: false, error: "Bilgisayar bulunamadı" };
   } catch (err) {
     console.error("[updatePrintAgentDevice]", err);
@@ -131,11 +134,12 @@ export async function updatePrintAgentDevice(
   }
 }
 
-// Bir sonraki yoklamada (≤20 sn) o bilgisayar deneme fişi basar.
+// Bir sonraki yoklamada (birkaç sn içinde) o bilgisayar deneme fişi basar.
 export async function requestPrintAgentTest(deviceId: string): Promise<Result> {
   try {
     await connectDB();
     const r = await PrintAgentDeviceModel.updateOne({ deviceId }, { $set: { testRequestedAt: new Date() } });
+    if (r.matchedCount) await notifyPrintAgents();
     return r.matchedCount ? { ok: true } : { ok: false, error: "Bilgisayar bulunamadı" };
   } catch (err) {
     console.error("[requestPrintAgentTest]", err);
@@ -143,7 +147,7 @@ export async function requestPrintAgentTest(deviceId: string): Promise<Result> {
   }
 }
 
-// Uzaktan kaldırma: bilgisayar açıksa ≤20 sn'de, kapalıysa ilk açılışta kendini
+// Uzaktan kaldırma: bilgisayar açıksa birkaç sn içinde'de, kapalıysa ilk açılışta kendini
 // kaldırır (açılıştan çıkar, durur) ve listeden düşer. cancel → vazgeç.
 export async function requestPrintAgentUninstall(deviceId: string, cancel = false): Promise<Result> {
   try {
@@ -152,6 +156,7 @@ export async function requestPrintAgentUninstall(deviceId: string, cancel = fals
       { deviceId },
       cancel ? { $unset: { uninstallRequestedAt: 1 } } : { $set: { uninstallRequestedAt: new Date() } },
     );
+    if (r.matchedCount && !cancel) await notifyPrintAgents();
     return r.matchedCount ? { ok: true } : { ok: false, error: "Bilgisayar bulunamadı" };
   } catch (err) {
     console.error("[requestPrintAgentUninstall]", err);

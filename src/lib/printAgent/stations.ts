@@ -22,6 +22,7 @@ import { lineCustomization } from "@/lib/integrations/trendyol/packageUtils";
 import { mapTrendyolPackageToOrder } from "@/lib/integrations/trendyol/courierMap";
 import { ysDocToOrder, type YsOrderDoc } from "@/lib/yemeksepeti/toOrder";
 import { getMenuCategories } from "@/actions/menuCategories";
+import { notifyPrintAgents } from "@/lib/pusher/server";
 import type { OrderItem } from "@/types";
 import {
   buildStationTestTicket,
@@ -122,6 +123,7 @@ async function queueStationTickets(
   }
 
   let queued = 0;
+  let inserted = 0; // gerçekten yeni eklenen (zaten kuyruktaysa dürtme → döngü olmasın)
   for (const s of cfg.stations) {
     const own = byStation.get(s.id);
     if (!own?.length || !s.deviceId) continue;
@@ -129,7 +131,7 @@ async function queueStationTickets(
       .filter((o) => o.id !== s.id && (byStation.get(o.id)?.length ?? 0) > 0)
       .map((o) => ({ name: o.name, count: byStation.get(o.id)!.length }));
     try {
-      await TrendyolAutoJobModel.updateOne(
+      const r = await TrendyolAutoJobModel.updateOne(
         { packageId: `${key}:st:${s.id}` },
         {
           $setOnInsert: {
@@ -145,11 +147,13 @@ async function queueStationTickets(
         { upsert: true },
       );
       queued++;
+      if (r.upsertedCount) inserted++;
     } catch (err) {
       // Aynı anda iki istek: unique hatası = zaten kuyrukta.
       if ((err as { code?: number }).code !== 11000) throw err;
     }
   }
+  if (inserted > 0) await notifyPrintAgents();
   return queued;
 }
 
@@ -260,4 +264,5 @@ export async function queueStationTest(s: PrintStation): Promise<void> {
     printQueuedAt: now,
     receipt: buildStationTestTicket(s.name, s.printerName),
   });
+  await notifyPrintAgents();
 }

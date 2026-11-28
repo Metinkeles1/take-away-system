@@ -1,5 +1,6 @@
 import { after, NextRequest, NextResponse } from "next/server";
 import {
+  agentWatchInfo,
   authPrintAgent,
   claimPrintJobs,
   deleteDevice,
@@ -9,11 +10,14 @@ import {
   touchDevice,
 } from "@/lib/printAgent/agent";
 import { syncTrendyolCourierPackages } from "@/actions/trendyolCourier";
+import { pusherPublicInfo } from "@/lib/pusher/server";
 
-// Kasadaki "Trendyol Yazıcı" programının ~20 sn'lik yoklaması.
+// Kasadaki "Trendyol Yazıcı" programının yoklaması: dakikada bir + Trendyol'da
+// yeni paket görünce (urgent) + Pusher dürtünce.
 //   POST /api/print-agent/poll   Header: "Authorization: Bearer <bağlantı anahtarı>"
-//   Gövde: { deviceId, host?, version?, printers?: string[] }
-//   Yanıt: { ok: true, jobs: [{ id, lines }], printerName, scriptHash, intervalSec }
+//   Gövde: { deviceId, host?, version?, printers?: string[], urgent?: boolean }
+//   Yanıt: { ok: true, jobs: [{ id, lines }], printerName, scriptHash, intervalSec,
+//            handled, watch, pusher }
 //          ya da { uninstall: true } → program kendini kaldırır.
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -22,7 +26,7 @@ export async function POST(req: NextRequest) {
   const cfg = await authPrintAgent(req.headers.get("authorization"));
   if (!cfg) return NextResponse.json({ error: "yetkisiz" }, { status: 401 });
 
-  let body: { deviceId?: unknown; host?: unknown; version?: unknown; printers?: unknown } = {};
+  let body: { deviceId?: unknown; host?: unknown; version?: unknown; printers?: unknown; urgent?: unknown } = {};
   try {
     body = await req.json();
   } catch {
@@ -49,17 +53,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, uninstall: true });
   }
 
+  let handled = false;
   try {
-    const { accepted } = await runIntake(cfg);
+    const r = await runIntake(cfg, { urgent: body.urgent === true });
+    handled = r.handled;
+    const { accepted } = r;
     // Kabul edilen paketler "Picking"e geçti → panel/kurye deposunu tazele.
     if (accepted > 0) after(() => syncTrendyolCourierPackages().catch(() => undefined));
   } catch (err) {
     console.error("[print-agent intake]", err);
   }
 
-  const [jobs, script] = await Promise.all([
+  const [jobs, script, watch] = await Promise.all([
     claimPrintJobs(device),
     readAgentScript().catch(() => null),
+    agentWatchInfo(cfg).catch(() => null),
   ]);
 
   return NextResponse.json({
@@ -67,6 +75,11 @@ export async function POST(req: NextRequest) {
     jobs,
     printerName: device.printerName,
     scriptHash: script?.hash ?? "",
-    intervalSec: 20,
+    // Güncel program Trendyol'a kendi bakar → site yalnız dakikada bir. Eski sürüm
+    // (güncelleme henüz inmediyse) bakamaz → eskisi gibi 20 sn'de bir sorsun.
+    intervalSec: script && body.version === script.hash ? 60 : 20,
+    handled, // false → yeni paketi birkaç sn sonra yeniden bildir
+    watch,
+    pusher: pusherPublicInfo(),
   });
 }

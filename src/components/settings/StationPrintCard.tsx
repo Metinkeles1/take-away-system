@@ -258,7 +258,7 @@ export function StationPrintCard() {
                         setBusy(`test:${s.id}`);
                         const r = await testStation(s.id).catch(() => ({ ok: false, error: undefined }));
                         setBusy(null);
-                        if (r.ok) toast.success("Deneme fişi 20 sn içinde basılır");
+                        if (r.ok) toast.success("Deneme fişi birkaç saniye içinde basılır");
                         else toast.error(r.error ?? "Gönderilemedi");
                       }}
                     >

@@ -1,8 +1,13 @@
 import "server-only";
 
 // "Trendyol Yazıcı" — kasa bilgisayarında çalışan küçük program (agents/
-// trendyol-yazici/agent.ps1) ~20 sn'de bir /api/print-agent/poll'a sorar.
-// Bütün iş burada, sunucuda yapılır:
+// trendyol-yazici/agent.ps1). Vercel kotasını yemesin diye siteye sık sormaz:
+//   • Trendyol'a ~5 sn'de bir KENDİSİ bakar (agentWatchInfo ile verilen
+//     anahtarlarla); yeni paket görünce hemen /api/print-agent/poll'a sorar.
+//   • Basılacak başka iş olunca (panel istasyon fişi, deneme, kaldırma) site
+//     Pusher'dan dürter (notifyPrintAgents).
+//   • Bunların dışında dakikada bir yoklar (çevrimiçi + güncelleme + yedek).
+// Kabul ve fiş yine burada, sunucuda yapılır:
 //   • Tüm Trendyol hesaplarında yeni (Created) paketleri bulur,
 //   • Ayar açıksa otomatik kabul eder (picked + hazırlık süresi),
 //   • Fiş satırlarını kuyruğa koyar; fiş basan bilgisayarlardan YALNIZ BİRİ
@@ -24,18 +29,22 @@ import PrintAgentDeviceModel from "@/models/PrintAgentDevice";
 import {
   acceptTrendyolPackage,
   listTrendyolPackages,
+  trendyolGlobals,
   type TrendyolPackage,
 } from "@/lib/integrations/trendyol/client";
 import { getTrendyolAccounts } from "@/lib/integrations/trendyol/accounts";
 import { buildTestReceipt, buildTrendyolReceipt, type ReceiptLine } from "./receipt";
 import { AGENT_ONLINE_MS } from "./constants";
 import { queueTrendyolStations, readStationConfig, stationsActive } from "./stations";
+import { notifyPrintAgents } from "@/lib/pusher/server";
 
 const CONFIG_KEY = "printAgent";
 const INTAKE_SLOT_KEY = "printAgentIntakeAt";
 
-// Trendyol'a en sık bu aralıkla gidilir — kaç bilgisayar kaç kez sorarsa sorsun.
-const INTAKE_MIN_MS = 12_000;
+// Sunucu Trendyol'a en sık bu aralıkla gider — kaç bilgisayar kaç kez sorarsa
+// sorsun. Program yeni paket gördüğü için sorduysa (urgent) aralık kısadır.
+const INTAKE_MIN_MS = 8_000;
+const INTAKE_URGENT_MS = 2_000;
 // Kabul denemesi kilidi (aynı anda iki istek aynı paketi kabul etmesin).
 const ACCEPT_LOCK_MS = 30_000;
 const MAX_ACCEPT_ATTEMPTS = 4;
@@ -186,13 +195,13 @@ export async function readAgentScript(): Promise<{ bytes: Buffer; hash: string }
 
 // Trendyol'a gitme sırası bizde mi? (autoSyncTrendyolCourierPackages ile aynı
 // atomik desen: taze kayıt varsa upsert unique hatasına düşer = sıra değil.)
-async function claimIntakeSlot(): Promise<boolean> {
+async function claimIntakeSlot(minMs: number): Promise<boolean> {
   const now = new Date();
   try {
     const doc = await SettingModel.findOneAndUpdate(
       {
         key: INTAKE_SLOT_KEY,
-        $or: [{ value: { $lt: new Date(now.getTime() - INTAKE_MIN_MS) } }, { value: { $exists: false } }],
+        $or: [{ value: { $lt: new Date(now.getTime() - minMs) } }, { value: { $exists: false } }],
       },
       { $set: { value: now } },
       { upsert: true, new: true },
@@ -245,25 +254,34 @@ async function claimAccept(p: TrendyolPackage, accountName: string) {
 // Fişi kuyruğa koy — yalnız bir kez (printQueuedAt zaten doluysa dokunmaz).
 async function queuePrint(p: TrendyolPackage, accountName: string, receipt: ReceiptLine[]) {
   try {
-    await TrendyolAutoJobModel.updateOne(
+    const r = await TrendyolAutoJobModel.updateOne(
       { packageId: p.id, printQueuedAt: { $exists: false } },
       { $set: { printQueuedAt: new Date(), receipt }, $setOnInsert: jobBase(p, accountName) },
       { upsert: true },
     );
+    // Soran bilgisayar fişi bu yanıtta alır; diğer (fiş basan) bilgisayarlar için dürt.
+    if (r.modifiedCount || r.upsertedCount) await notifyPrintAgents();
   } catch (err) {
     // Kayıt var ve zaten kuyrukta → unique hatası = beklenen durum.
     if ((err as { code?: number }).code !== 11000) throw err;
   }
 }
 
-export async function runIntake(cfg: PrintAgentConfig): Promise<{ accepted: number }> {
+// handled=false → Trendyol'a bakılamadı (sıra başkasındaydı / hata); program
+// gördüğü yeni paketi birkaç sn sonra yeniden bildirir.
+export async function runIntake(
+  cfg: PrintAgentConfig,
+  opts: { urgent?: boolean } = {},
+): Promise<{ accepted: number; handled: boolean }> {
   const [print, stations] = await Promise.all([anyPrintingDevice(), readStationConfig()]);
   // İstasyon fişi kasa fişinden bağımsız: ocak bilgisayarında "fiş basar" kapalı olabilir.
-  if (!cfg.autoAccept && !print && !stationsActive(stations)) return { accepted: 0 };
-  if (!(await claimIntakeSlot())) return { accepted: 0 };
+  if (!cfg.autoAccept && !print && !stationsActive(stations)) return { accepted: 0, handled: true };
+  if (!(await claimIntakeSlot(opts.urgent ? INTAKE_URGENT_MS : INTAKE_MIN_MS))) {
+    return { accepted: 0, handled: false };
+  }
 
   const accounts = await getTrendyolAccounts();
-  if (accounts.length === 0) return { accepted: 0 };
+  if (accounts.length === 0) return { accepted: 0, handled: true };
   const nameOf = new Map(accounts.map((a) => [a.supplierId, a.name]));
 
   // Picking da çekilir: otomatik kabul kapalıyken Trendyol ekranından kabul
@@ -271,7 +289,7 @@ export async function runIntake(cfg: PrintAgentConfig): Promise<{ accepted: numb
   const res = await listTrendyolPackages({ packageStatuses: "Created,Picking", size: 50 });
   if (!res.ok) {
     console.warn("[print-agent intake]", res.status, res.error);
-    return { accepted: 0 };
+    return { accepted: 0, handled: false };
   }
 
   const since = Math.max(new Date(cfg.enabledAt).getTime(), Date.now() - INTAKE_LOOKBACK_MS);
@@ -325,7 +343,29 @@ export async function runIntake(cfg: PrintAgentConfig): Promise<{ accepted: numb
     }
     if (p.packageStatus !== "Created") await queueTrendyolStations(stations, p, accountName);
   }
-  return { accepted };
+  return { accepted, handled: true };
+}
+
+// Programın Trendyol'a kendisi bakabilmesi için gerekenler. Anahtarlar yalnız
+// bellekte tutulur (diske yazılmaz). Hesap yoksa null → program sadece siteyi yoklar.
+export interface AgentWatchInfo {
+  baseUrl: string;
+  agentName: string;
+  executorUser: string;
+  autoAccept: boolean;
+  sinceMs: number; // bundan önce açılan paketler yok sayılır
+  accounts: { supplierId: string; token: string }[];
+}
+
+export async function agentWatchInfo(cfg: PrintAgentConfig): Promise<AgentWatchInfo | null> {
+  const accounts = await getTrendyolAccounts();
+  if (accounts.length === 0) return null;
+  return {
+    ...trendyolGlobals(),
+    autoAccept: cfg.autoAccept,
+    sinceMs: new Date(cfg.enabledAt).getTime() || 0,
+    accounts: accounts.map((a) => ({ supplierId: a.supplierId, token: a.token })),
+  };
 }
 
 // ─── Fiş kuyruğu ───────────────────────────────────────────────────────────

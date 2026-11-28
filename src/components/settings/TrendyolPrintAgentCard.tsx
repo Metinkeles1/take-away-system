@@ -181,14 +181,14 @@ function DeviceRow({
             onClick={() => {
               if (
                 !confirm(
-                  `“${name}” bilgisayarından program kaldırılsın mı?\n\nAçıksa 20 sn içinde, kapalıysa ilk açılışında kendini kaldırır ve otomatik başlamaz. Tekrar kurmak için kurulum dosyasını yeniden indirmeniz gerekir.`,
+                  `“${name}” bilgisayarından program kaldırılsın mı?\n\nAçıksa birkaç saniye içinde, kapalıysa ilk açılışında kendini kaldırır ve otomatik başlamaz. Tekrar kurmak için kurulum dosyasını yeniden indirmeniz gerekir.`,
                 )
               )
                 return;
               run(
                 k("uninstall"),
                 () => requestPrintAgentUninstall(d.deviceId),
-                d.online ? "20 sn içinde kaldırılacak" : "Bilgisayar açılınca kaldırılacak",
+                d.online ? "Birkaç saniye içinde kaldırılacak" : "Bilgisayar açılınca kaldırılacak",
               );
             }}
           >
@@ -245,7 +245,7 @@ function DeviceRow({
               size="sm"
               disabled={!d.online || busy === k("test") || d.testPending}
               onClick={() =>
-                run(k("test"), () => requestPrintAgentTest(d.deviceId), "Deneme fişi 20 sn içinde basılır")
+                run(k("test"), () => requestPrintAgentTest(d.deviceId), "Deneme fişi birkaç saniye içinde basılır")
               }
             >
               {busy === k("test") || d.testPending ? (
@@ -370,7 +370,7 @@ export function TrendyolPrintAgentCard() {
                   <p className="text-sm font-medium">Otomatik kabul</p>
                   <p className="text-xs text-muted-foreground">
                     {s.autoAccept
-                      ? "Açık — yeni sipariş gelir gelmez kabul edilir (en geç ~20 sn). Kaç bilgisayar olursa olsun bir kez."
+                      ? "Açık — yeni sipariş gelir gelmez kabul edilir (birkaç saniye içinde). Kaç bilgisayar olursa olsun bir kez."
                       : "Kapalı — siparişleri Trendyol ekranından siz kabul edersiniz."}
                   </p>
                 </div>

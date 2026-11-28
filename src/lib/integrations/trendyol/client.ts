@@ -43,6 +43,11 @@ function toAsciiHeader(value: string): string {
 }
 
 // Hesaptan bağımsız (entegratör) başlıklar — tüm işletmeler için aynı.
+// Kasa programı (print agent) Trendyol'a doğrudan bakarken de bunları kullanır.
+export function trendyolGlobals() {
+  return readGlobals();
+}
+
 function readGlobals() {
   const baseUrl = process.env.TRENDYOL_API_BASE_URL ?? "https://api.tgoapis.com";
   return {

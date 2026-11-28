@@ -1,6 +1,6 @@
 import "server-only";
 import Pusher from "pusher";
-import { ORDERS_CHANNEL, ORDERS_EVENT } from "./constants";
+import { ORDERS_CHANNEL, ORDERS_EVENT, PRINT_AGENT_CHANNEL, PRINT_AGENT_EVENT } from "./constants";
 
 // Lazy singleton — env eksikse null döner ve sistem polling'le çalışmaya
 // devam eder (Pusher zorunlu bağımlılık değil, "varsa anlık" iyileştirmesi).
@@ -37,4 +37,24 @@ export async function notifyOrdersChanged(reason?: string): Promise<void> {
   } catch (err) {
     console.warn("[pusher] trigger başarısız:", err);
   }
+}
+
+// Kasa programlarını dürt — bir sonraki dakikalık yoklamayı beklemeden siteye
+// sorsunlar. Best-effort: ulaşmazsa program yine dakikada bir sorar.
+export async function notifyPrintAgents(): Promise<void> {
+  const p = getPusher();
+  if (!p) return;
+  try {
+    await p.trigger(PRINT_AGENT_CHANNEL, PRINT_AGENT_EVENT, { at: Date.now() });
+  } catch (err) {
+    console.warn("[pusher] print-agent trigger başarısız:", err);
+  }
+}
+
+// Programın bağlanacağı herkese açık bilgiler (gizli anahtar değil).
+export function pusherPublicInfo(): { key: string; cluster: string; channel: string; event: string } | null {
+  const key = process.env.NEXT_PUBLIC_PUSHER_KEY ?? process.env.PUSHER_KEY;
+  const cluster = process.env.NEXT_PUBLIC_PUSHER_CLUSTER ?? process.env.PUSHER_CLUSTER;
+  if (!key || !cluster) return null;
+  return { key, cluster, channel: PRINT_AGENT_CHANNEL, event: PRINT_AGENT_EVENT };
 }

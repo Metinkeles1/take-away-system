@@ -95,7 +95,7 @@ export async function saveStationSettings(input: PrintStationConfig): Promise<Re
   }
 }
 
-// Kayıtlı ayardaki istasyona deneme fişi (≤20 sn).
+// Kayıtlı ayardaki istasyona deneme fişi (birkaç sn).
 export async function testStation(stationId: string): Promise<Result> {
   try {
     const cfg = await readStationConfig();

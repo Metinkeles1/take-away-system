@@ -6,3 +6,8 @@ export const ORDERS_CHANNEL = "orders";
 // client kendi kaynağından (getOrders/getCourierOrders) taze veriyi okur, böylece
 // merge/senkron karmaşası olmaz.
 export const ORDERS_EVENT = "changed";
+
+// Kasadaki "Trendyol Yazıcı" programları bu kanalı dinler: "basılacak fiş /
+// deneme / kaldırma var, siteye hemen sor". Payload yok (herkese açık kanal).
+export const PRINT_AGENT_CHANNEL = "print-agent";
+export const PRINT_AGENT_EVENT = "wake";

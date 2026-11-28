@@ -1,9 +1,13 @@
 # Trendyol Yazici - kasa bilgisayarinda calisan program.
 # TRENDYOL-YAZICI-AGENT (kurulum dosyasi bu isareti arar; silmeyin)
 #
-# Ne yapar: ~20 sn'de bir siteye (/api/print-agent/poll) sorar. Sunucu yeni
-# Trendyol siparislerini (tum isletmeler) otomatik kabul eder ve fis satirlarini
-# dondurur; bu program onlari Windows yazicisina sessizce basar ve ses calar.
+# Ne yapar: ~5 sn'de bir Trendyol'a KENDISI bakar (anahtarlari siteden alir,
+# yalniz bellekte tutar). Yeni paket gorunce hemen siteye (/api/print-agent/poll)
+# sorar; sunucu siparisi otomatik kabul eder ve fis satirlarini dondurur; bu
+# program onlari Windows yazicisina sessizce basar ve ses calar.
+# Site, basilacak baska is olunca (panel istasyon fisi, deneme, kaldirma)
+# Pusher'dan aninda durter. Bunlarin disinda siteye dakikada bir sorar
+# (Vercel kotasi icin). Anlik baglanti kurulamazsa 20 sn'de bir sorar.
 #
 # Kurulum: Ayarlar'dan inen TrendyolYazici-Kurulum.bat bu dosyayi
 # %LOCALAPPDATA%\TrendyolYazici\ altina indirir ve "-Install" ile calistirir:
@@ -302,11 +306,159 @@ if ($Install) {
   }
 }
 
+# --- Trendyol'a dogrudan bakis ----------------------------------------------
+# Site "watch" bilgisini (adres, basliklar, hesap anahtarlari) her yoklamada
+# yollar. Paket anahtari "id:durum": yeni bir anahtar gorulunce siteye hemen
+# sorulur. Kabul bekleyen (Created) paket kabul edilene dek 30 sn'de bir,
+# sunucu bakamadiysa (handled=false) 15 sn'de bir yeniden bildirilir.
+
+$script:Seen = @{}   # anahtar -> @{ at = son bildirim; done = sunucu islediyse $true }
+
+function Get-TrendyolKeys($watch) {
+  $nowMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+  $since = [Math]::Max([int64]$watch.sinceMs, $nowMs - 45 * 60000)
+  $keys = @()
+  foreach ($a in @($watch.accounts)) {
+    $url = ([string]$watch.baseUrl).TrimEnd('/') + '/integrator/order/meal/suppliers/' + $a.supplierId + '/packages?packageStatuses=Created%2CPicking&size=50'
+    # 10 sn sinir: Trendyol takilirsa dongu (site yoklamasi, fisler) beklemesin.
+    $req = [Net.HttpWebRequest][Net.WebRequest]::Create($url)
+    $req.Method = 'GET'
+    $req.Timeout = 10000
+    $req.ReadWriteTimeout = 10000
+    $req.Accept = 'application/json'
+    $req.UserAgent = [string]$a.supplierId + ' - SelfIntegration'
+    $req.Headers['Authorization'] = 'Basic ' + $a.token
+    $req.Headers['x-agentname'] = [string]$watch.agentName
+    $req.Headers['x-executor-user'] = [string]$watch.executorUser
+    $resp = $req.GetResponse()
+    try {
+      $sr = New-Object IO.StreamReader($resp.GetResponseStream(), [Text.Encoding]::UTF8)
+      $res = $sr.ReadToEnd() | ConvertFrom-Json
+    } finally { $resp.Close() }
+    foreach ($p in @($res.content)) {
+      if (-not $p -or -not $p.id) { continue }
+      if ([int64]$p.packageCreationDate -lt $since) { continue }
+      $keys += ([string]$p.id + ':' + [string]$p.packageStatus)
+    }
+  }
+  return $keys
+}
+
+# Bu anahtarlardan siteye bildirilmesi gereken var mi?
+function Test-NeedWake($keys, [bool]$autoAccept) {
+  $now = Get-Date
+  foreach ($k in $keys) {
+    $s = $script:Seen[$k]
+    if (-not $s) { return $true }
+    $age = ($now - $s.at).TotalSeconds
+    if (-not $s.done -and $age -ge 15) { return $true }
+    if ($autoAccept -and $k.EndsWith(':Created') -and $age -ge 30) { return $true }
+  }
+  return $false
+}
+
+function Set-Seen($keys, [bool]$done) {
+  $now = Get-Date
+  foreach ($k in $keys) {
+    $old = $script:Seen[$k]
+    $script:Seen[$k] = @{ at = $now; done = ($done -or ($old -and $old.done)) }
+  }
+  # 2 saatten eski kayitlari at.
+  if ($script:Seen.Count -gt 500) {
+    foreach ($k in @($script:Seen.Keys)) {
+      if (($now - $script:Seen[$k].at).TotalHours -ge 2) { $script:Seen.Remove($k) }
+    }
+  }
+}
+
+# --- Pusher (anlik durtme) ----------------------------------------------------
+# Herkese acik kanal; mesaj icerik tasimaz, sadece "siteye simdi sor" demektir.
+
+$script:Ws = $null
+$script:WsRecv = $null
+$script:WsBuf = New-Object byte[] 16384
+$script:WsText = ''
+$script:WsReady = $false
+$script:WsLastMsg = Get-Date
+
+function Close-Ws {
+  try { if ($script:Ws) { $script:Ws.Dispose() } } catch {}
+  $script:Ws = $null
+  $script:WsRecv = $null
+  $script:WsText = ''
+  $script:WsReady = $false
+}
+
+function Send-Ws([string]$text) {
+  $bytes = [Text.Encoding]::UTF8.GetBytes($text)
+  $seg = New-Object 'System.ArraySegment[byte]' -ArgumentList $bytes, 0, $bytes.Length
+  [void]$script:Ws.SendAsync($seg, [Net.WebSockets.WebSocketMessageType]::Text, $true, [Threading.CancellationToken]::None).Wait(5000)
+}
+
+function Open-Ws($push) {
+  Close-Ws
+  $ws = New-Object Net.WebSockets.ClientWebSocket
+  $uri = New-Object Uri ('wss://ws-' + $push.cluster + '.pusher.com/app/' + $push.key + '?protocol=7&client=trendyol-yazici&version=1.0')
+  if (-not $ws.ConnectAsync($uri, [Threading.CancellationToken]::None).Wait(10000)) {
+    $ws.Dispose()
+    throw 'baglanti zaman asimi'
+  }
+  $script:Ws = $ws
+  $script:WsLastMsg = Get-Date
+}
+
+# En fazla $ms bekler; gelen bir mesaji isler. Durtme geldiyse $true.
+function Wait-Ws([int]$ms, $push) {
+  if (-not $script:Ws) { Start-Sleep -Milliseconds $ms; return $false }
+  if ($script:Ws.State -ne [Net.WebSockets.WebSocketState]::Open) {
+    Write-Log 'Anlik baglanti koptu.'
+    Close-Ws
+    return $false
+  }
+  # Pusher sessizlikte ~2 dk'da bir ping atar; 5 dk ses yoksa baglanti olmus.
+  if (((Get-Date) - $script:WsLastMsg).TotalMinutes -ge 5) {
+    Write-Log 'Anlik baglanti sessiz; yeniden kuruluyor.'
+    Close-Ws
+    return $false
+  }
+  if (-not $script:WsRecv) {
+    $seg = New-Object 'System.ArraySegment[byte]' -ArgumentList $script:WsBuf, 0, $script:WsBuf.Length
+    $script:WsRecv = $script:Ws.ReceiveAsync($seg, [Threading.CancellationToken]::None)
+  }
+  try { $done = $script:WsRecv.Wait($ms) } catch { Write-Log 'Anlik baglanti hatasi.'; Close-Ws; return $false }
+  if (-not $done) { return $false }
+  $r = $script:WsRecv.Result
+  $script:WsRecv = $null
+  if ($r.MessageType -eq [Net.WebSockets.WebSocketMessageType]::Close) { Close-Ws; return $false }
+  $script:WsText += [Text.Encoding]::UTF8.GetString($script:WsBuf, 0, $r.Count)
+  if (-not $r.EndOfMessage) { return $false }
+  $raw = $script:WsText
+  $script:WsText = ''
+  $script:WsLastMsg = Get-Date
+  try { $m = $raw | ConvertFrom-Json } catch { return $false }
+  switch ([string]$m.event) {
+    'pusher:connection_established' {
+      Send-Ws ('{"event":"pusher:subscribe","data":{"channel":"' + $push.channel + '"}}')
+    }
+    'pusher_internal:subscription_succeeded' {
+      $script:WsReady = $true
+      Write-Log 'Anlik baglanti kuruldu.'
+      return $true   # baglanti yokken kacirilan is olabilir -> bir kez sor
+    }
+    'pusher:ping' { Send-Ws '{"event":"pusher:pong","data":{}}' }
+    'pusher:error' { Write-Log ('Anlik baglanti: ' + $raw) }
+    default {
+      if ([string]$m.event -eq [string]$push.event -and [string]$m.channel -eq [string]$push.channel) { return $true }
+    }
+  }
+  return $false
+}
+
 # --- Ana dongu ---------------------------------------------------------------
 
 # Tek kopya: ikinci kopya hemen cikar (99 -> baslatici da durur).
 $created = $false
-$mutex = New-Object Threading.Mutex($true, 'Local\TrendyolYazici', [ref]$created)
+$script:Mutex = New-Object Threading.Mutex($true, 'Local\TrendyolYazici', [ref]$created)
 if (-not $created) { exit 99 }
 
 # Calisirken bilgisayar uykuya gecmesin (ES_CONTINUOUS | ES_SYSTEM_REQUIRED).
@@ -315,23 +467,23 @@ try {
   [TY.Power]::SetThreadExecutionState([uint32]2147483649) | Out-Null
 } catch { Write-Log ('Uyku engellenemedi: ' + $_.Exception.Message) }
 
-$myHash = Get-MyHash
-$deviceId = Get-DeviceId
-Write-Log ('Basladi. Surum ' + $myHash.Substring(0, 8))
+$script:MyHash = Get-MyHash
+$script:DeviceId = Get-DeviceId
+Write-Log ('Basladi. Surum ' + $script:MyHash.Substring(0, 8))
 
-$printed = New-Object 'System.Collections.Generic.HashSet[string]'
-$printersSentAt = [DateTime]::MinValue
-$updateBlockedUntil = [DateTime]::MinValue
-$interval = 20
+$script:Printed = New-Object 'System.Collections.Generic.HashSet[string]'
+$script:PrintersSentAt = [DateTime]::MinValue
+$script:UpdateBlockedUntil = [DateTime]::MinValue
 
-while ($true) {
-  $sleep = $interval
+# Siteye bir kez sorar: fisleri basar, kaldirma/guncellemeyi uygular.
+# Yaniti dondurur; hata olursa $null (401 -> $script:BackoffUntil).
+function Invoke-SitePoll([bool]$urgent) {
   try {
     $cfg = Read-Config
-    $body = @{ deviceId = $deviceId; host = $env:COMPUTERNAME; version = $myHash }
-    if (((Get-Date) - $printersSentAt).TotalMinutes -ge 5) {
+    $body = @{ deviceId = $script:DeviceId; host = $env:COMPUTERNAME; version = $script:MyHash; urgent = $urgent }
+    if (((Get-Date) - $script:PrintersSentAt).TotalMinutes -ge 5) {
       $body.printers = @(Get-PrinterNames)
-      $printersSentAt = Get-Date
+      $script:PrintersSentAt = Get-Date
     }
     $resp = Invoke-Api $cfg '/api/print-agent/poll' $body
     try { [IO.File]::WriteAllText($StatusPath, (Get-Date -Format 'o'), [Text.Encoding]::ASCII) } catch {}
@@ -340,17 +492,16 @@ while ($true) {
     if ($resp.uninstall) {
       Remove-Agent
       Write-Log 'Siteden kaldirildi.'
-      $mutex.ReleaseMutex()
+      $script:Mutex.ReleaseMutex()
       exit 99
     }
-    if ($resp.intervalSec) { $interval = [Math]::Max(10, [int]$resp.intervalSec) }
 
     # Fisler
     $results = @()
     $printedAny = $false
     foreach ($job in @($resp.jobs)) {
       if (-not $job -or -not $job.id) { continue }
-      if ($printed.Contains([string]$job.id)) {
+      if ($script:Printed.Contains([string]$job.id)) {
         $results += @{ id = [string]$job.id; ok = $true }
         continue
       }
@@ -360,7 +511,7 @@ while ($true) {
       $printer = Resolve-Printer $wanted
       try {
         Print-Receipt $printer $job.lines
-        [void]$printed.Add([string]$job.id)
+        [void]$script:Printed.Add([string]$job.id)
         $results += @{ id = [string]$job.id; ok = $true }
         $printedAny = $true
         Write-Log ('Basildi: ' + $job.id + ' -> ' + $printer)
@@ -370,12 +521,12 @@ while ($true) {
       }
     }
     if ($results.Count -gt 0) {
-      Invoke-Api $cfg '/api/print-agent/ack' @{ deviceId = $deviceId; results = @($results) } | Out-Null
+      Invoke-Api $cfg '/api/print-agent/ack' @{ deviceId = $script:DeviceId; results = @($results) } | Out-Null
     }
     if ($printedAny) { Play-Alert }
 
     # Kendini guncelle: sunucudaki dosya degistiyse indir, cik (baslatici yeniden acar).
-    if ($resp.scriptHash -and $resp.scriptHash -ne $myHash -and (Get-Date) -gt $updateBlockedUntil) {
+    if ($resp.scriptHash -and $resp.scriptHash -ne $script:MyHash -and (Get-Date) -gt $script:UpdateBlockedUntil) {
       $tmp = Join-Path $AppDir 'agent.new.ps1'
       $wc = New-Object Net.WebClient
       try { $wc.DownloadFile($cfg.serverUrl.TrimEnd('/') + '/api/print-agent/script', $tmp) } finally { $wc.Dispose() }
@@ -383,18 +534,95 @@ while ($true) {
       if ($newHash -eq $resp.scriptHash) {
         Move-Item $tmp $ScriptPath -Force
         Write-Log ('Guncellendi -> ' + $newHash.Substring(0, 8) + ', yeniden baslatiliyor.')
-        $mutex.ReleaseMutex()
+        $script:Mutex.ReleaseMutex()
         exit 0
       }
       Remove-Item $tmp -Force -ErrorAction SilentlyContinue
       Write-Log 'Guncelleme dosyasi dogrulanamadi; 1 saat sonra tekrar denenecek.'
-      $updateBlockedUntil = (Get-Date).AddHours(1)
+      $script:UpdateBlockedUntil = (Get-Date).AddHours(1)
     }
+    return $resp
   } catch {
     $msg = $_.Exception.Message
     Write-Log ('Hata: ' + $msg)
     # Anahtar gecersiz (yeniden kurulum gerekebilir) -> siteyi yorma.
-    if ($msg -match '\(401\)') { $sleep = 300 }
+    if ($msg -match '\(401\)') { $script:BackoffUntil = (Get-Date).AddMinutes(5) }
+    return $null
   }
-  Start-Sleep -Seconds $sleep
+}
+
+$script:BackoffUntil = [DateTime]::MinValue
+$heartbeat = 60          # siteye normal yoklama (sn); site intervalSec ile degistirir
+$fallback = 20           # Trendyol'a bakilamiyor ya da anlik baglanti yoksa
+$watchEvery = 5          # Trendyol'a bakis araligi (sn)
+$watch = $null
+$push = $null
+$watchOk = $false
+$watchErr = ''
+$wake = $true            # ilk turda hemen sor
+$urgent = $false
+$lastSite = [DateTime]::MinValue
+$lastWatch = [DateTime]::MinValue
+$wsRetryAt = [DateTime]::MinValue
+$keys = @()
+
+while ($true) {
+  try {
+    $now = Get-Date
+
+    # 1) Trendyol'a dogrudan bak.
+    if ($watch -and ($now - $lastWatch).TotalSeconds -ge $watchEvery) {
+      $lastWatch = $now
+      try {
+        $keys = @(Get-TrendyolKeys $watch)
+        if (-not $watchOk) { Write-Log 'Trendyol dogrudan izleniyor.' }
+        $watchOk = $true
+        $watchErr = ''
+        if (Test-NeedWake $keys ([bool]$watch.autoAccept)) { $wake = $true; $urgent = $true }
+      } catch {
+        $watchOk = $false
+        $e = $_.Exception.Message
+        if ($e -ne $watchErr) { Write-Log ('Trendyol izlenemedi (site yoklanacak): ' + $e) }
+        $watchErr = $e
+      }
+    }
+
+    # 2) Siteye sor: is varsa hemen, yoksa dakikada bir (yedek durumda 20 sn).
+    $every = $heartbeat
+    if (($watch -and -not $watchOk) -or -not $script:WsReady) { $every = $fallback }
+    if ((Get-Date) -gt $script:BackoffUntil -and ($wake -or ($now - $lastSite).TotalSeconds -ge $every)) {
+      $sentKeys = $keys
+      $wasUrgent = $urgent
+      $wake = $false
+      $urgent = $false
+      $lastSite = Get-Date
+      $resp = Invoke-SitePoll $wasUrgent
+      if ($resp) {
+        if ($resp.intervalSec) { $heartbeat = [Math]::Max(10, [int]$resp.intervalSec) }
+        $watch = $resp.watch
+        if (-not $watch) { $watchOk = $true; $keys = @() }
+        if ($resp.pusher) { $push = $resp.pusher }
+        # Sunucu bu turda Trendyol'a baktiysa gorulenler islenmis sayilir.
+        Set-Seen $sentKeys ($resp.handled -eq $true)
+      } else {
+        Set-Seen $sentKeys $false   # site ulasilamadi -> 15 sn sonra yeniden dene
+      }
+    }
+
+    # 3) Anlik baglanti (Pusher): kur, dinle.
+    if ($push -and -not $script:Ws -and (Get-Date) -gt $wsRetryAt) {
+      # Kopma/basarisizlikta en sik 15 sn'de bir yeniden dene.
+      $wsRetryAt = (Get-Date).AddSeconds(15)
+      try { Open-Ws $push } catch {
+        Write-Log ('Anlik baglanti kurulamadi: ' + $_.Exception.Message)
+        $wsRetryAt = (Get-Date).AddMinutes(1)
+      }
+    }
+    if (Wait-Ws 1000 $push) { $wake = $true }
+  } catch {
+    # Beklenmeyen hata donguyu durdurmasin (anlik baglanti yeniden kurulur).
+    Write-Log ('Dongu hatasi: ' + $_.Exception.Message)
+    Close-Ws
+    Start-Sleep -Seconds 5
+  }
 }
